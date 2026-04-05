@@ -1,0 +1,15 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+*.pdb
+*.dll
+*.exe
+
+## Claude local artifacts
+claudedocs/
+CLAUDE.md
+.claude/
