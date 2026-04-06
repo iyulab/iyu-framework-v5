@@ -48,6 +48,11 @@ public static class MainServerExtensions
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<TContext>());
 
         services.AddControllers()
+            .AddJsonOptions(json =>
+            {
+                json.JsonSerializerOptions.Converters.Add(
+                    new System.Text.Json.Serialization.JsonStringEnumConverter());
+            })
             .AddOData(odata => odata
                 .Select().Filter().OrderBy().Expand().Count().SetMaxTop(null)
                 .AddRouteComponents(options.ODataRoutePrefix, options.ODataModel.GetEdmModel()));
