@@ -1,4 +1,5 @@
 using Iyu.Core.ValueObjects;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Iyu.Data.ValueConverters;
@@ -17,6 +18,26 @@ namespace Iyu.Data.ValueConverters;
 /// </remarks>
 public static class IyuValueConverters
 {
+    /// <summary>
+    /// Registers all value object converters with the model configuration builder
+    /// so that EF Core automatically applies them to any property of these types.
+    /// </summary>
+    public static void RegisterAll(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<PhoneNumber>().HaveConversion<PhoneNumberConverter>();
+        configurationBuilder.Properties<EmailAddress>().HaveConversion<EmailAddressConverter>();
+        configurationBuilder.Properties<WebUrl>().HaveConversion<WebUrlConverter>();
+    }
+
+    public sealed class PhoneNumberConverter()
+        : ValueConverter<PhoneNumber, string>(v => v.Value ?? string.Empty, v => FromPhoneString(v));
+
+    public sealed class EmailAddressConverter()
+        : ValueConverter<EmailAddress, string>(v => v.Value ?? string.Empty, v => FromEmailString(v));
+
+    public sealed class WebUrlConverter()
+        : ValueConverter<WebUrl, string>(v => v.Value ?? string.Empty, v => FromUrlString(v));
+
     /// <summary><see cref="PhoneNumber"/> ↔ <see cref="string"/>.</summary>
     public static readonly ValueConverter<PhoneNumber, string> Phone = new(
         v => v.Value ?? string.Empty,
