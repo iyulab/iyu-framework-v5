@@ -1,0 +1,42 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- 공통 빌드 속성 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- 버전 (모노 버전: 5개 라이브러리 모두 동일) -->
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- NuGet 패키지 메타데이터 -->
+    <Authors>iyulab</Authors>
+    <Company>iyulab</Company>
+    <Product>Iyu Framework v5</Product>
+    <Description>iyu-framework-v5: OData + GraphQL runtime framework for .NET 10.</Description>
+    <Copyright>Copyright © iyulab</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/iyulab/iyu-framework-v5</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/iyulab/iyu-framework-v5</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>iyu;odata;graphql;framework;aspnetcore</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)README.md')" />
+  </ItemGroup>
+
+</Project>
