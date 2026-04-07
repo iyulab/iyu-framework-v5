@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag version: $TAG_VERSION"
+
+      - name: Verify Directory.Build.props version matches tag
+        run: |
+          PROPS_VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          echo "Props version: $PROPS_VERSION"
+          echo "Tag version:   ${{ steps.version.outputs.tag_version }}"
+          if [ "$PROPS_VERSION" != "${{ steps.version.outputs.tag_version }}" ]; then
+            echo "::error::Version mismatch: tag=${{ steps.version.outputs.tag_version }}, Directory.Build.props=$PROPS_VERSION"
+            exit 1
+          fi
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore IyuFramework.slnx
+
+      - name: Build
+        run: dotnet build IyuFramework.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test IyuFramework.slnx -c Release --no-build --verbosity normal
+
+      - name: Pack
+        run: dotnet pack IyuFramework.slnx -c Release --no-build -o ./artifacts
+
+      - name: Push to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "./artifacts/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
