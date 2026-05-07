@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace Iyu.Core.ValueObjects;
 
@@ -6,6 +7,7 @@ namespace Iyu.Core.ValueObjects;
 /// Web URL value object. Accepts only absolute http/https URIs; relative paths
 /// are rejected to keep this type unambiguously a link to an external resource.
 /// </summary>
+[JsonConverter(typeof(WebUrlJsonConverter))]
 public readonly record struct WebUrl
 {
     /// <summary>The absolute URL as a string (canonicalized via <see cref="Uri"/>).</summary>

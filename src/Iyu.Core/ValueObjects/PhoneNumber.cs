@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Iyu.Core.ValueObjects;
@@ -9,6 +10,7 @@ namespace Iyu.Core.ValueObjects;
 /// is intentionally lenient — it rejects obviously non-numeric junk while leaving
 /// format normalization (E.164 etc.) to a higher layer if needed.
 /// </summary>
+[JsonConverter(typeof(PhoneNumberJsonConverter))]
 public readonly record struct PhoneNumber
 {
     // Permits digits, whitespace, parentheses, hyphens, dots, and a leading '+'.

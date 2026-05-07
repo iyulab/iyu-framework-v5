@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Iyu.Core.ValueObjects;
@@ -9,6 +10,7 @@ namespace Iyu.Core.ValueObjects;
 /// without the false-positive risk of a strict grammar. Input is lowercased on
 /// parse so that equality semantics match typical identity comparisons.
 /// </summary>
+[JsonConverter(typeof(EmailAddressJsonConverter))]
 public readonly record struct EmailAddress
 {
     private static readonly Regex Pattern = new(
