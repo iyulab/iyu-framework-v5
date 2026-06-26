@@ -11,7 +11,7 @@
 
   <PropertyGroup>
     <!-- 버전 (모노 버전: 5개 라이브러리 모두 동일) -->
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
   </PropertyGroup>
 
   <PropertyGroup>
