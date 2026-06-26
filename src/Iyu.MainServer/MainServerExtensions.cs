@@ -55,7 +55,15 @@ public static class MainServerExtensions
             })
             .AddOData(odata => odata
                 .Select().Filter().OrderBy().Expand().Count().SetMaxTop(null)
-                .AddRouteComponents(options.ODataRoutePrefix, options.ODataModel.GetEdmModel()));
+                // $search is registered per route component (the OData query pipeline resolves
+                // ISearchBinder from the per-route sub-container, not the global DI container).
+                // Without a binder, $search is silently ignored and returns the full set.
+                .AddRouteComponents(
+                    options.ODataRoutePrefix,
+                    options.ODataModel.GetEdmModel(),
+                    routeServices => routeServices.AddSingleton<
+                        Microsoft.AspNetCore.OData.Query.Expressions.ISearchBinder,
+                        Iyu.Server.OData.IyuStringSearchBinder>()));
 
         var gql = services.AddGraphQLServer();
         options.GraphQL.ApplyTo(gql);
