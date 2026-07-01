@@ -41,4 +41,23 @@ public class ServiceClientEndpointHandlerTests
         var res = await IdentityEndpointHandlers.RevokeServiceClientAsync(created.Id, stranger, svc, default);
         Assert.Equal(404, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
     }
+
+    [Fact]
+    public async Task Rotate_ByOwner_Returns200()
+    {
+        var (svc, _, owner) = Make();
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+        var res = await IdentityEndpointHandlers.RotateServiceClientAsync(created.Id, owner, svc, default);
+        Assert.Equal(200, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
+    }
+
+    [Fact]
+    public async Task Rotate_ByStranger_Returns404()
+    {
+        var (svc, store, owner) = Make();
+        var stranger = store.AddUser("x", "남", perms: []);
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+        var res = await IdentityEndpointHandlers.RotateServiceClientAsync(created.Id, stranger, svc, default);
+        Assert.Equal(404, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
+    }
 }

@@ -45,4 +45,18 @@ public class AddIyuIdentityTests
         // 등록만 검증: JwtBearer 핸들러 옵션이 존재
         Assert.NotNull(sp.GetService<IConfigureOptions<JwtBearerOptions>>());
     }
+
+    [Fact]
+    public void ShortSigningKey_ThrowsArgumentException()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
+        services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
+
+        Assert.Throws<ArgumentException>(() =>
+            services.AddIyuIdentity(
+                new IdentityTokenOptions { SigningKey = "short", Issuer = "iyu", Audience = "iyu-api" },
+                permissionCatalog: ["orders.read", "orders.write"]));
+    }
 }

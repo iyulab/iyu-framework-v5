@@ -10,6 +10,11 @@ public sealed record TokenResult(bool Ok, string? Error, string? AccessToken, in
 /// <summary>Issues short-lived JWTs for the OAuth2 client_credentials grant, scoped to owner∩client permissions.</summary>
 public sealed class IdentityTokenService
 {
+    // Dummy hash for a constant-time verify on the not-found/inactive/expired branch below,
+    // so that path takes roughly the same time as the wrong-secret path (no timing oracle
+    // that lets a caller distinguish "no such client" from "wrong secret").
+    private static readonly string _dummyHash = ServiceClientSecrets.Hash("dummy");
+
     private readonly IIdentityStore _store;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
@@ -25,7 +30,10 @@ public sealed class IdentityTokenService
         var client = await _store.FindServiceClientByClientIdAsync(clientId, ct);
         var now = _clock.GetUtcNow();
         if (client is null || !client.IsActive || (client.ExpiresAt is { } exp && exp <= now))
+        {
+            _ = ServiceClientSecrets.Verify(secret, _dummyHash);   // equalize timing with wrong-secret path
             return new(false, "invalid_client", null, 0, empty);
+        }
         if (!ServiceClientSecrets.Verify(secret, client.SecretHash))
             return new(false, "invalid_client", null, 0, empty);
 
@@ -36,7 +44,7 @@ public sealed class IdentityTokenService
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, client.ClientId),
-            new("owner", client.OwnerUserId.ToString()),
+            new("owner", client.OwnerUserId.ToString()),   // reserved for future owner-scoped JWT authorization; not yet enforced
         };
         claims.AddRange(effective.Select(p => new Claim(_opts.PermissionClaimType, p)));
 

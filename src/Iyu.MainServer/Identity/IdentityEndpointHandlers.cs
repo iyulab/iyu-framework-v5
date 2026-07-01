@@ -33,4 +33,11 @@ public static class IdentityEndpointHandlers
         var ok = await svc.RevokeAsync(id, ownerUserId, ct);
         return ok ? Results.NoContent() : Results.NotFound();
     }
+
+    public static async Task<IResult> RotateServiceClientAsync(
+        Guid id, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
+    {
+        var r = await svc.RotateAsync(id, ownerUserId, ct);
+        return r.Ok ? Results.Ok(new { secret = r.PlaintextSecret }) : Results.NotFound();
+    }
 }

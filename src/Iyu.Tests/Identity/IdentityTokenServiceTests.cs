@@ -56,4 +56,16 @@ public class IdentityTokenServiceTests
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
         Assert.False(r.Ok);
     }
+
+    [Fact]
+    public async Task Issue_RejectsExpiredClient()
+    {
+        var pastExpiry = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var (store, clientId, secret) = SeedClient(
+            ["orders.read"], ["orders.read"], active: true, expiresAt: pastExpiry);
+        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System);
+        var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
+        Assert.False(r.Ok);
+        Assert.Equal("invalid_client", r.Error);
+    }
 }
