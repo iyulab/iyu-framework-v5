@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Iyu.Core\Iyu.Core.csproj" />
     <ProjectReference Include="..\Iyu.Data\Iyu.Data.csproj" />
+    <ProjectReference Include="..\Iyu.MainServer\Iyu.MainServer.csproj" />
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />
     <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />
   </ItemGroup>
