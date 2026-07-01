@@ -16,4 +16,21 @@ public static class IdentityEndpointHandlers
         if (!r.Ok) return Results.Unauthorized();
         return Results.Ok(new TokenResponse(r.AccessToken!, "Bearer", r.ExpiresInSeconds, string.Join(' ', r.Permissions)));
     }
+
+    public static async Task<IResult> CreateServiceClientAsync(
+        CreateServiceClientRequest req, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
+    {
+        var r = await svc.CreateAsync(ownerUserId, req.DisplayName, req.Permissions ?? Array.Empty<string>(), req.ExpiresAt, ct);
+        if (!r.Ok)
+            return Results.BadRequest(new { error = r.Error, exceeding = r.Exceeding });
+        return Results.Created($"/api/service-clients/{r.Id}",
+            new { id = r.Id, clientId = r.ClientId, secret = r.PlaintextSecret });   // secret 1회 반환
+    }
+
+    public static async Task<IResult> RevokeServiceClientAsync(
+        Guid id, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
+    {
+        var ok = await svc.RevokeAsync(id, ownerUserId, ct);
+        return ok ? Results.NoContent() : Results.NotFound();
+    }
 }
