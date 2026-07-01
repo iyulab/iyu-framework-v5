@@ -3,7 +3,7 @@ using Iyu.MainServer.Identity;
 
 namespace Iyu.Tests.Identity;
 
-public sealed class FakeIdentityStore : IIdentityStore
+public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
 {
     private sealed record FakeUser(Guid Id, string Username, string PasswordHash, string DisplayName,
         string? Email, bool IsActive, DateTimeOffset? LastLoginAt) : IUser;
@@ -49,5 +49,28 @@ public sealed class FakeIdentityStore : IIdentityStore
     {
         Touched.Add(serviceClientId);
         return Task.CompletedTask;
+    }
+
+    public Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId,
+        DateTimeOffset? expiresAt, IReadOnlyList<string> permissions, CancellationToken ct)
+    {
+        var id = AddClient(clientId, secretHash, ownerUserId, active: true, expiresAt: expiresAt, perms: permissions);
+        return Task.FromResult(id);
+    }
+
+    public Task<bool> DeactivateAsync(Guid id, Guid ownerUserId, CancellationToken ct)
+    {
+        var idx = _clients.FindIndex(c => c.Id == id && c.OwnerUserId == ownerUserId);
+        if (idx < 0) return Task.FromResult(false);
+        _clients[idx] = _clients[idx] with { IsActive = false };
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> UpdateSecretAsync(Guid id, Guid ownerUserId, string newSecretHash, CancellationToken ct)
+    {
+        var idx = _clients.FindIndex(c => c.Id == id && c.OwnerUserId == ownerUserId);
+        if (idx < 0) return Task.FromResult(false);
+        _clients[idx] = _clients[idx] with { SecretHash = newSecretHash };
+        return Task.FromResult(true);
     }
 }
