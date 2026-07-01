@@ -6,10 +6,13 @@ namespace Iyu.Tests.Identity;
 
 public class ContractTests
 {
+    private sealed class TestUser : IyuUser { }
+    private sealed class TestServiceClient : IyuServiceClient { }
+
     [Fact]
     public void IyuUser_ImplementsIUser_AndIyuEntity()
     {
-        var u = new IyuUser
+        var u = new TestUser
         {
             Id = Guid.NewGuid(),
             Username = "admin",
@@ -26,7 +29,7 @@ public class ContractTests
     public void IyuServiceClient_ImplementsIServiceClient_WithOwner()
     {
         var owner = Guid.NewGuid();
-        var c = new IyuServiceClient
+        var c = new TestServiceClient
         {
             Id = Guid.NewGuid(),
             ClientId = "svc_abc",

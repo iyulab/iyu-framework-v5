@@ -1,7 +1,7 @@
 using Iyu.Core.Entities;
 namespace Iyu.Core.Identity;
 
-public class IyuServiceClient : IyuEntity, IServiceClient
+public abstract class IyuServiceClient : IyuEntity, IServiceClient
 {
     public string ClientId { get; set; } = default!;
     public string SecretHash { get; set; } = default!;
