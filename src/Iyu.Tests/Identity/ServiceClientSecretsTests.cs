@@ -30,4 +30,22 @@ public class ServiceClientSecretsTests
         Assert.NotEqual(a.clientId, b.clientId);
         Assert.NotEqual(a.plaintextSecret, b.plaintextSecret);
     }
+
+    [Fact]
+    public void Verify_ReturnsFalse_OnMalformedHash()
+    {
+        Assert.False(ServiceClientSecrets.Verify("secret", "not-a-hash"));
+    }
+
+    [Fact]
+    public void Verify_ReturnsFalse_OnInvalidBase64()
+    {
+        Assert.False(ServiceClientSecrets.Verify("secret", "1.invalid!!.base64"));
+    }
+
+    [Fact]
+    public void Verify_ReturnsFalse_OnEmptyHash()
+    {
+        Assert.False(ServiceClientSecrets.Verify("secret", ""));
+    }
 }

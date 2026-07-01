@@ -26,12 +26,20 @@ public static class ServiceClientSecrets
 
     public static bool Verify(string plaintextSecret, string secretHash)
     {
+        if (string.IsNullOrEmpty(secretHash) || string.IsNullOrEmpty(plaintextSecret)) return false;
         var parts = secretHash.Split('.');
         if (parts.Length != 3 || !int.TryParse(parts[0], out var iters)) return false;
-        var salt = Convert.FromBase64String(parts[1]);
-        var expected = Convert.FromBase64String(parts[2]);
-        var actual = Rfc2898DeriveBytes.Pbkdf2(plaintextSecret, salt, iters, HashAlgorithmName.SHA256, expected.Length);
-        return CryptographicOperations.FixedTimeEquals(actual, expected);
+        try
+        {
+            var salt = Convert.FromBase64String(parts[1]);
+            var expected = Convert.FromBase64String(parts[2]);
+            var actual = Rfc2898DeriveBytes.Pbkdf2(plaintextSecret, salt, iters, HashAlgorithmName.SHA256, expected.Length);
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     private static string Base64Url(byte[] bytes) =>
