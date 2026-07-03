@@ -1,5 +1,8 @@
 using System.Text;
 using Iyu.Core.Attachments;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Iyu.FileServer;
@@ -29,5 +32,17 @@ public static partial class FileGatewayExtensions
         services.AddSingleton<FileAccessTokenService>();
         services.AddSingleton<IAttachmentStorage, AzureBlobAttachmentStorage>();
         return services;
+    }
+
+    public static IEndpointRouteBuilder MapIyuFileGateway(this IEndpointRouteBuilder app)
+    {
+        var gw = app.ServiceProvider.GetRequiredService<FileGatewayOptions>();
+        app.MapPut(gw.RoutePrefix, (HttpRequest req, string? token, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
+            => FileGatewayHandlers.UploadAsync(req, token, tk, st, o, ct));
+        app.MapGet(gw.RoutePrefix, (string token, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
+            => FileGatewayHandlers.DownloadAsync(token, tk, st, o, ct));
+        app.MapDelete(gw.RoutePrefix, (string? token, HttpRequest req, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
+            => FileGatewayHandlers.DeleteAsync(token, req, tk, st, o, ct));
+        return app;
     }
 }
