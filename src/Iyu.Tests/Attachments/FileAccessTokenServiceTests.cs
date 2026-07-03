@@ -33,16 +33,18 @@ public sealed class FileAccessTokenServiceTests
     [Fact]
     public void Validate_rejects_wrong_key()
     {
-        var svc = new FileAccessTokenService();
-        var token = svc.Sign(Sample(DateTimeOffset.UtcNow.AddMinutes(5)), Key);
+        var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-07-03T00:00:00Z"));
+        var svc = new FileAccessTokenService(clock);
+        var token = svc.Sign(Sample(clock.GetUtcNow().AddMinutes(5)), Key);
         Assert.False(svc.TryValidate(token, "ffffffffffffffffffffffffffffffff", out _));
     }
 
     [Fact]
     public void Validate_rejects_tampered_payload()
     {
-        var svc = new FileAccessTokenService();
-        var token = svc.Sign(Sample(DateTimeOffset.UtcNow.AddMinutes(5)), Key);
+        var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-07-03T00:00:00Z"));
+        var svc = new FileAccessTokenService(clock);
+        var token = svc.Sign(Sample(clock.GetUtcNow().AddMinutes(5)), Key);
         var tampered = "X" + token[1..];
         Assert.False(svc.TryValidate(tampered, Key, out _));
     }
