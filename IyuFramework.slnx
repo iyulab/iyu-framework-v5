@@ -4,5 +4,6 @@
   <Project Path="src/Iyu.Server.OData/Iyu.Server.OData.csproj" />
   <Project Path="src/Iyu.Server.GraphQL/Iyu.Server.GraphQL.csproj" />
   <Project Path="src/Iyu.MainServer/Iyu.MainServer.csproj" />
+  <Project Path="src/Iyu.FileServer/Iyu.FileServer.csproj" />
   <Project Path="src/Iyu.Tests/Iyu.Tests.csproj" />
 </Solution>
