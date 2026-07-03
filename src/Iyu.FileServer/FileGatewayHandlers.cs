@@ -21,7 +21,16 @@ public static class FileGatewayHandlers
         if (request.ContentLength is long len && len > gw.MaxBytes)
             return Results.BadRequest(new { Error = "too_large" });
 
-        await storage.SaveAsync(request.Body, t.StorageKey, t.ContentType, ct);
+        using var limited = new LimitedStream(request.Body, gw.MaxBytes);
+        try
+        {
+            await storage.SaveAsync(limited, t.StorageKey, t.ContentType, ct);
+        }
+        catch (PayloadTooLargeException)
+        {
+            return Results.BadRequest(new { Error = "too_large" });
+        }
+
         return Results.Ok();
     }
 
