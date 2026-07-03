@@ -31,6 +31,21 @@ public sealed class FileGatewayHandlerTests
     }
 
     [Fact]
+    public async Task Upload_accepts_token_via_bearer_header()
+    {
+        var storage = new FakeAttachmentStorage();
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("data"));
+        ctx.Request.ContentLength = 4;
+        ctx.Request.Headers.Authorization = "Bearer " + Token(FileTokenOp.Upload);
+
+        var result = await FileGatewayHandlers.UploadAsync(ctx.Request, null, Tokens, storage, Gw, default);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(result);
+        Assert.True(storage.Objects.ContainsKey("2026/07/abc"));
+    }
+
+    [Fact]
     public async Task Upload_rejects_download_token()
     {
         var storage = new FakeAttachmentStorage();
