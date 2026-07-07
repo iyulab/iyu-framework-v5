@@ -26,6 +26,7 @@
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />
     <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />
     <ProjectReference Include="..\Iyu.Server.Chat\Iyu.Server.Chat.csproj" />
+    <ProjectReference Include="..\Iyu.VaultAi\Iyu.VaultAi.csproj" />
   </ItemGroup>
 
 </Project>
