@@ -34,6 +34,12 @@ internal static class VaultAiReportsApi
     private static readonly JsonSerializerOptions IndentedJson =
         new() { WriteIndented = true };
 
+    // ★모듈 API 응답은 번들 뷰어 SPA와 동일한 camelCase 계약으로 직렬화한다.
+    // WriteAsJsonAsync는 호스트 앱의 JsonOptions를 상속하므로, 호스트가 PascalCase(PropertyNamingPolicy=null)를
+    // 쓰면 뷰어가 기대하는 folder/name/icon과 불일치(Folder/Name/Icon)해 목록·링크가 깨진다(undefined).
+    // 이 옵션을 명시 전달해 호스트 정책과 무관하게 self-contained 계약을 보장한다.
+    internal static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
     private const int MaxRetryCount          = 3;
     private const int RetryDelaySeconds      = 10;
     private const int PreviousContextMaxChars = 8000;
@@ -138,7 +144,7 @@ internal static class VaultAiReportsApi
             var result = await RunGenerateAsync(
                 folderPath, client, agentId, settings, dataProvider: dataProvider, ct: ctx.RequestAborted);
             await ctx.Response.WriteAsJsonAsync(
-                new { file = result.FileName, folder, warnings = result.Warnings });
+                new { file = result.FileName, folder, warnings = result.Warnings }, WebJson);
         }
         catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
         {
@@ -147,17 +153,17 @@ internal static class VaultAiReportsApi
         catch (ReportGenerationBusyException ex)
         {
             ctx.Response.StatusCode = 409;
-            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message });
+            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message }, WebJson);
         }
         catch (FileNotFoundException ex)
         {
             ctx.Response.StatusCode = 404;
-            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message });
+            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message }, WebJson);
         }
         catch (InvalidOperationException ex)
         {
             ctx.Response.StatusCode = 502;
-            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message });
+            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message }, WebJson);
         }
     }
 
@@ -535,14 +541,14 @@ internal static class VaultAiReportsApi
         if (!SafeSegment.IsMatch(folder))
         {
             ctx.Response.StatusCode = 400;
-            return ctx.Response.WriteAsJsonAsync(new { error = "잘못된 리포트 경로입니다." });
+            return ctx.Response.WriteAsJsonAsync(new { error = "잘못된 리포트 경로입니다." }, WebJson);
         }
 
         var folderPath = Path.Combine(reportPath, folder);
         if (!Directory.Exists(folderPath) || !File.Exists(Path.Combine(folderPath, "info.json")))
         {
             ctx.Response.StatusCode = 404;
-            return ctx.Response.WriteAsJsonAsync(new { error = "리포트를 찾을 수 없습니다." });
+            return ctx.Response.WriteAsJsonAsync(new { error = "리포트를 찾을 수 없습니다." }, WebJson);
         }
 
         // 이미 진행 중이면 새 작업을 띄우지 않고 무시 — 여러 번 호출돼도 중복 생성 안 됨.
@@ -552,7 +558,7 @@ internal static class VaultAiReportsApi
             return ctx.Response.WriteAsJsonAsync(new
             {
                 message = "이미 리포트 생성이 진행 중입니다. 잠시 후 리포트를 확인하세요."
-            });
+            }, WebJson);
         }
 
         // 요청 수명과 분리해 백그라운드로 생성(ctx.RequestAborted 사용 금지 — 응답 직후 취소됨).
@@ -563,7 +569,7 @@ internal static class VaultAiReportsApi
         return ctx.Response.WriteAsJsonAsync(new
         {
             message = "리포트 생성이 시작되었습니다. 잠시 후 리포트를 확인하세요."
-        });
+        }, WebJson);
     }
 
     private static async Task RunGenerateInBackgroundAsync(
@@ -622,7 +628,7 @@ internal static class VaultAiReportsApi
         catch
         {
             ctx.Response.StatusCode = 400;
-            await ctx.Response.WriteAsJsonAsync(new { error = "요청 본문 JSON 파싱 실패" });
+            await ctx.Response.WriteAsJsonAsync(new { error = "요청 본문 JSON 파싱 실패" }, WebJson);
             return;
         }
 
@@ -641,7 +647,7 @@ internal static class VaultAiReportsApi
 
         ctx.Response.StatusCode = 200;
         await ctx.Response.WriteAsJsonAsync(
-            GetReports(reportPath).FirstOrDefault(r => r.Folder == folder));
+            GetReports(reportPath).FirstOrDefault(r => r.Folder == folder), WebJson);
     }
 
     // ── D: 출력 파일 삭제 ──────────────────────────────────────────────────────

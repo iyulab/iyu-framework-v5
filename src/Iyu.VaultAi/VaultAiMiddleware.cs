@@ -59,7 +59,7 @@ public static class VaultAiMiddleware
         var fileProvider = new EmbeddedFileProvider(assembly, "Iyu.VaultAi.wwwroot");
 
         // index.html에 주입할 config 스크립트 (소비앱 설정 → SPA 런타임에 전달)
-        var configJson = JsonSerializer.Serialize(new { basePath, title = settings.Title });
+        var configJson = JsonSerializer.Serialize(new { basePath, title = settings.Title }, VaultAiReportsApi.WebJson);
         var configScript = $"<script>window.__VAULT_AI_CONFIG__={configJson}</script>";
 
         // 단일 Use() 미들웨어로 API + 정적파일 + SPA fallback 모두 처리.
@@ -76,7 +76,7 @@ public static class VaultAiMiddleware
                     && path.Equals("/api/vault-ai/reports", StringComparison.OrdinalIgnoreCase))
                 {
                     await context.Response.WriteAsJsonAsync(
-                        VaultAiReportsApi.GetReports(reportPath));
+                        VaultAiReportsApi.GetReports(reportPath), VaultAiReportsApi.WebJson);
                     return;
                 }
 
