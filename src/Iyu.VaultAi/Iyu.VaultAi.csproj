@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Iyu.VaultAi</RootNamespace>
+    <!-- v3 verbatim 이식 소스의 일부 XML 주석이 전체 파라미터를 문서화하지 않음(v3엔
+         GenerateDocumentationFile이 없어 드러나지 않던 것). verbatim 보존을 위해 주석을
+         고치는 대신 이 진단만 억제한다(CS1591은 루트 Directory.Build.props에서 이미 억제). -->
+    <NoWarn>$(NoWarn);CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Cronos" Version="0.13.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**\*" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+</Project>
