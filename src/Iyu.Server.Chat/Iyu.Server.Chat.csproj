@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Iyu.Server.Chat</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="BareChat" Version="0.2.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+</Project>
