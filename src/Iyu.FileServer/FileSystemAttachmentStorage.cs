@@ -55,7 +55,7 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
     private string Resolve(string storageKey)
     {
         ArgumentException.ThrowIfNullOrEmpty(storageKey);
-        if (Path.IsPathRooted(storageKey) || storageKey.Contains(".."))
+        if (storageKey.Contains("..") || IsRootedOnAnyPlatform(storageKey))
             throw new ArgumentException("Invalid storage key.", nameof(storageKey));
 
         var full = Path.GetFullPath(Path.Combine(_root, storageKey));
@@ -65,6 +65,16 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
             throw new ArgumentException("Storage key escapes the storage root.", nameof(storageKey));
         return full;
     }
+
+    /// <summary>True if the key is absolute under <em>either</em> Windows or Unix rules. The runtime's
+    /// <see cref="Path.IsPathRooted(string)"/> only knows the host OS, so a key that is dangerous on the
+    /// deployment target (Windows/IIS) — e.g. a drive-letter or leading-separator path — must be rejected
+    /// deterministically even when this runs on a Linux CI host, otherwise the guard's behaviour silently
+    /// diverges by OS.</summary>
+    private static bool IsRootedOnAnyPlatform(string key) =>
+        Path.IsPathRooted(key)                                              // host-OS rooted
+        || key[0] is '/' or '\\'                                            // Unix root / Windows leading-separator or UNC
+        || (key.Length >= 2 && char.IsAsciiLetter(key[0]) && key[1] == ':'); // Windows drive-letter (e.g. C:)
 
     private static void TryDelete(string path)
     {
