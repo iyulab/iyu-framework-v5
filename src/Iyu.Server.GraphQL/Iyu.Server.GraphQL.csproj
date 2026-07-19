@@ -2,8 +2,6 @@
 
   <PropertyGroup>
     <RootNamespace>Iyu.Server.GraphQL</RootNamespace>
-    <!-- NU1904: HotChocolate.Language 14.3.0 취약점 — HotChocolate 업그레이드 전 임시 억제 -->
-    <NoWarn>$(NoWarn);NU1904</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,8 +9,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="HotChocolate.AspNetCore" Version="14.3.0" />
-    <PackageReference Include="HotChocolate.Data.EntityFramework" Version="14.3.0" />
+    <PackageReference Include="HotChocolate.AspNetCore" Version="14.3.1" />
+    <PackageReference Include="HotChocolate.Data.EntityFramework" Version="14.3.1" />
   </ItemGroup>
 
   <ItemGroup>
