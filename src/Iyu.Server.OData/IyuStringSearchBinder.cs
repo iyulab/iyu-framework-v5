@@ -18,10 +18,14 @@ namespace Iyu.Server.OData;
 /// entity set a sensible default free-text search across its string columns.
 /// </para>
 /// <para>
-/// Only a simple single-term search is supported (the common
-/// <c>$search="abc"</c> case). Boolean search expressions
-/// (<c>$search="a AND b"</c>) fall back to matching the raw composite text and are
-/// not decomposed — consumers needing richer semantics should use <c>$filter</c>.
+/// Boolean search expressions are decomposed: <c>$search="a" AND "b"</c> becomes
+/// <c>(any-prop contains a) AND (any-prop contains b)</c>, and <c>OR</c> / <c>NOT</c>
+/// combine the same way. This matches the semantics a user expects when typing
+/// several words into a search box (OData parses space-separated words as an
+/// implicit <c>AND</c>). An expression node kind outside
+/// term / <c>AND</c> / <c>OR</c> / <c>NOT</c> conservatively matches nothing —
+/// returning everything would be worse — but no such kind exists in OData 4.01
+/// <c>$search</c>, so that branch is unreachable in practice.
 /// </para>
 /// <para>
 /// The generated predicate is EF-Core translatable:
@@ -46,25 +50,48 @@ public sealed class IyuStringSearchBinder : ISearchBinder
 
         var parameter = context.CurrentParameter;
 
-        // Only plain single-term search is handled; anything else → match nothing
-        // (safer than silently returning everything, which is the bug this fixes).
-        if (searchClause.Expression is not SearchTermNode termNode
-            || string.IsNullOrEmpty(termNode.Text))
+        // The whole clause is bound into a single body over one shared parameter, then
+        // wrapped in exactly one lambda — nesting lambdas per node would not be
+        // EF-Core translatable.
+        var body = BindNode(searchClause.Expression, parameter, context.ElementClrType);
+
+        return Expression.Lambda(body, parameter);
+    }
+
+    private static Expression BindNode(QueryNode? node, ParameterExpression parameter, Type elementClrType)
+        => node switch
         {
-            return Expression.Lambda(Expression.Constant(false), parameter);
+            SearchTermNode term => BindTerm(term, parameter, elementClrType),
+
+            BinaryOperatorNode { OperatorKind: BinaryOperatorKind.And } and_ => Expression.AndAlso(
+                BindNode(and_.Left, parameter, elementClrType),
+                BindNode(and_.Right, parameter, elementClrType)),
+
+            BinaryOperatorNode { OperatorKind: BinaryOperatorKind.Or } or_ => Expression.OrElse(
+                BindNode(or_.Left, parameter, elementClrType),
+                BindNode(or_.Right, parameter, elementClrType)),
+
+            UnaryOperatorNode { OperatorKind: UnaryOperatorKind.Not } not => Expression.Not(
+                BindNode(not.Operand, parameter, elementClrType)),
+
+            // Unreachable for OData 4.01 $search (term / AND / OR / NOT is the whole
+            // grammar); matching nothing stays the conservative choice if that changes.
+            _ => Expression.Constant(false),
+        };
+
+    private static Expression BindTerm(SearchTermNode termNode, ParameterExpression parameter, Type elementClrType)
+    {
+        if (string.IsNullOrEmpty(termNode.Text))
+        {
+            return Expression.Constant(false);
         }
 
         var term = Expression.Constant(termNode.Text.ToLowerInvariant(), typeof(string));
 
-        var stringProperties = context.ElementClrType
+        var stringProperties = elementClrType
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.PropertyType == typeof(string) && p.CanRead && p.GetIndexParameters().Length == 0)
             .ToList();
-
-        if (stringProperties.Count == 0)
-        {
-            return Expression.Lambda(Expression.Constant(false), parameter);
-        }
 
         Expression? body = null;
         foreach (var property in stringProperties)
@@ -77,6 +104,6 @@ public sealed class IyuStringSearchBinder : ISearchBinder
             body = body is null ? clause : Expression.OrElse(body, clause);
         }
 
-        return Expression.Lambda(body!, parameter);
+        return body ?? Expression.Constant(false);
     }
 }
