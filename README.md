@@ -41,6 +41,39 @@ Resulting endpoints:
 - `GET /$data/Orders?$filter=Status eq 'confirmed'` — OData query
 - `POST /graphql` with `{ orders { ... } }` — GraphQL query
 
+## Integration testing (TestServer)
+
+The generated OData controllers live in the server assembly, but MVC discovers
+controllers by walking the **entry assembly**'s closure. In production the entry
+assembly *is* the server, so discovery finds them. Under a test host the entry
+assembly is `testhost`, whose closure does not include the server — so without
+help every endpoint silently returns **404**.
+
+`AddIyuMainServer` handles this automatically: it registers the `TContext`
+assembly **and** the registration callback's declaring assembly as application
+parts. The standard method-group form therefore just works over `TestServer`:
+
+```csharp
+var builder = WebApplication.CreateBuilder();
+builder.WebHost.UseTestServer();
+builder.Services.AddIyuMainServer<YesungDbContext>(
+    configureDb: db => db.UseSqlite(conn),
+    configure: ApiRegistration.RegisterGeneratedEntities); // method group → server assembly
+```
+
+If your controllers live in yet another assembly, or you pass the callback as a
+**lambda wrapper** (whose declaring assembly is the caller, not the server), name
+the controller-hosting assemblies explicitly — registration is deduplicated, so
+this never double-registers:
+
+```csharp
+configure: options =>
+{
+    options.ControllerAssemblies.Add(typeof(SomeGeneratedController).Assembly);
+    ApiRegistration.RegisterGeneratedEntities(options);
+}
+```
+
 ## Read/Write pair model
 
 Each logical entity has two CLR types:
