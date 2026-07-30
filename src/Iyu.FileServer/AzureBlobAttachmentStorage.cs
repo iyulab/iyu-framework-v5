@@ -1,3 +1,4 @@
+using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Iyu.Core.Attachments;
@@ -30,13 +31,21 @@ public sealed class AzureBlobAttachmentStorage : IAttachmentStorage
         return storageKey;
     }
 
-    public async Task<Stream> OpenReadAsync(string storageKey, CancellationToken ct = default)
+    public async Task<Stream?> OpenReadAsync(string storageKey, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(storageKey);
 
         await EnsureContainerAsync(ct).ConfigureAwait(false);
         var blob = _container.GetBlobClient(storageKey);
-        return await blob.OpenReadAsync(cancellationToken: ct).ConfigureAwait(false);
+        try
+        {
+            return await blob.OpenReadAsync(cancellationToken: ct).ConfigureAwait(false);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            // Covers both BlobNotFound and ContainerNotFound: either way nothing is stored at this key.
+            return null;
+        }
     }
 
     public async Task DeleteAsync(string storageKey, CancellationToken ct = default)

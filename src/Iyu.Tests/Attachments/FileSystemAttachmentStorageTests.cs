@@ -34,7 +34,7 @@ public sealed class FileSystemAttachmentStorageTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_root, "2026", "07", "deadbeefdeadbeefdeadbeefdeadbeef")));
 
         await using var read = await _storage.OpenReadAsync(key);
-        using var sr = new StreamReader(read);
+        using var sr = new StreamReader(Assert.IsAssignableFrom<Stream>(read));
         Assert.Equal("hello", await sr.ReadToEndAsync());
     }
 
@@ -52,6 +52,24 @@ public sealed class FileSystemAttachmentStorageTests : IDisposable
     {
         var ex = await Record.ExceptionAsync(() => _storage.DeleteAsync("2026/07/missing"));
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task OpenRead_returns_null_when_the_file_is_absent()
+    {
+        const string key = "2026/07/bbbb";
+        await _storage.SaveAsync(Bytes("x"), key, null);
+        await _storage.DeleteAsync(key);
+
+        Assert.Null(await _storage.OpenReadAsync(key));
+    }
+
+    [Fact]
+    public async Task OpenRead_returns_null_when_the_key_prefix_was_never_written()
+    {
+        // Keys are path-shaped, so an object that never existed presents as an absent directory rather
+        // than an absent file — a distinct exception the backend has to absorb just the same.
+        Assert.Null(await _storage.OpenReadAsync("1999/01/never-written"));
     }
 
     [Theory]

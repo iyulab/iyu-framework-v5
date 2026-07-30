@@ -3,17 +3,24 @@
 Runtime library for the Iyu stack. Consumed by apps generated from M3L models
 via [mdd-booster](https://github.com/iyulab/mdd-booster). Provides a single
 `AddIyuMainServer` entry point that wires EF Core, OData, and GraphQL on top of
-generator-produced entities.
+generator-produced entities, plus optional modules for identity, attachments,
+chat, and scheduled reports.
+
+Targets .NET 10. All eight projects share one version and ship as separate
+NuGet packages.
 
 ## Layers
 
 | Project | Role |
 |---|---|
-| `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`) |
+| `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`), identity contracts, and the attachment contracts (`IAttachmentStorage`, `FileAccessToken`, `FileAccessTokenService`) |
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + EF Core `ValueConverter`s for the value objects |
-| `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD) |
+| `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder |
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
-| `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer` |
+| `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients) |
+| `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
+| `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
+| `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
 
 ## Minimum consumer
 
@@ -22,12 +29,12 @@ using Iyu.MainServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddIyuMainServer<YesungDbContext>(
-    configureDb: db => db.UseSqlServer(builder.Configuration.GetConnectionString("Yesung")),
+builder.Services.AddIyuMainServer<AppDbContext>(
+    configureDb: db => db.UseSqlServer(builder.Configuration.GetConnectionString("Default")),
     configure: options =>
     {
         options.ODataModel.AddEntityPair<OrderExt, Order>("Orders");
-        options.GraphQL .AddEntityPair<OrderExt, Order>("orders", "order");
+        options.GraphQL   .AddEntityPair<OrderExt, Order>("orders", "order");
         // ...additional pairs, or a generated RegisterEntities(options) call
     });
 
@@ -40,6 +47,21 @@ Resulting endpoints:
 - `GET /$data/$metadata` — OData EDM document
 - `GET /$data/Orders?$filter=Status eq 'confirmed'` — OData query
 - `POST /graphql` with `{ orders { ... } }` — GraphQL query
+
+## Read/Write pair model
+
+Each logical entity has two CLR types:
+
+- **Write type** (e.g. `Order`) — mapped to the base SQL table. Contains only
+  stored fields. Used for POST/PATCH/DELETE inside the controller.
+- **Read type** (e.g. `OrderExt`) — mapped to a SQL view. Contains stored
+  fields **plus** lookups/rollups/computed fields. Exposed as the OData entity
+  set and GraphQL query field.
+
+The controller copies overlapping properties from the read body to a fresh
+write entity using reflection; extras are dropped. `CreatedAt`/`UpdatedAt`/`Id`
+are explicitly excluded because they are owned by the interceptor or the
+caller's explicit assignment.
 
 ## Integration testing (TestServer)
 
@@ -56,7 +78,7 @@ parts. The standard method-group form therefore just works over `TestServer`:
 ```csharp
 var builder = WebApplication.CreateBuilder();
 builder.WebHost.UseTestServer();
-builder.Services.AddIyuMainServer<YesungDbContext>(
+builder.Services.AddIyuMainServer<AppDbContext>(
     configureDb: db => db.UseSqlite(conn),
     configure: ApiRegistration.RegisterGeneratedEntities); // method group → server assembly
 ```
@@ -74,33 +96,77 @@ configure: options =>
 }
 ```
 
-## Read/Write pair model
+## File gateway (`Iyu.FileServer`)
 
-Each logical entity has two CLR types:
+A standalone host that moves bytes and nothing else. It holds no database: every
+request carries an HMAC-SHA256-signed `FileAccessToken` minted by whoever owns
+the attachment metadata, and the token names the storage key, so the gateway
+cannot be redirected to another object.
 
-- **Write type** (e.g. `Order`) — mapped to the base SQL table. Contains only
-  stored fields. Used for POST/PATCH/DELETE inside the controller.
-- **Read type** (e.g. `OrderExt`) — mapped to a SQL view. Contains stored
-  fields **plus** lookups/rollups/computed fields. Exposed as the OData entity
-  set and GraphQL query field.
+```csharp
+builder.Services.AddIyuFileGateway(
+    gw =>
+    {
+        gw.SigningKey = builder.Configuration["Files:SigningKey"]!; // ≥32 bytes, shared with the minter
+        gw.MaxBytes = 50L * 1024 * 1024;
+        gw.AllowedContentTypes = ["application/pdf", "image/png"];  // empty = allow all
+    },
+    (FileSystemOptions fs) => fs.RootPath = "/var/attachments");     // or AzureBlobOptions
 
-The controller copies overlapping properties from the read body to a fresh
-write entity using reflection; extras are dropped. `CreatedAt`/`UpdatedAt`/`Id`
-are explicitly excluded because they are owned by the interceptor or the
-caller's explicit assignment.
+var app = builder.Build();
+app.MapIyuFileGateway();   // PUT / GET / DELETE at gw.RoutePrefix (default "/files")
+```
 
-See `claudedocs/cycle-logs/cycle-01.md` … `cycle-14.md` for the step-by-step
-rebuild history; `D:\data\mdd-booster\claudedocs\plans\2026-04-05-mdd-booster-rewrite-design.md`
-for the full design spec.
+Behaviour worth knowing before deploying it:
 
-## Status
+- **`MaxBytes` is the authority on its own endpoint.** The upload handler aligns
+  the server's per-request body limit to it, so the host's global default
+  (30,000,000 bytes on Kestrel, HTTP.sys and IIS in-process) does not silently
+  cap uploads below it. Ceilings the gateway cannot raise still apply and must be
+  configured by the operator: IIS out-of-process (`maxAllowedContentLength`) and
+  any reverse proxy.
+- **Rejections are structured**, so a caller can tell them apart:
+  `413` with `{"Error":"too_large"}`; `400` with
+  `{"Error":"content_type_not_allowed"}` or `{"Error":"content_type_required"}`.
+  An oversized body answers `413` whichever layer noticed it — the header check,
+  the gateway's stream ceiling, or the host's guard.
+- **`AllowedContentTypes` checks the type the token declares**, not the bytes
+  that arrive. It enforces a policy the minter committed to; it does not sniff
+  the payload. Matching compares `type/subtype` and ignores parameters, so
+  `image/jpeg; charset=binary` satisfies an entry of `image/jpeg`; wildcards are
+  not expanded. Once non-empty it fails closed — a token declaring no content
+  type is rejected rather than waved through.
+- **Downloads support `Range`**, so a large transfer can resume and a media
+  client can seek. This is verified end-to-end against the filesystem backend;
+  on Azure Blob it depends on the SDK's read stream reporting its length when
+  opened, which is untested here (see Status). Uploads are a single request with
+  **no resume**: a dropped connection restarts from zero, which is why the
+  default limit is sized for document attachments rather than bulk media.
+- **A missing object is 404, not 500.** Absence is a normal state — a key can be
+  deleted while a still-valid token is in flight.
+- Every rejection is logged under the category `Iyu.FileServer.FileGateway`
+  (`FileGatewayExtensions.LogCategory`) so it can be filtered independently.
+  Tokens are never logged. Successful transfers are not logged either — that is
+  the host's request log.
 
-**Plan 2 complete** (2026-04-05). Runtime scaffold exists, unit-tested (57
-tests passing), and an HTTP E2E smoke through `Yesung.MainServer` verified the
-composition end-to-end.
+### Migrating to 0.9.0
 
-**Next**: Plan 3 (mdd-booster C# entity/DbContext generator) starting at
-cycle 15 — see `claudedocs/cycle-logs/ROADMAP.md`.
+Three breaking changes, all in the attachment layer:
+
+1. `IAttachmentStorage.OpenReadAsync` now returns `Task<Stream?>`, where `null`
+   means "nothing is stored at this key". **Custom `IAttachmentStorage`
+   implementations must be updated**: normalise your backend's own not-found
+   signal into `null` instead of letting it throw. Callers get a compiler error
+   until they handle the `null`, which is the point — the previous behaviour
+   surfaced a missing object as an unhandled exception and a 500.
+2. `AllowedContentTypes` now fails closed. If you configure an allowlist, tokens
+   must declare a content type; previously such tokens bypassed the allowlist
+   entirely. Set `FileAccessToken.ContentType` when minting.
+3. An oversized upload answers **`413`** instead of `400`. The body is unchanged
+   (`{"Error":"too_large"}`), so a client that reads the payload needs no change;
+   one that branches on the status code does. The other two rejections stay `400`.
+   Allowlist matching also became parameter-insensitive, which only ever accepts
+   more than before — nothing that used to upload will start failing.
 
 ## Build & test
 
@@ -110,3 +176,21 @@ dotnet test  IyuFramework.slnx
 ```
 
 All warnings are treated as errors across every project in the solution.
+
+## Status
+
+Version **0.9.0**. 207 unit and integration tests passing; build clean with no
+warnings. The OData/GraphQL runtime, identity, attachments, chat, and reports
+modules are all in place and consumed in production.
+
+Known gaps, in rough priority order:
+
+- The Azure Blob storage backend has no automated coverage — the test suite uses
+  a fake and the local filesystem backend. Backend-specific failure modes are
+  therefore not caught here.
+- Resumable (chunked) upload is **not** supported. A GB-scale upload that drops
+  restarts from zero. Adding it means a resumable protocol plus session state,
+  which the gateway deliberately does not have today.
+- The gateway has no request-timeout or minimum-data-rate policy of its own, so
+  a slow but legitimate upload is subject to the host's slow-POST defences
+  (Kestrel's `MinRequestBodyDataRate`, 240 bytes/second by default).

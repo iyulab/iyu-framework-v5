@@ -37,11 +37,27 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
         return storageKey;
     }
 
-    public Task<Stream> OpenReadAsync(string storageKey, CancellationToken ct = default)
+    public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken ct = default)
     {
         var path = Resolve(storageKey);
-        Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        return Task.FromResult(stream);
+        try
+        {
+            // Opening and catching, rather than File.Exists then opening, keeps this free of a
+            // check-then-act race: a concurrent delete between the two would resurrect the very
+            // exception this normalisation exists to absorb.
+            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return Task.FromResult<Stream?>(stream);
+        }
+        catch (FileNotFoundException)
+        {
+            return Task.FromResult<Stream?>(null);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Keys are path-shaped ("2026/07/abc"), so an absent object can present as an absent
+            // parent directory rather than an absent file.
+            return Task.FromResult<Stream?>(null);
+        }
     }
 
     public Task DeleteAsync(string storageKey, CancellationToken ct = default)

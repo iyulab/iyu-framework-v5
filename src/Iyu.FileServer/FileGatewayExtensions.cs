@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Iyu.FileServer;
 
@@ -60,12 +61,21 @@ public static partial class FileGatewayExtensions
     public static IEndpointRouteBuilder MapIyuFileGateway(this IEndpointRouteBuilder app)
     {
         var gw = app.ServiceProvider.GetRequiredService<FileGatewayOptions>();
+        // Resolved once and captured, rather than injected per request: the category is fixed, so a
+        // per-request lookup would buy nothing. Optional throughout — a host with no logging configured
+        // still gets a working gateway.
+        var logger = app.ServiceProvider.GetService<ILoggerFactory>()?.CreateLogger(LogCategory);
+
         app.MapPut(gw.RoutePrefix, (HttpRequest req, string? token, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
-            => FileGatewayHandlers.UploadAsync(req, token, tk, st, o, ct));
+            => FileGatewayHandlers.UploadAsync(req, token, tk, st, o, ct, logger));
         app.MapGet(gw.RoutePrefix, (string token, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
-            => FileGatewayHandlers.DownloadAsync(token, tk, st, o, ct));
+            => FileGatewayHandlers.DownloadAsync(token, tk, st, o, ct, logger));
         app.MapDelete(gw.RoutePrefix, (string? token, HttpRequest req, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
-            => FileGatewayHandlers.DeleteAsync(token, req, tk, st, o, ct));
+            => FileGatewayHandlers.DeleteAsync(token, req, tk, st, o, ct, logger));
         return app;
     }
+
+    /// <summary>Log category for every gateway decision, so a host can filter or raise the level for the byte
+    /// gateway alone without touching the rest of its logging.</summary>
+    public const string LogCategory = "Iyu.FileServer.FileGateway";
 }

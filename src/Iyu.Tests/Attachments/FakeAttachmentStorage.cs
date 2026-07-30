@@ -15,8 +15,11 @@ public sealed class FakeAttachmentStorage : IAttachmentStorage
         return storageKey;
     }
 
-    public Task<Stream> OpenReadAsync(string storageKey, CancellationToken ct = default) =>
-        Task.FromResult<Stream>(new MemoryStream(Objects[storageKey]));
+    /// <remarks>Returns <c>null</c> for an absent key, as the contract requires. The indexer this once used
+    /// threw <see cref="KeyNotFoundException"/> — a signal no real backend produces — so the double could
+    /// not reproduce the absence path and hid a gateway defect behind a green suite.</remarks>
+    public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken ct = default) =>
+        Task.FromResult<Stream?>(Objects.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes) : null);
 
     public Task DeleteAsync(string storageKey, CancellationToken ct = default)
     {
