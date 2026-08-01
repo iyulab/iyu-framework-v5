@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- 버전 (모노 버전: 5개 라이브러리 모두 동일) -->
+    <!-- 버전 (모노 버전: 배포 패키지 8개 모두 동일) -->
     <Version>0.9.0</Version>
   </PropertyGroup>
 
