@@ -28,14 +28,14 @@ public class IyuChatAuthProviderTests
         var provider = new IyuChatAuthProvider();
         var ctx = AuthedContext(
             new Claim(ClaimTypes.NameIdentifier, "260"),
-            new Claim(ClaimTypes.Name, "iyulab-admin"),     // 로그인 ID
-            new Claim(ClaimTypes.GivenName, "정안종"));       // 사람 이름
+            new Claim(ClaimTypes.Name, "login-id"),     // 로그인 ID
+            new Claim(ClaimTypes.GivenName, "홍길동"));       // 사람 이름
 
         var user = await provider.ResolveUserAsync(ctx);
 
         Assert.True(user.IsAuthenticated);
         Assert.Equal("260", user.UserId);
-        Assert.Equal("정안종", user.DisplayName);
+        Assert.Equal("홍길동", user.DisplayName);
     }
 
     [Fact]
@@ -44,11 +44,11 @@ public class IyuChatAuthProviderTests
         var provider = new IyuChatAuthProvider();
         var ctx = AuthedContext(
             new Claim(ClaimTypes.NameIdentifier, "260"),
-            new Claim(ClaimTypes.Name, "iyulab-admin"));
+            new Claim(ClaimTypes.Name, "login-id"));
 
         var user = await provider.ResolveUserAsync(ctx);
 
-        Assert.Equal("iyulab-admin", user.DisplayName);
+        Assert.Equal("login-id", user.DisplayName);
     }
 
     [Fact]

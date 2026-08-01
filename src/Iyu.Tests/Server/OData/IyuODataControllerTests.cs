@@ -129,7 +129,7 @@ public class IyuODataControllerTests
 
         var body = new BankAccountExt
         {
-            BankName = "우리은행",
+            BankName = "가나은행",
             AccountNumber = "1002-123-456789"
         };
         var result = await controller.Post(body, CancellationToken.None);
@@ -137,7 +137,7 @@ public class IyuODataControllerTests
         var created = Assert.IsType<CreatedResult>(result);
         // Persisted write row exists with timestamps populated by the interceptor.
         var persisted = await ctx.BankAccounts.SingleAsync();
-        Assert.Equal("우리은행", persisted.BankName);
+        Assert.Equal("가나은행", persisted.BankName);
         Assert.NotEqual(default, persisted.CreatedAt);
         Assert.NotEqual(Guid.Empty, persisted.Id);
         Assert.NotNull(created.Value);
@@ -155,7 +155,7 @@ public class IyuODataControllerTests
     public async Task Get_queryable_returns_read_set()
     {
         var (ctx, controller) = CreateSut(nameof(Get_queryable_returns_read_set));
-        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "국민은행", AccountNumber = "123" };
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "나다은행", AccountNumber = "123" };
         ctx.BankAccounts.Add(write);
         await ctx.SaveChangesAsync();
         await MirrorAsync(ctx, write);
@@ -163,14 +163,14 @@ public class IyuODataControllerTests
         var queryable = controller.Get();
         var list = queryable.ToList();
         Assert.Single(list);
-        Assert.Equal("국민은행", list[0].BankName);
+        Assert.Equal("나다은행", list[0].BankName);
     }
 
     [Fact]
     public async Task Patch_updates_existing_write_row()
     {
         var (ctx, controller) = CreateSut(nameof(Patch_updates_existing_write_row));
-        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "하나은행", AccountNumber = "999" };
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "라마은행", AccountNumber = "999" };
         ctx.BankAccounts.Add(write);
         await ctx.SaveChangesAsync();
 
@@ -182,7 +182,7 @@ public class IyuODataControllerTests
 
         var reloaded = await ctx.BankAccounts.SingleAsync();
         Assert.Equal("555-000", reloaded.AccountNumber);
-        Assert.Equal("하나은행", reloaded.BankName); // untouched
+        Assert.Equal("라마은행", reloaded.BankName); // untouched
     }
 
     [Fact]
