@@ -168,46 +168,18 @@ Behaviour worth knowing before deploying it:
   Tokens are never logged. Successful transfers are not logged either — that is
   the host's request log.
 
-### Migrating to 0.10.0
+## Upgrading
 
-One behavioural change, in the OData layer.
+Per-release changes — including every breaking change and the packages each release
+actually touched — are in
+[CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
+of which ships inside every package.
 
-`IyuODataController<TRead,TWrite>.Patch` now evaluates the read type's validation
-annotations against the properties a request actually carries, and answers 400
-when one of them is violated. Previously only create checked them, so the same
-value could be refused on one verb and stored through the other.
-
-**Partial-update semantics are unchanged**: a property the request does not
-mention is not validated, so an entity with required fields is still patchable
-one field at a time. What changes is that a value the request *does* send is now
-judged. A caller that has been sending, say, an empty string into a required
-field will start receiving 400 — the response names the field and reads exactly
-as the equivalent create failure does.
-
-Type-level rules (a class-level `ValidationAttribute`, or `IValidatableObject`)
-are deliberately not applied to partial updates: they report against the object
-rather than a property, and enforcing them here would make any entity with a
-cross-field rule impossible to patch, since the rule would be judged against
-fields the request never carried.
-
-### Migrating to 0.9.0
-
-Three breaking changes, all in the attachment layer:
-
-1. `IAttachmentStorage.OpenReadAsync` now returns `Task<Stream?>`, where `null`
-   means "nothing is stored at this key". **Custom `IAttachmentStorage`
-   implementations must be updated**: normalise your backend's own not-found
-   signal into `null` instead of letting it throw. Callers get a compiler error
-   until they handle the `null`, which is the point — the previous behaviour
-   surfaced a missing object as an unhandled exception and a 500.
-2. `AllowedContentTypes` now fails closed. If you configure an allowlist, tokens
-   must declare a content type; previously such tokens bypassed the allowlist
-   entirely. Set `FileAccessToken.ContentType` when minting.
-3. An oversized upload answers **`413`** instead of `400`. The body is unchanged
-   (`{"Error":"too_large"}`), so a client that reads the payload needs no change;
-   one that branches on the status code does. The other two rejections stay `400`.
-   Allowlist matching also became parameter-insensitive, which only ever accepts
-   more than before — nothing that used to upload will start failing.
+All eight `Iyu.*` packages share one version, so a new number does not by itself mean the
+code you depend on moved. Each release entry opens with **Packages affected**; if yours is
+not listed, the upgrade is a version bump and nothing else. When skipping releases, read
+every entry between your current version and the target — each one states its own breaking
+changes only.
 
 ## Build & test
 

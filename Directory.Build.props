@@ -27,6 +27,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>iyu;odata;graphql;framework;aspnetcore</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>See CHANGELOG.md, shipped in this package and at https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md — every Iyu.* package shares one version, so check the "Packages affected" line of each release between your current version and this one.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
@@ -37,6 +38,7 @@
 
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)README.md')" />
+    <None Include="$(MSBuildThisFileDirectory)CHANGELOG.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)CHANGELOG.md')" />
   </ItemGroup>
 
 </Project>
