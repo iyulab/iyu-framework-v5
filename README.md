@@ -22,6 +22,25 @@ NuGet packages.
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
 
+## Namespaces a consumer needs
+
+Entity classes, the context, and the controllers all sit in different packages, so
+a consuming project ends up repeating the same `using` lines in most of its files.
+Declaring them once — in `GlobalUsings.cs`, or any file, with `global using` — is
+usually less friction:
+
+```csharp
+global using Iyu.Core.Attributes;   // Lookup, Rollup, Computed, Reference, Binding
+global using Iyu.Core.Entities;     // IyuEntity
+global using Iyu.Data;              // IyuDbContext
+global using Iyu.MainServer;        // IyuMainServerOptions
+global using Iyu.Server.OData;      // IyuODataController<,>
+```
+
+Take the lines for the packages you actually reference; a project with no OData
+surface has no reason for the last one. Anything missing shows up as a normal
+`CS0246` naming the type, so the fix is mechanical.
+
 ## Minimum consumer
 
 ```csharp
@@ -149,6 +168,28 @@ Behaviour worth knowing before deploying it:
   Tokens are never logged. Successful transfers are not logged either — that is
   the host's request log.
 
+### Migrating to 0.10.0
+
+One behavioural change, in the OData layer.
+
+`IyuODataController<TRead,TWrite>.Patch` now evaluates the read type's validation
+annotations against the properties a request actually carries, and answers 400
+when one of them is violated. Previously only create checked them, so the same
+value could be refused on one verb and stored through the other.
+
+**Partial-update semantics are unchanged**: a property the request does not
+mention is not validated, so an entity with required fields is still patchable
+one field at a time. What changes is that a value the request *does* send is now
+judged. A caller that has been sending, say, an empty string into a required
+field will start receiving 400 — the response names the field and reads exactly
+as the equivalent create failure does.
+
+Type-level rules (a class-level `ValidationAttribute`, or `IValidatableObject`)
+are deliberately not applied to partial updates: they report against the object
+rather than a property, and enforcing them here would make any entity with a
+cross-field rule impossible to patch, since the rule would be judged against
+fields the request never carried.
+
 ### Migrating to 0.9.0
 
 Three breaking changes, all in the attachment layer:
@@ -179,7 +220,7 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.9.0**. 207 unit and integration tests passing; build clean with no
+Version **0.10.0**. 216 unit and integration tests passing; build clean with no
 warnings. The OData/GraphQL runtime, identity, attachments, chat, and reports
 modules are all in place and consumed in production.
 
