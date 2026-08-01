@@ -20,6 +20,11 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-08-01
+
+**Packages affected**: none functionally — all eight are a documentation and packaging
+release. No API or behaviour change.
+
 ### Added
 
 - **This file, and it now travels with the code.** `CHANGELOG.md` is packed into every
