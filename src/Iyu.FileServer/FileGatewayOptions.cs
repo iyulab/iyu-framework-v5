@@ -14,7 +14,13 @@ public sealed class FileGatewayOptions
     /// Kestrel, HTTP.sys and IIS in-process) does not silently cap uploads below it.</para>
     /// <para>Ceilings outside the gateway's reach must be configured by the operator: IIS out-of-process
     /// hosting (<c>maxAllowedContentLength</c>, also 30,000,000 by default) and any reverse proxy in front of
-    /// the host.</para></summary>
+    /// the host.</para>
+    /// <para>Raising this exposes a second wall that a lower limit hides: the gateway has no request-timeout
+    /// or minimum-data-rate policy of its own, so a large upload over a slow link is subject to the host's
+    /// slow-POST defences (Kestrel's <c>MinRequestBodyDataRate</c>, 240 bytes/second by default). A transfer
+    /// that stays under that rate is cut by the host, and because a single request cannot resume, the whole
+    /// upload is lost rather than continued. Size this against the slowest link that must succeed, not only
+    /// against the largest file.</para></summary>
     public long MaxBytes { get; set; } = 50L * 1024 * 1024;
     /// <summary>Content types the gateway accepts for upload. Empty (the default) allows all.
     /// <para>This checks the content type <em>declared by the signed token</em>, not the bytes that arrive —
