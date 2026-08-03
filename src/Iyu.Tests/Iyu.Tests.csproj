@@ -11,6 +11,8 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.0" />
+    <!-- ConsumerNamespaceGuidanceTests compiles a consumer-shaped source file. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +29,18 @@
     <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />
     <ProjectReference Include="..\Iyu.Server.Chat\Iyu.Server.Chat.csproj" />
     <ProjectReference Include="..\Iyu.VaultAi\Iyu.VaultAi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ConsumerNamespaceGuidanceTests compiles against the namespace guidance the README
+      publishes, so it reads that file rather than a copy kept in test code. A copy is
+      the failure it exists to catch: the two disagree, the suite still passes, and the
+      consumer is the one who finds out.
+    -->
+    <None Include="..\..\README.md" Link="guidance\README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

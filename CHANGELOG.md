@@ -20,6 +20,18 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
+**Packages affected**: none functionally — a test-only addition. No API or behaviour change.
+
+### Added
+
+- **The README's "Namespaces a consumer needs" list is now verified, not just written.**
+  A test compiles consumer-shaped code — an entity, an attribute, a context, a controller,
+  an options type, each named simply — against the `global using` lines that section
+  publishes, reading them from the README rather than from a copy. Until now the packages
+  were tested here and the guidance was published here, but the two only ever met in a
+  consuming project's build, where a gap appears as `CS0246` after release. A missing or
+  stale namespace now fails our suite instead of someone else's build.
+
 ## [0.10.1] - 2026-08-01
 
 **Packages affected**: none functionally — all eight are a documentation and packaging
