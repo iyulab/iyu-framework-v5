@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using HotChocolate.Execution.Configuration;
 using HotChocolate.Resolvers;
 using HotChocolate.Types;
@@ -34,6 +35,7 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly List<Action<IObjectTypeDescriptor>> _fieldBuilders = new();
     private readonly HashSet<string> _queryNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
+    private readonly List<Action<IRequestExecutorBuilder>> _typeCustomizations = new();
 
     /// <summary>
     /// Registers a query field named <paramref name="queryName"/> that returns
@@ -62,6 +64,41 @@ public sealed class IyuGraphQLSchemaBuilder
     }
 
     /// <summary>
+    /// Removes <paramref name="properties"/> from the schema of
+    /// <typeparamref name="T"/>, so that no query can select them.
+    /// </summary>
+    /// <remarks>
+    /// The GraphQL counterpart of the OData model builder's <c>Exclude</c>: a type
+    /// exposed through both surfaces has to be subtracted from both, or the value
+    /// simply leaves by the other door. Callable after
+    /// <see cref="AddEntityPair{TRead,TWrite}"/> — nothing is applied until
+    /// <see cref="ApplyTo"/>.
+    /// </remarks>
+    public IyuGraphQLSchemaBuilder Exclude<T>(params Expression<Func<T, object?>>[] properties)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+
+        // Validate now, not at ApplyTo: a malformed expression must fail where the
+        // caller wrote it, not later inside schema construction.
+        var selectors = properties.ToArray();
+        foreach (var selector in selectors) ExposedProperty.Resolve(selector);
+        if (selectors.Length == 0) return this;
+
+        // A type *extension* merges into the type HotChocolate already inferred for T.
+        // Registering another ObjectType<T> would be a second, competing registration and
+        // the inferred one would keep the field — the exclusion would silently do nothing.
+        // Ignore by selector, not by name: the schema field is camelCased, so passing the
+        // CLR name would add and hide a *different* field and leave the real one exposed.
+        _typeCustomizations.Add(builder => builder.AddTypeExtension(new ObjectTypeExtension<T>(descriptor =>
+        {
+            foreach (var selector in selectors) descriptor.Ignore(selector);
+        })));
+
+        return this;
+    }
+
+    /// <summary>
     /// Registers the accumulated pairs as the root <c>Query</c> type on the
     /// given executor builder. Call once during service configuration.
     /// </summary>
@@ -74,6 +111,7 @@ public sealed class IyuGraphQLSchemaBuilder
             descriptor.Name("Query");
             foreach (var build in fieldBuilders) build(descriptor);
         });
+        foreach (var customize in _typeCustomizations.ToArray()) customize(executorBuilder);
     }
 
     /// <summary>Exposes the mutation prefix recorded for a given query name.</summary>

@@ -1,4 +1,5 @@
 using Iyu.Core.Entities;
+using Microsoft.OData.Edm;
 using Iyu.Server.OData;
 using Xunit;
 
@@ -43,6 +44,58 @@ public class IyuEdmModelBuilderTests
         Assert.NotNull(pair);
         Assert.Equal(typeof(BankAccountExt), pair!.ReadType);
         Assert.Equal(typeof(BankAccount), pair.WriteType);
+    }
+
+
+    public class Secretive : IyuEntity
+    {
+        public string Name { get; set; } = "";
+        public string SecretHash { get; set; } = "";
+    }
+
+    /// <summary>
+    /// The excluded property must be gone from the EDM, not blanked: absence is what
+    /// makes $select/$filter naming it a 400, so the value can neither be read nor
+    /// probed one character at a time.
+    /// </summary>
+    [Fact]
+    public void Exclude_removes_the_property_from_the_edm()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Secretive, Secretive>("Secretives");
+        builder.Exclude<Secretive>(x => x.SecretHash);
+
+        var model = builder.GetEdmModel();
+        var type = model.SchemaElements.OfType<IEdmEntityType>()
+            .Single(t => t.Name == nameof(Secretive));
+
+        Assert.Null(type.FindProperty(nameof(Secretive.SecretHash)));
+        Assert.NotNull(type.FindProperty(nameof(Secretive.Name)));   // 나머지는 그대로
+    }
+
+    /// <summary>Exclusion is callable after registration — consumers whose registration is generated cannot reorder it.</summary>
+    [Fact]
+    public void Exclude_applies_even_though_the_pair_was_registered_first()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Secretive, Secretive>("Secretives");
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.Exclude<Secretive>(x => x.SecretHash);
+
+        var model = builder.GetEdmModel();
+        Assert.NotNull(model.EntityContainer!.FindEntitySet("Secretives"));
+        Assert.NotNull(model.EntityContainer!.FindEntitySet("BankAccounts"));
+        var type = model.SchemaElements.OfType<IEdmEntityType>()
+            .Single(t => t.Name == nameof(Secretive));
+        Assert.Null(type.FindProperty(nameof(Secretive.SecretHash)));
+    }
+
+    /// <summary>A typo must not silently expose the very field it meant to hide.</summary>
+    [Fact]
+    public void Exclude_rejects_a_non_property_expression()
+    {
+        var builder = new IyuEdmModelBuilder();
+        Assert.Throws<ArgumentException>(() => builder.Exclude<Secretive>(x => x.Name.Length.ToString()));
     }
 
     [Fact]

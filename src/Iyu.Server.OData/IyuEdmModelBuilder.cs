@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
 using Microsoft.OData.ModelBuilder;
@@ -33,6 +34,39 @@ public sealed class IyuEdmModelBuilder
     {
         Registry.Register<TRead, TWrite>(setName);
         _modelBuilder.EntitySet<TRead>(setName);
+        return this;
+    }
+
+    /// <summary>
+    /// Removes <paramref name="properties"/> from the exposed model of
+    /// <typeparamref name="T"/>, so that the EDM has no such property at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For values that are stored but must never leave the server — password hashes,
+    /// client secrets. Because the property is absent from the EDM rather than merely
+    /// blanked, <c>$select</c>, <c>$filter</c> and <c>$orderby</c> that name it are
+    /// rejected: a caller cannot read the value, and cannot probe it one character at
+    /// a time with <c>startswith</c> either. Returning an empty value would leave both
+    /// doors open and would be indistinguishable from "the row has no value".
+    /// </para>
+    /// <para>
+    /// Callable after <see cref="AddEntityPair{TRead,TWrite}"/> — the model is not
+    /// finalized until <see cref="GetEdmModel"/>. That ordering matters for consumers
+    /// whose entity registration is code-generated: they can subtract from a
+    /// registration they do not own. Apply it to the write type as well when the
+    /// value must not be settable through the generic write path.
+    /// </para>
+    /// </remarks>
+    public IyuEdmModelBuilder Exclude<T>(params Expression<Func<T, object?>>[] properties)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+
+        var configuration = _modelBuilder.AddEntityType(typeof(T));
+        foreach (var expression in properties)
+            configuration.RemoveProperty(ExposedProperty.Resolve(expression));
+
         return this;
     }
 
