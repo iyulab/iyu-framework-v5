@@ -20,6 +20,10 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.12.0] - 2026-08-04
+
 **Packages affected:** `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.VaultAi`
 
 > **Two changes here can stop an app that upgrades without reading.** Both are under

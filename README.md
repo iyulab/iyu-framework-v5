@@ -224,9 +224,8 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.11.0**, plus unreleased changes recorded under `[Unreleased]` in the
-changelog. Unit and integration tests run against every project on each build, and
-warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
+Version **0.12.0**. Unit and integration tests run against every project on each
+build, and warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
 reports modules are all in place and consumed in production.
 
 Known gaps, in rough priority order:
