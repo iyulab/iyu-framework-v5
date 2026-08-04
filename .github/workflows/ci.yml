@@ -7,6 +7,37 @@ on:
     branches: [main]
 
 jobs:
+  # A dated release header in CHANGELOG.md is a claim that the version is published.
+  # CHANGELOG.md ships inside every package and PackageReleaseNotes points at it, so a
+  # dated header for a version that was never tagged becomes a false statement on
+  # nuget.org. Nothing but discipline enforced the ordering, and discipline slipped once:
+  # a version bump rode inside a feature commit, and an unpublished version reached a
+  # consumer through a local package feed with nothing in the tree contradicting it.
+  #
+  # Consequence for releasing: main and the tag must land together --
+  #   git push --atomic origin main vX.Y.Z
+  # Pushing main alone leaves this red until the tag arrives. That is the point.
+  changelog-tag:
+    name: Dated release header has its tag
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: A dated release header must have a matching tag
+        run: |
+          VERSION=$(grep -m1 -oP '^## \[\K[0-9]+\.[0-9]+\.[0-9]+(?=\] - )' CHANGELOG.md || true)
+          if [ -z "$VERSION" ]; then
+            echo "::error::No dated release header (## [X.Y.Z] - DATE) found in CHANGELOG.md."
+            exit 1
+          fi
+          echo "Newest dated release header: $VERSION"
+          if [ -z "$(git ls-remote --tags origin "refs/tags/v$VERSION")" ]; then
+            echo "::error::CHANGELOG.md declares $VERSION released, but tag v$VERSION does not exist. A dated release header may only reach the default branch together with its tag -- push them atomically (git push --atomic origin main v$VERSION), or keep the entry under [Unreleased] until you release."
+            exit 1
+          fi
+          echo "Tag v$VERSION exists."
+
   build-test:
     runs-on: ubuntu-latest
     steps:
