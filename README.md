@@ -192,7 +192,7 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.10.1**. 219 unit and integration tests passing; build clean with no
+Version **0.10.2**. 219 unit and integration tests passing; build clean with no
 warnings. The OData/GraphQL runtime, identity, attachments, chat, and reports
 modules are all in place and consumed in production.
 

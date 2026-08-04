@@ -20,7 +20,13 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-**Packages affected**: none functionally — a test-only addition. No API or behaviour change.
+Nothing yet.
+
+## [0.10.2] - 2026-08-04
+
+**Packages affected**: none functionally — no API or behaviour change. The guidance that
+moved ships as XML documentation in `Iyu.FileServer` and `Iyu.MainServer`, so it reaches
+you through IntelliSense rather than through this file alone.
 
 ### Added
 
@@ -31,6 +37,24 @@ and the target, not just the newest. Each release states its own breaking change
   were tested here and the guidance was published here, but the two only ever met in a
   consuming project's build, where a gap appears as `CS0246` after release. A missing or
   stale namespace now fails our suite instead of someone else's build.
+
+### Documentation
+
+- **A service client's `id` is returned once, and that is now said out loud.** Rotate and
+  revoke both take an `id`, and no endpoint enumerates service clients, so the creation
+  response is the only place one appears. The secret being shown once was documented; the
+  `id` being shown once was not — and losing that response leaves a credential impossible
+  to revoke even after its secret leaks. Stated where a caller meets it: the identity
+  integration guide, and the remarks on the creation handler. **Persist the `id`.**
+- **`FileGatewayOptions.MaxBytes` now points at the wall a lower limit hides.** The remarks
+  listed every ceiling that can cap an upload below this value but said nothing about rate.
+  Those are different walls, and only the first is visible while the limit is low: raise it
+  and a large transfer over a slow link becomes subject to the host's slow-POST defences,
+  where a single non-resumable request is lost rather than continued. Size the limit against
+  the slowest link that must succeed, not only against the largest file.
+- **The README's Status line was stale in both of its numbers** (version and test count).
+  That sentence is what dates the known-gaps list printed beneath it, so a reader deciding
+  whether a gap still applies was reading it against the wrong release.
 
 ## [0.10.1] - 2026-08-01
 
