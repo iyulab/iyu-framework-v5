@@ -17,6 +17,10 @@ public static class IdentityEndpointHandlers
         return Results.Ok(new TokenResponse(r.AccessToken!, "Bearer", r.ExpiresInSeconds, string.Join(' ', r.Permissions)));
     }
 
+    /// <remarks>The <c>id</c> in this response is the only handle to the client that is created: rotate and
+    /// revoke both require it, and no endpoint enumerates clients. The <c>secret</c> is shown once by design;
+    /// the <c>id</c> is not, and the caller must persist it. Losing this response leaves the credential
+    /// impossible to revoke even after its secret leaks.</remarks>
     public static async Task<IResult> CreateServiceClientAsync(
         CreateServiceClientRequest req, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
     {

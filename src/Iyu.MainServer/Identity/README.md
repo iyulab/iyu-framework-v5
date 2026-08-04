@@ -13,3 +13,13 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    헬퍼로 `IyuIdentityClaims.Permission(code)`를 사용할 수 있다(예: `identity.AddClaim(IyuIdentityClaims.Permission("orders.read"))`).
 
 토큰 흐름: `POST /api/auth/token {clientId, clientSecret, grant_type:"client_credentials"}` → 단기 JWT → `Authorization: Bearer`.
+
+## 서비스 클라이언트 — 발급 응답의 `id` 를 반드시 보관한다
+
+회전(`POST /api/service-clients/{id}/rotate`)과 폐기(`DELETE /api/service-clients/{id}`)가 모두 `id` 를 요구하는데,
+**서비스 클라이언트를 열거하는 엔드포인트가 없다.** 즉 `id` 를 얻을 수 있는 곳은 발급 응답(`POST /api/service-clients`)
+한 번뿐이다.
+
+`secret` 이 1회만 노출되는 것은 설계 의도이지만 **`id` 는 그렇지 않다.** 발급 응답을 잃으면 그 클라이언트는
+회전도 폐기도 할 수 없고, **secret 이 유출돼도 무효화할 수단이 남지 않는다.** 발급을 수행하는 쪽이 `id` 를
+지속 저장할 책임을 진다.
