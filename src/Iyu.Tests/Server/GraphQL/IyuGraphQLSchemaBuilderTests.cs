@@ -111,6 +111,45 @@ public class IyuGraphQLSchemaBuilderTests
         Assert.Throws<ArgumentException>(() => graphql.Exclude<Secretive>(x => x.Name.Length.ToString()));
     }
 
+    /// <summary>
+    /// A type extension whose target type no field returns is discarded during schema
+    /// construction — so an exclusion naming an unexposed type is a silent no-op unless it
+    /// is refused. Silence is the worst outcome for a feature whose job is keeping a stored
+    /// value off the wire: the caller believes the value is hidden and every query still
+    /// returns it.
+    /// </summary>
+    [Fact]
+    public void Exclude_rejects_a_type_the_schema_does_not_expose()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
+        graphql.Exclude<Secretive>(x => x.SecretHash);   // never registered as a query field type
+
+        var services = new ServiceCollection();
+        var error = Assert.Throws<InvalidOperationException>(
+            () => graphql.ApplyTo(services.AddGraphQLServer()));
+
+        Assert.Contains(nameof(Secretive), error.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(Widget), error.Message, StringComparison.Ordinal);   // what *is* exposed
+    }
+
+    /// <summary>Order-independence: nothing is applied until <c>ApplyTo</c>.</summary>
+    [Fact]
+    public async Task Exclude_applies_even_though_it_was_called_before_the_pair_was_registered()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.Exclude<Secretive>(x => x.SecretHash);
+        graphql.AddEntityPair<Secretive, Secretive>("secretives", "secretive");
+
+        await using var sp = BuildServices(
+            nameof(Exclude_applies_even_though_it_was_called_before_the_pair_was_registered), graphql);
+        var executor = await sp.GetRequiredService<IRequestExecutorResolver>()
+            .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+
+        var probed = (await executor.ExecuteAsync("{ secretives { secretHash } }")).ToJson();
+        Assert.Contains("\"errors\"", probed);
+    }
+
     [Fact]
     public void Duplicate_query_name_throws()
     {

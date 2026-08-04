@@ -103,12 +103,12 @@ public static class MainServerExtensions
     }
 
     /// <summary>
-    /// Assembles the set of assemblies that may host the generated OData
-    /// controllers: the consumer's explicit <see cref="IyuMainServerOptions.ControllerAssemblies"/>,
-    /// the <c>TContext</c> assembly, and the assembly declaring the
-    /// registration callback. The last is a best-effort signal — it resolves to the
-    /// controller-hosting assembly for the standard method-group form
-    /// (<c>configure: ApiRegistration.RegisterGeneratedEntities</c>) but to the
+    /// Assembles the set of assemblies that may host the OData controllers: the
+    /// consumer's explicit <see cref="IyuMainServerOptions.ControllerAssemblies"/>,
+    /// the <c>TContext</c> assembly, the assembly declaring the registration
+    /// callback, and the one hosting OData's own <c>MetadataController</c>. The
+    /// callback's assembly is a best-effort signal — it resolves to the
+    /// controller-hosting assembly for the standard method-group form but to the
     /// caller for a lambda wrapper, which is exactly what
     /// <see cref="IyuMainServerOptions.ControllerAssemblies"/> exists to cover.
     /// </summary>
@@ -131,6 +131,17 @@ public static class MainServerExtensions
         var callbackAssembly = configure.Method.DeclaringType?.Assembly;
         if (callbackAssembly is not null && seen.Add(callbackAssembly))
             yield return callbackAssembly;
+
+        // $metadata and the service document are served by MetadataController, which lives in
+        // OData's own assembly — never the entry assembly, so default discovery reaches it only
+        // through the entry assembly's dependency graph. Under a test host that graph is the
+        // runner's, so `AddRouteComponents` publishes the route and nothing answers it: an
+        // integration test asking for $metadata gets a 404 that looks like a modelling mistake.
+        // The same asymmetry the consumer-assembly registration above exists to remove, and the
+        // dedup guard makes it free where discovery already found it.
+        var metadataAssembly = typeof(Microsoft.AspNetCore.OData.Routing.Controllers.MetadataController).Assembly;
+        if (seen.Add(metadataAssembly))
+            yield return metadataAssembly;
     }
 
     /// <summary>

@@ -38,4 +38,16 @@ public sealed class ServiceClientService
 
     public Task<bool> RevokeAsync(Guid id, Guid ownerUserId, CancellationToken ct) =>
         _writes.DeactivateAsync(id, ownerUserId, ct);
+
+    /// <summary>
+    /// The owner's service clients, revoked ones included and marked as such.
+    /// </summary>
+    /// <remarks>
+    /// Create, rotate and revoke all key on an <c>id</c> that was returned exactly once, at
+    /// issuance. Without a way back to that id, an owner who lost the issuing response cannot
+    /// retire a credential even after its secret leaks — the three operations above are only
+    /// conditionally usable until this one exists.
+    /// </remarks>
+    public Task<IReadOnlyList<ServiceClientSummary>> ListAsync(Guid ownerUserId, CancellationToken ct) =>
+        _store.ListServiceClientsByOwnerAsync(ownerUserId, ct);
 }

@@ -62,7 +62,16 @@ public sealed class ReportSchedulerService : BackgroundService
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task RunDueReportsAsync()
+    /// <summary>
+    /// One pass: every enabled report whose schedule has come due since the last tick.
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private so a test can await a single pass. Driving it through
+    /// <see cref="BackgroundService.StartAsync"/> instead would make the assertions depend on how
+    /// far the loop happens to run before the host's start call returns — which is not a property
+    /// this service promises, and not what any of those assertions are about.
+    /// </remarks>
+    internal async Task RunDueReportsAsync()
     {
         var now       = DateTimeOffset.Now;
         var localZone = TimeZoneInfo.Local;

@@ -98,6 +98,72 @@ public class IyuEdmModelBuilderTests
         Assert.Throws<ArgumentException>(() => builder.Exclude<Secretive>(x => x.Name.Length.ToString()));
     }
 
+    /// <summary>Order-independence: nothing is applied until the model is finalized.</summary>
+    [Fact]
+    public void Exclude_applies_even_though_it_was_called_before_the_pair_was_registered()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.Exclude<Secretive>(x => x.SecretHash);
+        builder.AddEntityPair<Secretive, Secretive>("Secretives");
+
+        var type = builder.GetEdmModel().SchemaElements.OfType<IEdmEntityType>()
+            .Single(t => t.Name == nameof(Secretive));
+        Assert.Null(type.FindProperty(nameof(Secretive.SecretHash)));
+    }
+
+    /// <summary>
+    /// Naming the write type excludes nothing — request bodies bind to the read type — so it
+    /// must fail rather than leave the caller believing the value is hidden.
+    /// </summary>
+    /// <remarks>
+    /// Refusing is not merely stricter than ignoring. The exclusion is applied by declaring
+    /// the named type on the underlying convention builder, so accepting a type the model does
+    /// not expose would <i>add</i> it: an attempt to hide one property would publish the rest
+    /// of that type's shape. The pinned assertion below is that no such type appears.
+    /// </remarks>
+    [Fact]
+    public void Exclude_rejects_the_write_type_and_says_which_type_to_pass()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.Exclude<BankAccount>(x => x.AccountNumber);   // the write type
+
+        var error = Assert.Throws<InvalidOperationException>(() => builder.GetEdmModel());
+        Assert.Contains(nameof(BankAccountExt), error.Message, StringComparison.Ordinal);   // names the fix
+        Assert.Contains("BankAccounts", error.Message, StringComparison.Ordinal);           // and where it applies
+    }
+
+    /// <summary>An exclusion on an entirely unregistered type is a configuration bug, not a no-op.</summary>
+    [Fact]
+    public void Exclude_rejects_a_type_the_model_does_not_expose()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.Exclude<CustomerExt>(x => x.Name);
+
+        var error = Assert.Throws<InvalidOperationException>(() => builder.GetEdmModel());
+        Assert.Contains(nameof(CustomerExt), error.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(BankAccountExt), error.Message, StringComparison.Ordinal);   // what *is* exposed
+    }
+
+    /// <summary>
+    /// The write type stays out of the model. It is the runtime's internal target, and
+    /// <c>AddEntityPair</c> promises as much.
+    /// </summary>
+    [Fact]
+    public void Excluding_on_the_read_type_leaves_the_write_type_out_of_the_model()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.Exclude<BankAccountExt>(x => x.AccountNumber);
+
+        var declared = builder.GetEdmModel().SchemaElements.OfType<IEdmEntityType>()
+            .Select(t => t.Name).ToList();
+
+        Assert.Contains(nameof(BankAccountExt), declared);
+        Assert.DoesNotContain(nameof(BankAccount), declared);
+    }
+
     [Fact]
     public void AddEntityPair_rejects_duplicate_set_name()
     {

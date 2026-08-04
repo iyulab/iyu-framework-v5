@@ -20,7 +20,111 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-Nothing yet.
+**Packages affected:** `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.VaultAi`
+
+> **Two changes here can stop an app that upgrades without reading.** Both are under
+> **Changed — breaking** below, each with the code to migrate: an `IIdentityStore`
+> implementation stops compiling, and an `Exclude<T>` call that names the wrong type stops
+> the app at startup. Everything else is additive.
+
+### Added
+
+- `GET /api/service-clients` — the owner's own service clients, revoked ones included and marked
+  `isActive: false`. `rotate` and `revoke` both key on an `id` that was returned exactly once, at
+  issuance, and nothing enumerated clients: an owner who lost the issuing response could not retire
+  a credential **even after its secret leaked**. The three existing operations were only
+  conditionally usable until this one existed.
+
+  Returns `ServiceClientSummary` — a record with no secret-bearing member at all — rather than the
+  stored client, which carries `SecretHash`. That makes "no secret material leaves here" a property
+  of the type instead of a rule every caller has to remember. It carries `lastUsedAt`, already
+  maintained on token issuance, because that is how a dead key is told from a live one.
+
+### Changed — breaking
+
+- **`IIdentityStore` gains a required member**, `ListServiceClientsByOwnerAsync`. Every
+  implementation must add it; the framework provides no default deliberately, because a default
+  returning an empty list would let an un-updated store compile and then tell every owner they had
+  issued nothing — reproducing, more quietly, the failure this endpoint fixes.
+
+  **To migrate**, project your client rows to `ServiceClientSummary`:
+
+  ```csharp
+  public Task<IReadOnlyList<ServiceClientSummary>> ListServiceClientsByOwnerAsync(
+      Guid ownerUserId, CancellationToken ct) =>
+      _db.ServiceClients
+          .Where(c => c.OwnerUserId == ownerUserId)     // scope strictly to the owner
+          .OrderByDescending(c => c.CreatedAt)
+          .Select(c => new ServiceClientSummary(
+              c.Id, c.ClientId, c.DisplayName,
+              c.Permissions.Select(p => p.Code).ToList(),   // resolve in the same query, not per row
+              c.CreatedAt, c.ExpiresAt, c.LastUsedAt, c.IsActive))
+          .ToListAsync(ct);
+  ```
+
+  Include revoked clients rather than filtering them out — a listing that hides them answers "is
+  that credential still out there?" the same way as "it never existed". `CreatedAt` is not nullable;
+  the store supplies it.
+
+- `Exclude<T>(...)` on either builder now **fails at startup when it names a type the
+  surface does not expose**, instead of quietly excluding nothing. Both builders had a
+  hole, with different symptoms, and both left the caller believing a stored value was
+  hidden when it was not:
+
+  - `IyuEdmModelBuilder` *declared* the named type on the underlying model builder. An
+    attempt to hide one property of a type the model did not expose therefore **added that
+    type to `$metadata`** — publishing the rest of its shape while hiding nothing.
+  - `IyuGraphQLSchemaBuilder` registered a type extension for it. HotChocolate discards an
+    extension whose target type no field returns, so the call was a **silent no-op**.
+
+  The error names the type to pass instead, because passing the wrong one is the whole
+  failure mode.
+
+  End-to-end coverage came with it, on a pair whose read and write types are **distinct classes** —
+  including `POST`/`PATCH` rejection and the stored value surviving a rejected patch. The previous
+  tests registered a pair as `<T, T>`, so they could not distinguish which of the two types carries
+  the exclusion, which is precisely what the corrected guidance below got wrong.
+
+- **Corrected guidance that made the above reachable.** 0.11.0 told callers to apply the
+  exclusion "to the write type as well … when the value must not be settable through the
+  generic write path". That is wrong in both directions: the generic controller binds
+  request bodies to the **read** type, so excluding the read type already rejects a `POST`
+  or `PATCH` naming the property — and excluding the write type does not protect the write
+  path, it only triggers the `$metadata` growth above. A caller who followed the sentence
+  as "the write type guards writes" and excluded only that type was left with the read
+  surface and the write path both fully open.
+
+  **If you added a write-type exclusion on 0.11.0, remove it** — the read-type exclusion is
+  what protects both surfaces, and the write-type call now throws at startup.
+
+### Changed
+
+- Exclusions are applied when the model is finalized rather than when `Exclude` is called, so it may
+  now be called **before or after** `AddEntityPair` on either builder. Malformed property
+  expressions still throw at the call site.
+
+- The report scheduler's failure handling is now covered by tests. Its whole purpose is that a
+  report which fails to generate leaves a **visible marker** instead of a silent hole, and that a
+  run of failures escalates to `Critical` — behaviour an operator relies on and nothing verified.
+  No behaviour changed; one scheduler pass became reachable to the test assembly so the assertions
+  do not depend on how far the background loop runs before the host's start call returns.
+
+### Fixed
+
+- `$metadata` and the service document now answer **under a test host**, not only in a deployed app.
+  Both are served by OData's own `MetadataController`, which is never the entry assembly, so MVC
+  reached it through the entry assembly's dependency graph — the deployed app's graph contains it,
+  a test runner's does not. `AddRouteComponents` published the route either way, so an integration
+  test asking for `$metadata` got a **404 that reads as a modelling mistake** rather than a hosting
+  artifact. `AddIyuMainServer` now registers that assembly alongside the consumer assemblies it
+  already registered for the same reason; the existing dedup guard makes it a no-op where discovery
+  had already found it, so nothing changes for a deployed app.
+
+- The README's Status section announced the **wrong version** at two releases running. It is now
+  checked against the version the shipped assembly carries, so it cannot be skipped silently — the
+  known-gaps list under it is only as trustworthy as the version above it. The hand-kept test total
+  that sat beside it is gone rather than guarded: it went stale on every commit that added a test,
+  and no reader acted on the number.
 
 ## [0.11.0] - 2026-08-04
 

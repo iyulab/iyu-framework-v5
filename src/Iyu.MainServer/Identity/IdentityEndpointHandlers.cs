@@ -17,10 +17,9 @@ public static class IdentityEndpointHandlers
         return Results.Ok(new TokenResponse(r.AccessToken!, "Bearer", r.ExpiresInSeconds, string.Join(' ', r.Permissions)));
     }
 
-    /// <remarks>The <c>id</c> in this response is the only handle to the client that is created: rotate and
-    /// revoke both require it, and no endpoint enumerates clients. The <c>secret</c> is shown once by design;
-    /// the <c>id</c> is not, and the caller must persist it. Losing this response leaves the credential
-    /// impossible to revoke even after its secret leaks.</remarks>
+    /// <remarks>The <c>secret</c> in this response is shown once by design and cannot be recovered — rotate
+    /// the client if it is lost. The <c>id</c> can be recovered: <c>GET /api/service-clients</c> lists what
+    /// the caller owns, which is where rotate and revoke get their handle when the issuing response is gone.</remarks>
     public static async Task<IResult> CreateServiceClientAsync(
         CreateServiceClientRequest req, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
     {
@@ -30,6 +29,16 @@ public static class IdentityEndpointHandlers
         return Results.Created($"/api/service-clients/{r.Id}",
             new { id = r.Id, clientId = r.ClientId, secret = r.PlaintextSecret });   // secret 1회 반환
     }
+
+    /// <summary>Lists the caller's own service clients, revoked ones included and marked inactive.</summary>
+    /// <remarks>
+    /// Returns <see cref="ServiceClientSummary"/> rather than the stored client: that type has no
+    /// secret material on it at all, so "the hash must not be serialised here" holds by construction
+    /// instead of by everyone downstream remembering.
+    /// </remarks>
+    public static async Task<IResult> ListServiceClientsAsync(
+        Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
+        => Results.Ok(await svc.ListAsync(ownerUserId, ct));
 
     public static async Task<IResult> RevokeServiceClientAsync(
         Guid id, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)

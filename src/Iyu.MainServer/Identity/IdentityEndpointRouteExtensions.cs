@@ -20,6 +20,10 @@ public static class IdentityEndpointRouteExtensions
             => TryOwnerId(http, out var owner)
                 ? IdentityEndpointHandlers.CreateServiceClientAsync(req, owner, svc, ct)
                 : Task.FromResult(Results.Unauthorized()));
+        clients.MapGet("", (HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => TryOwnerId(http, out var owner)
+                ? IdentityEndpointHandlers.ListServiceClientsAsync(owner, svc, ct)
+                : Task.FromResult(Results.Unauthorized()));
         clients.MapDelete("/{id:guid}", (Guid id, HttpContext http, ServiceClientService svc, CancellationToken ct)
             => TryOwnerId(http, out var owner)
                 ? IdentityEndpointHandlers.RevokeServiceClientAsync(id, owner, svc, ct)

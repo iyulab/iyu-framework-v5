@@ -35,7 +35,8 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly List<Action<IObjectTypeDescriptor>> _fieldBuilders = new();
     private readonly HashSet<string> _queryNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
-    private readonly List<Action<IRequestExecutorBuilder>> _typeCustomizations = new();
+    private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
+    private readonly Dictionary<Type, string> _exposedTypes = new();
 
     /// <summary>
     /// Registers a query field named <paramref name="queryName"/> that returns
@@ -52,6 +53,7 @@ public sealed class IyuGraphQLSchemaBuilder
         if (!_queryNames.Add(queryName))
             throw new InvalidOperationException($"GraphQL query field '{queryName}' is already registered.");
         _mutationPrefixes[queryName] = mutationPrefix;
+        _exposedTypes[typeof(TRead)] = queryName;
 
         _fieldBuilders.Add(descriptor =>
         {
@@ -68,12 +70,24 @@ public sealed class IyuGraphQLSchemaBuilder
     /// <typeparamref name="T"/>, so that no query can select them.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The GraphQL counterpart of the OData model builder's <c>Exclude</c>: a type
     /// exposed through both surfaces has to be subtracted from both, or the value
-    /// simply leaves by the other door. Callable after
-    /// <see cref="AddEntityPair{TRead,TWrite}"/> — nothing is applied until
-    /// <see cref="ApplyTo"/>.
+    /// simply leaves by the other door. <b>Name the read type of the pair</b> — that is
+    /// the type the schema exposes. Naming any other type excludes nothing and is
+    /// refused by <see cref="ApplyTo"/>: a type extension for a type no field returns is
+    /// discarded during schema construction, which would leave the caller believing a
+    /// stored value is hidden while every query for it still succeeds.
+    /// </para>
+    /// <para>
+    /// Order does not matter — nothing is applied until <see cref="ApplyTo"/>, so this
+    /// may be called before or after <see cref="AddEntityPair{TRead,TWrite}"/>.
+    /// </para>
     /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// An entry of <paramref name="properties"/> is not a direct property access.
+    /// Thrown here, where the caller wrote it.
+    /// </exception>
     public IyuGraphQLSchemaBuilder Exclude<T>(params Expression<Func<T, object?>>[] properties)
         where T : class
     {
@@ -90,18 +104,44 @@ public sealed class IyuGraphQLSchemaBuilder
         // the inferred one would keep the field — the exclusion would silently do nothing.
         // Ignore by selector, not by name: the schema field is camelCased, so passing the
         // CLR name would add and hide a *different* field and leave the real one exposed.
-        _typeCustomizations.Add(builder => builder.AddTypeExtension(new ObjectTypeExtension<T>(descriptor =>
+        _typeCustomizations.Add((typeof(T), builder => builder.AddTypeExtension(new ObjectTypeExtension<T>(descriptor =>
         {
             foreach (var selector in selectors) descriptor.Ignore(selector);
-        })));
+        }))));
 
         return this;
+    }
+
+    /// <summary>
+    /// Refuses an exclusion that names a type the schema does not expose.
+    /// </summary>
+    /// <remarks>
+    /// HotChocolate drops a type extension whose target type no field returns, so
+    /// without this the call is a silent no-op — the worst possible outcome for a
+    /// feature whose job is keeping a stored value off the wire. The message names the
+    /// type to pass instead, because passing the wrong one is the whole failure mode.
+    /// </remarks>
+    private void EnsureExposed(Type type)
+    {
+        if (_exposedTypes.ContainsKey(type)) return;
+
+        var exposed = _exposedTypes.Keys.Select(t => t.Name).Order(StringComparer.Ordinal).ToList();
+        var known = exposed.Count == 0
+            ? "no entity pairs are registered"
+            : $"exposed types are: {string.Join(", ", exposed)}";
+
+        throw new InvalidOperationException(
+            $"Cannot exclude a property of '{type.Name}': the schema does not expose it ({known}). "
+            + "Name the read type of the pair — it is the type queries return.");
     }
 
     /// <summary>
     /// Registers the accumulated pairs as the root <c>Query</c> type on the
     /// given executor builder. Call once during service configuration.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// An exclusion names a type the schema does not expose.
+    /// </exception>
     public void ApplyTo(IRequestExecutorBuilder executorBuilder)
     {
         ArgumentNullException.ThrowIfNull(executorBuilder);
@@ -111,7 +151,11 @@ public sealed class IyuGraphQLSchemaBuilder
             descriptor.Name("Query");
             foreach (var build in fieldBuilders) build(descriptor);
         });
-        foreach (var customize in _typeCustomizations.ToArray()) customize(executorBuilder);
+        foreach (var (type, customize) in _typeCustomizations.ToArray())
+        {
+            EnsureExposed(type);
+            customize(executorBuilder);
+        }
     }
 
     /// <summary>Exposes the mutation prefix recorded for a given query name.</summary>

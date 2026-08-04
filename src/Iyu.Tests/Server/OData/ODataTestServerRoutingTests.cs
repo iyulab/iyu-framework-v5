@@ -72,6 +72,38 @@ public class ODataTestServerRoutingTests
         return app;
     }
 
+    /// <summary>
+    /// <c>$metadata</c> and the service document answer under a test host, not just in production.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both are served by OData's own <c>MetadataController</c>, which is never the entry assembly.
+    /// Production reaches it through the entry assembly's dependency graph — measured: an app whose
+    /// entry assembly is itself has <c>Microsoft.AspNetCore.OData</c> among its application parts
+    /// and answers <c>$metadata</c> with 200. Under this test host the graph is the runner's, so
+    /// the route was published and nothing answered it.
+    /// </para>
+    /// <para>
+    /// A 404 there reads as a modelling mistake rather than a hosting artifact, which is why
+    /// <c>AddIyuMainServer</c> registers that assembly rather than leaving it to a note. This test
+    /// is what would notice if it stopped.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("/$data/$metadata")]
+    [InlineData("/$data/")]
+    public async Task MetadataAndServiceDocument_Answer_UnderATestHost(string path)
+    {
+        var app = await StartAsync(RegisterViaMethodGroup);
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient().GetAsync(path);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Contains("RoutingWidget", await resp.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
     [Fact]
     public async Task EntitySet_IsRouted_WhenRegisteredViaMethodGroup()
     {

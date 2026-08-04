@@ -82,6 +82,36 @@ write entity using reflection; extras are dropped. `CreatedAt`/`UpdatedAt`/`Id`
 are explicitly excluded because they are owned by the interceptor or the
 caller's explicit assignment.
 
+### Keeping a stored value off the API surface
+
+Every public property of a read type is reachable through `$data` and GraphQL. For a
+value that is stored but must never leave the server — a password hash, a client secret —
+subtract it from the model:
+
+```csharp
+configure: options =>
+{
+    RegisterEntities(options);   // registration you may not own — see below
+
+    options.ODataModel.Exclude<AccountExt>(x => x.PasswordHash);
+    options.GraphQL.Exclude<AccountExt>(x => x.PasswordHash);
+}
+```
+
+**Name the read type.** It is the type both surfaces expose, and — because request bodies
+bind to it — excluding it closes reads and writes together: `$select`, `$filter` and
+`$orderby` naming the property are rejected, the GraphQL schema has no such field, and a
+`POST`/`PATCH` carrying it fails before anything is stored. The write type is not part of
+the exposed model, so naming it excludes nothing; both builders refuse it at startup rather
+than let the call quietly do nothing.
+
+The property is *removed*, not blanked. A blank value would be indistinguishable from "this
+row has no value", and would still let a caller recover the real one a character at a time
+with `$filter=startswith(...)`.
+
+Both calls work after the pair is registered, which is the point: a registration you cannot
+edit — one produced by a tool, or shared across several hosts — can still be subtracted from.
+
 ## Integration testing (TestServer)
 
 The generated OData controllers live in the server assembly, but MVC discovers
@@ -91,8 +121,10 @@ assembly is `testhost`, whose closure does not include the server — so without
 help every endpoint silently returns **404**.
 
 `AddIyuMainServer` handles this automatically: it registers the `TContext`
-assembly **and** the registration callback's declaring assembly as application
-parts. The standard method-group form therefore just works over `TestServer`:
+assembly, the registration callback's declaring assembly, and the assembly
+serving `$metadata` as application parts. The standard method-group form
+therefore just works over `TestServer` — entity sets, `$metadata` and the
+service document alike:
 
 ```csharp
 var builder = WebApplication.CreateBuilder();
@@ -192,9 +224,10 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.10.2**. 219 unit and integration tests passing; build clean with no
-warnings. The OData/GraphQL runtime, identity, attachments, chat, and reports
-modules are all in place and consumed in production.
+Version **0.11.0**, plus unreleased changes recorded under `[Unreleased]` in the
+changelog. Unit and integration tests run against every project on each build, and
+warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
+reports modules are all in place and consumed in production.
 
 Known gaps, in rough priority order:
 
