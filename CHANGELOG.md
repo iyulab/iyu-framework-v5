@@ -22,6 +22,40 @@ and the target, not just the newest. Each release states its own breaking change
 
 Nothing yet.
 
+## [0.11.0] - 2026-08-04
+
+**Packages affected:** `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.Core`, `Iyu.MainServer`
+(the OData/GraphQL model builders and a shared expression helper). No behaviour changes for
+consumers that do not call the new API.
+
+### Added
+
+- `IyuEdmModelBuilder.Exclude<T>(...)` and `IyuGraphQLSchemaBuilder.Exclude<T>(...)` — remove a
+  property from the model a consumer exposes. Until now there was **no way to keep a stored value
+  off the API surface**: both builders wrapped their underlying model builder privately, exposing
+  only `AddEntityPair`, so every public property of a read type was reachable through
+  `$data` and GraphQL. For an entity holding a password hash or a client secret, that meant the
+  value was served to any caller holding the entity set's permission — and could be probed one
+  character at a time with `$filter=startswith(...)` even without reading it.
+
+  The property is **removed from the model**, not blanked: `$select`, `$filter` and `$orderby`
+  naming it are rejected, and the GraphQL schema has no such field. Blanking would be
+  indistinguishable from "this row has no value" and would leave the probing route open.
+
+  Both are callable **after** `AddEntityPair`, because neither builder finalises until
+  `GetEdmModel()` / `ApplyTo()`. That ordering is the point: consumers whose entity registration
+  is code-generated cannot edit the registration, but they can subtract from it afterwards.
+
+  Properties are named by expression (`x => x.SecretHash`) rather than by string. An exclusion
+  whose failure mode is "silently exposed the field you meant to hide" must not be able to fail
+  by typo; a nested or non-property expression throws where it is written.
+
+  Apply it to the write type as well when the value must not be **settable** through the generic
+  write path — a hash that can be written is a password that can be chosen.
+
+- `ExposedProperty.Resolve<T>(...)` in `Iyu.Core` — shared property-selector resolution behind both.
+
+
 ## [0.10.2] - 2026-08-04
 
 **Packages affected**: none functionally — no API or behaviour change. The guidance that
