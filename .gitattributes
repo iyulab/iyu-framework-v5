@@ -1,0 +1,4 @@
+# Shell scripts run on Linux CI runners but are edited on any platform. Without this, a
+# checkout that applies CRLF produces a script whose shebang ends in \r, and the runner
+# reports "bad interpreter" -- a failure that names the wrong cause.
+*.sh text eol=lf

@@ -9,7 +9,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags: the "Packages affected" check below diffs this release against
+      # the previous one, which a shallow checkout cannot express.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -32,6 +36,13 @@ jobs:
             echo "::error::Version mismatch: tag=${{ steps.version.outputs.tag_version }}, Directory.Build.props=$PROPS_VERSION"
             exit 1
           fi
+
+      # CHANGELOG.md ships inside every package and its headnote promises that a package absent
+      # from a release's "Packages affected" line changed nothing the consumer depends on. That
+      # line is hand-maintained and has been wrong. The check runs here, before Pack, because a
+      # wrong list caught after publishing is already on nuget.org.
+      - name: Packages affected matches the release diff
+        run: .github/scripts/packages-affected.sh released
 
       - name: Cache NuGet packages
         uses: actions/cache@v4

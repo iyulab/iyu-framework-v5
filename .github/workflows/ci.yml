@@ -38,6 +38,23 @@ jobs:
           fi
           echo "Tag v$VERSION exists."
 
+  # The release job blocks a wrong "Packages affected" list from being published, which is the
+  # contract. But it fires at the moment of release, when the correction costs a follow-up
+  # release. This runs the same check against [Unreleased] on every push and pull request, so
+  # a package touched without being listed shows up while the entry is still being written.
+  # It warns rather than fails: an entry legitimately lags its commit inside a single branch,
+  # and a check that goes red for that would be switched off rather than obeyed.
+  packages-affected:
+    name: Packages affected covers [Unreleased] (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare [Unreleased] against the diff since the last release
+        run: .github/scripts/packages-affected.sh unreleased
+
   build-test:
     runs-on: ubuntu-latest
     steps:
