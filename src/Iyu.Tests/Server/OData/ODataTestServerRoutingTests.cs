@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Net;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Iyu.Core.Entities;
 using Iyu.Data;
@@ -38,6 +39,13 @@ public sealed class RoutingWidgetContext(DbContextOptions<RoutingWidgetContext> 
 }
 
 public sealed class RoutingWidgetsController(RoutingWidgetContext ctx)
+    : IyuODataController<RoutingWidgetExt, RoutingWidget>(ctx);
+
+// A second, differently-named controller over the same entity pair — OData binds a
+// set to a controller by name convention, so a read-only registration needs its own
+// set name and therefore its own top-level controller class (see the NOTE above on
+// why these stay top-level).
+public sealed class ReadOnlyWidgetsController(RoutingWidgetContext ctx)
     : IyuODataController<RoutingWidgetExt, RoutingWidget>(ctx);
 
 /// <summary>
@@ -135,6 +143,50 @@ public class ODataTestServerRoutingTests
         {
             using var resp = await app.GetTestServer().CreateClient().GetAsync("/$data/RoutingWidgets");
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// End-to-end check for <c>readOnlyVerbs</c>: through the real TestServer pipeline
+    /// — not the direct action-method calls <see cref="IyuODataControllerTests"/> uses
+    /// — a POST to a set registered read-only for it is refused before OData routing
+    /// even has a chance to reject the added <c>[FromServices]</c> parameter as an
+    /// unmatched action shape, and <c>IyuEntityPairRegistry</c> resolves correctly
+    /// from DI rather than only from a test-supplied instance.
+    /// </summary>
+    [Fact]
+    public async Task Post_Is_Rejected_ThroughTheRealPipeline_WhenTheSetIsRegisteredReadOnlyForIt()
+    {
+        var app = await StartAsync(options =>
+        {
+            options.ControllerAssemblies.Add(typeof(ReadOnlyWidgetsController).Assembly);
+            options.ODataModel.AddEntityPair<RoutingWidgetExt, RoutingWidget>(
+                "ReadOnlyWidgets", ODataVerb.Post);
+        });
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .PostAsJsonAsync("/$data/ReadOnlyWidgets", new { Name = "should not be created" });
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, resp.StatusCode);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// The unrestricted case through the same real pipeline — pins that adding the
+    /// <c>[FromServices]</c> parameter to <c>Post</c> did not break OData's action
+    /// selection for the common (no restriction) case.
+    /// </summary>
+    [Fact]
+    public async Task Post_Still_Succeeds_ThroughTheRealPipeline_WhenTheSetHasNoRestrictions()
+    {
+        var app = await StartAsync(RegisterViaMethodGroup);
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .PostAsJsonAsync("/$data/RoutingWidgets", new { Name = "a real widget" });
+            Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
         }
         finally { await app.DisposeAsync(); }
     }
