@@ -48,6 +48,10 @@ public static class MainServerExtensions
         // Let the generic OData controller and any other consumer resolve the
         // base class IyuDbContext from DI without knowing the concrete type.
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<TContext>());
+        // Resolved via [FromServices] on IyuODataController's write actions, not
+        // constructor injection — adding a constructor parameter would break every
+        // generated controller subclass, which calls only `base(context)`.
+        services.AddSingleton(options.ODataModel.Registry);
 
         var mvc = services.AddControllers()
             .AddJsonOptions(json =>

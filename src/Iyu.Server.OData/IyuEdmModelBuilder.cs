@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
+using Microsoft.OData.Edm.Csdl;
+using Microsoft.OData.Edm.Vocabularies;
 using Microsoft.OData.ModelBuilder;
 
 namespace Iyu.Server.OData;
@@ -30,11 +32,23 @@ public sealed class IyuEdmModelBuilder
     /// Only <typeparamref name="TRead"/> is exposed as an OData entity set; the
     /// write type remains internal to the runtime.
     /// </summary>
-    public IyuEdmModelBuilder AddEntityPair<TRead, TWrite>(string setName)
+    /// <param name="setName">The OData entity set name.</param>
+    /// <param name="readOnlyVerbs">
+    /// Write verbs the generic controller must refuse for this set — e.g.
+    /// <c>AddEntityPair&lt;OrderSummaryExt, OrderSummary&gt;("OrderSummaries", ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete)</c>
+    /// for a set backed entirely by a read-only view. Advertised on
+    /// <c>$metadata</c> via the standard OData Capabilities vocabulary
+    /// (<c>Org.OData.Capabilities.V1.InsertRestrictions</c> / <c>UpdateRestrictions</c>
+    /// / <c>DeleteRestrictions</c>) and enforced by
+    /// <c>IyuODataController&lt;TRead,TWrite&gt;</c> at the same time, so a
+    /// client that reads the metadata and one that skips it are rejected
+    /// identically. Omit for the pre-existing behavior (every verb allowed).
+    /// </param>
+    public IyuEdmModelBuilder AddEntityPair<TRead, TWrite>(string setName, params ODataVerb[] readOnlyVerbs)
         where TRead : IyuEntity
         where TWrite : IyuEntity
     {
-        Registry.Register<TRead, TWrite>(setName);
+        Registry.Register<TRead, TWrite>(setName, readOnlyVerbs.Length == 0 ? null : new HashSet<ODataVerb>(readOnlyVerbs));
         _modelBuilder.EntitySet<TRead>(setName);
         return this;
     }
@@ -104,7 +118,85 @@ public sealed class IyuEdmModelBuilder
         }
 
         ApplyEnumMemberNames();
-        return _modelBuilder.GetEdmModel();
+        var edmModel = _modelBuilder.GetEdmModel();
+
+        // ODataConventionModelBuilder always hands back a mutable EdmModel — verified
+        // against the pinned Microsoft.OData.ModelBuilder version; a cast failure here
+        // would mean that contract changed and the capability annotations below need
+        // a different attachment point, not a silent skip.
+        if (edmModel is EdmModel mutableModel)
+            ApplyCapabilityRestrictions(mutableModel);
+
+        return edmModel;
+    }
+
+    /// <summary>
+    /// Advertises every registered pair's <see cref="IyuEntityPairRegistry.EntityPair.ReadOnlyVerbs"/>
+    /// on <c>$metadata</c> via the standard OData Capabilities vocabulary
+    /// (<c>Org.OData.Capabilities.V1</c>) — <c>InsertRestrictions</c> /
+    /// <c>UpdateRestrictions</c> / <c>DeleteRestrictions</c>, each an
+    /// <c>Insertable</c>/<c>Updatable</c>/<c>Deletable</c> boolean record applied
+    /// to the entity set.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Microsoft.OData.Edm.Vocabularies.V1.CapabilitiesVocabularyModel"/>
+    /// (the pinned <c>Microsoft.OData.Edm</c> version's only built-in Capabilities
+    /// support) declares nothing but <c>ChangeTracking</c> — the restriction terms
+    /// used here are not shipped as ready-made types. Declaring them by hand, under
+    /// the real standard namespace and with the real standard property names
+    /// (rather than an <c>Iyu.*</c> vendor term), costs a few extra lines here and
+    /// buys every OData-aware client the annotation for free: no client-side
+    /// special-casing, and no migration if a future SDK version ships the same
+    /// terms as first-class types — the namespace and shape already match.
+    /// </remarks>
+    private void ApplyCapabilityRestrictions(EdmModel model)
+    {
+        var restricted = Registry.All.Where(p => p.ReadOnlyVerbs.Count > 0).ToList();
+        if (restricted.Count == 0) return;
+
+        const string ns = "Org.OData.Capabilities.V1";
+
+        var insertType = new EdmComplexType(ns, "InsertRestrictionsType");
+        insertType.AddStructuralProperty("Insertable", EdmPrimitiveTypeKind.Boolean, isNullable: false);
+        model.AddElement(insertType);
+        var insertTerm = new EdmTerm(ns, "InsertRestrictions", new EdmComplexTypeReference(insertType, false), "EntitySet");
+        model.AddElement(insertTerm);
+
+        var updateType = new EdmComplexType(ns, "UpdateRestrictionsType");
+        updateType.AddStructuralProperty("Updatable", EdmPrimitiveTypeKind.Boolean, isNullable: false);
+        model.AddElement(updateType);
+        var updateTerm = new EdmTerm(ns, "UpdateRestrictions", new EdmComplexTypeReference(updateType, false), "EntitySet");
+        model.AddElement(updateTerm);
+
+        var deleteType = new EdmComplexType(ns, "DeleteRestrictionsType");
+        deleteType.AddStructuralProperty("Deletable", EdmPrimitiveTypeKind.Boolean, isNullable: false);
+        model.AddElement(deleteType);
+        var deleteTerm = new EdmTerm(ns, "DeleteRestrictions", new EdmComplexTypeReference(deleteType, false), "EntitySet");
+        model.AddElement(deleteTerm);
+
+        foreach (var pair in restricted)
+        {
+            var entitySet = model.EntityContainer.FindEntitySet(pair.SetName)
+                ?? throw new InvalidOperationException(
+                    $"Entity set '{pair.SetName}' was registered but is missing from the built EDM model.");
+
+            if (pair.ReadOnlyVerbs.Contains(ODataVerb.Post))
+                Annotate(model, entitySet, insertTerm, "Insertable");
+            if (pair.ReadOnlyVerbs.Contains(ODataVerb.Patch))
+                Annotate(model, entitySet, updateTerm, "Updatable");
+            if (pair.ReadOnlyVerbs.Contains(ODataVerb.Delete))
+                Annotate(model, entitySet, deleteTerm, "Deletable");
+        }
+    }
+
+    /// <summary>Attaches a <c>{propertyName}: false</c> record annotation for <paramref name="term"/>.</summary>
+    private static void Annotate(EdmModel model, IEdmEntitySet entitySet, EdmTerm term, string propertyName)
+    {
+        var annotation = new EdmVocabularyAnnotation(
+            entitySet, term,
+            new EdmRecordExpression(new EdmPropertyConstructor(propertyName, new EdmBooleanConstant(false))));
+        annotation.SetSerializationLocation(model, EdmVocabularyAnnotationSerializationLocation.Inline);
+        model.AddVocabularyAnnotation(annotation);
     }
 
     /// <summary>

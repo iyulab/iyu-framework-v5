@@ -20,7 +20,29 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`, `Iyu.MainServer`
+**Packages affected:** `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.OData`
+
+### Added
+
+- **`AddEntityPair` accepts `readOnlyVerbs` so a set can refuse specific write verbs.**
+  `IyuEdmModelBuilder.AddEntityPair<TRead, TWrite>(setName, params ODataVerb[] readOnlyVerbs)`
+  (`ODataVerb`: `Post` / `Patch` / `Delete`) records the restriction on the entity pair
+  registry and enforces it in two places that agree by construction: `$metadata`
+  advertises it via the real OData Capabilities vocabulary
+  (`Org.OData.Capabilities.V1.InsertRestrictions` / `UpdateRestrictions` /
+  `DeleteRestrictions` — not an `Iyu.*` vendor term, since the pinned
+  `Microsoft.OData.Edm` only ships `ChangeTracking` as a built-in Capabilities type but
+  the vocabulary's namespace and record shape are hand-declared to match the published
+  standard exactly), and `IyuODataController<TRead,TWrite>` rejects the matching verb
+  with `405 Method Not Allowed` before touching the request body — so a client that reads
+  `$metadata` first and one that does not are both refused, not just the one that asked.
+  `IyuEntityPairRegistry` is now also registered in DI (`AddSingleton`) and resolved by
+  the generic controller's write actions via `[FromServices]`, not constructor injection
+  — changing the constructor would have broken every generated controller subclass,
+  which calls only `base(context)`. Omit the parameter for the pre-existing behavior
+  (every verb allowed). GraphQL needs no change yet: `IyuGraphQLSchemaBuilder` does not
+  wire mutations in this runtime scaffold, so there is nothing there to restrict —
+  `ReadOnlyVerbs` must be consulted once a future mutation generator adds one.
 
 ### Fixed
 
@@ -42,8 +64,6 @@ and the target, not just the newest. Each release states its own breaking change
   **output** changes. Consumer code that string-compares an `/api` response against the
   old CLR-cased value (e.g. `status === "Verdict"`) needs updating to the wire form
   (`"verdict"`) once this ships.
-
-## [0.12.1] - 2026-08-18
 
 ## [0.12.1] - 2026-08-18
 

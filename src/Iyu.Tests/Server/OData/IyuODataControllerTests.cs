@@ -69,6 +69,14 @@ public class IyuODataControllerTests
         : IyuODataController<BankAccountExt, BankAccount>(ctx);
 
     /// <summary>
+    /// No pair registered under <see cref="BankAccountExt"/>, so
+    /// <c>ReadOnlyRejection</c> always finds nothing to reject — these tests
+    /// exercise the direct action methods, bypassing the MVC pipeline that would
+    /// otherwise resolve this via <c>[FromServices]</c>.
+    /// </summary>
+    private static readonly IyuEntityPairRegistry EmptyRegistry = new();
+
+    /// <summary>
     /// The validation services a controller resolves at run time. Built from the
     /// real MVC registration rather than a hand-rolled validator, because the
     /// behaviour under test is precisely that create and partial update go
@@ -132,7 +140,7 @@ public class IyuODataControllerTests
             BankName = "가나은행",
             AccountNumber = "1002-123-456789"
         };
-        var result = await controller.Post(body, CancellationToken.None);
+        var result = await controller.Post(body, EmptyRegistry, CancellationToken.None);
 
         var created = Assert.IsType<CreatedResult>(result);
         // Persisted write row exists with timestamps populated by the interceptor.
@@ -177,7 +185,7 @@ public class IyuODataControllerTests
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.AccountNumber), "555-000");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
         Assert.IsType<StatusCodeResult>(result);
 
         var reloaded = await ctx.BankAccounts.SingleAsync();
@@ -193,7 +201,7 @@ public class IyuODataControllerTests
         ctx.BankAccounts.Add(write);
         await ctx.SaveChangesAsync();
 
-        var result = await controller.Delete(write.Id, CancellationToken.None);
+        var result = await controller.Delete(write.Id, EmptyRegistry, CancellationToken.None);
         Assert.IsType<NoContentResult>(result);
         Assert.Empty(await ctx.BankAccounts.ToListAsync());
     }
@@ -202,7 +210,7 @@ public class IyuODataControllerTests
     public async Task Delete_returns_404_when_missing()
     {
         var (_, controller) = CreateSut(nameof(Delete_returns_404_when_missing));
-        var result = await controller.Delete(Guid.NewGuid(), CancellationToken.None);
+        var result = await controller.Delete(Guid.NewGuid(), EmptyRegistry, CancellationToken.None);
         Assert.IsType<NotFoundResult>(result);
     }
 
@@ -242,7 +250,7 @@ public class IyuODataControllerTests
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankName), "");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
         var bad = Assert.IsType<BadRequestObjectResult>(result);
         var state = Assert.IsType<SerializableError>(bad.Value);
@@ -272,7 +280,7 @@ public class IyuODataControllerTests
 
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankName), "");
-        var patchResult = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var patchResult = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
         var patchErrors = ErrorsFor(patchResult, nameof(BankAccountExt.BankName));
 
         Assert.Equal(postErrors, patchErrors);
@@ -294,7 +302,7 @@ public class IyuODataControllerTests
     private static Task<IActionResult> PostAsBoundAsync(BankAccountsController controller, BankAccountExt body)
     {
         controller.TryValidateModel(body);
-        return controller.Post(body, CancellationToken.None);
+        return controller.Post(body, EmptyRegistry, CancellationToken.None);
     }
 
     private static string[] ErrorsFor(IActionResult result, string key)
@@ -320,7 +328,7 @@ public class IyuODataControllerTests
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.AccountNumber), "555-000");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status204NoContent, Assert.IsType<StatusCodeResult>(result).StatusCode);
         var reloaded = await ctx.BankAccounts.SingleAsync();
@@ -341,7 +349,7 @@ public class IyuODataControllerTests
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankName), "");
 
-        var result = await controller.Patch(Guid.NewGuid(), delta, CancellationToken.None);
+        var result = await controller.Patch(Guid.NewGuid(), delta, EmptyRegistry, CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result);
     }
@@ -365,7 +373,7 @@ public class IyuODataControllerTests
         // What an override would do before delegating: replace the placeholder.
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankName), "Assigned Bank");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
         Assert.IsType<StatusCodeResult>(result);
         Assert.Equal("Assigned Bank", (await ctx.BankAccounts.SingleAsync()).BankName);
@@ -396,7 +404,7 @@ public class IyuODataControllerTests
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankCountry), "JP");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status204NoContent, Assert.IsType<StatusCodeResult>(result).StatusCode);
 
@@ -422,7 +430,7 @@ public class IyuODataControllerTests
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankCountry), "JP");
         delta.TrySetPropertyValue(nameof(BankAccountExt.AccountNumber), "555-000");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
         Assert.IsType<StatusCodeResult>(result);
         Assert.Equal("555-000", (await ctx.BankAccounts.SingleAsync()).AccountNumber);
@@ -444,7 +452,7 @@ public class IyuODataControllerTests
         var delta = new Delta<BankAccountExt>();
         delta.TrySetPropertyValue(nameof(BankAccountExt.BankCountry), "too long for two");
 
-        var result = await controller.Patch(write.Id, delta, CancellationToken.None);
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
         var bad = Assert.IsType<BadRequestObjectResult>(result);
         Assert.True(Assert.IsType<SerializableError>(bad.Value).ContainsKey(nameof(BankAccountExt.BankCountry)));
@@ -456,8 +464,91 @@ public class IyuODataControllerTests
         var (ctx, controller) = CreateSut(nameof(Post_assigns_new_guid_when_body_id_is_empty));
         var body = new BankAccountExt { BankName = "a", AccountNumber = "b" };
         Assert.Equal(Guid.Empty, body.Id);
-        await controller.Post(body, CancellationToken.None);
+        await controller.Post(body, EmptyRegistry, CancellationToken.None);
         var persisted = await ctx.BankAccounts.SingleAsync();
         Assert.NotEqual(Guid.Empty, persisted.Id);
+    }
+
+    /// <summary>
+    /// 405, and nothing is persisted — the registry is consulted before the request
+    /// body is touched, matching what <c>$metadata</c> advertises via the OData
+    /// Capabilities vocabulary (<see cref="IyuEdmModelBuilderTests"/>).
+    /// </summary>
+    [Fact]
+    public async Task Post_is_rejected_when_the_pair_is_registered_read_only_for_Post()
+    {
+        var (ctx, controller) = CreateSut(nameof(Post_is_rejected_when_the_pair_is_registered_read_only_for_Post));
+        var registry = new IyuEntityPairRegistry();
+        registry.Register<BankAccountExt, BankAccount>("BankAccounts", new HashSet<ODataVerb> { ODataVerb.Post });
+
+        var body = new BankAccountExt { BankName = "a", AccountNumber = "b" };
+        var result = await controller.Post(body, registry, CancellationToken.None);
+
+        var rejected = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status405MethodNotAllowed, rejected.StatusCode);
+        Assert.Empty(await ctx.BankAccounts.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Patch_is_rejected_when_the_pair_is_registered_read_only_for_Patch()
+    {
+        var (ctx, controller) = CreateSut(nameof(Patch_is_rejected_when_the_pair_is_registered_read_only_for_Patch));
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "Acme Bank", AccountNumber = "999" };
+        ctx.BankAccounts.Add(write);
+        await ctx.SaveChangesAsync();
+
+        var registry = new IyuEntityPairRegistry();
+        registry.Register<BankAccountExt, BankAccount>("BankAccounts", new HashSet<ODataVerb> { ODataVerb.Patch });
+
+        var delta = new Delta<BankAccountExt>();
+        delta.TrySetPropertyValue(nameof(BankAccountExt.AccountNumber), "555-000");
+
+        var result = await controller.Patch(write.Id, delta, registry, CancellationToken.None);
+
+        var rejected = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status405MethodNotAllowed, rejected.StatusCode);
+        var reloaded = await ctx.BankAccounts.SingleAsync();
+        Assert.Equal("999", reloaded.AccountNumber);
+    }
+
+    [Fact]
+    public async Task Delete_is_rejected_when_the_pair_is_registered_read_only_for_Delete()
+    {
+        var (ctx, controller) = CreateSut(nameof(Delete_is_rejected_when_the_pair_is_registered_read_only_for_Delete));
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "Acme Bank", AccountNumber = "999" };
+        ctx.BankAccounts.Add(write);
+        await ctx.SaveChangesAsync();
+
+        var registry = new IyuEntityPairRegistry();
+        registry.Register<BankAccountExt, BankAccount>("BankAccounts", new HashSet<ODataVerb> { ODataVerb.Delete });
+
+        var result = await controller.Delete(write.Id, registry, CancellationToken.None);
+
+        var rejected = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status405MethodNotAllowed, rejected.StatusCode);
+        Assert.Single(await ctx.BankAccounts.ToListAsync());
+    }
+
+    /// <summary>A restriction on one verb must not spill over onto the others.</summary>
+    [Fact]
+    public async Task Patch_still_succeeds_when_the_pair_is_registered_read_only_for_a_different_verb()
+    {
+        var (ctx, controller) = CreateSut(nameof(Patch_still_succeeds_when_the_pair_is_registered_read_only_for_a_different_verb));
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "Acme Bank", AccountNumber = "999" };
+        ctx.BankAccounts.Add(write);
+        await ctx.SaveChangesAsync();
+
+        var registry = new IyuEntityPairRegistry();
+        registry.Register<BankAccountExt, BankAccount>(
+            "BankAccounts", new HashSet<ODataVerb> { ODataVerb.Post, ODataVerb.Delete });
+
+        var delta = new Delta<BankAccountExt>();
+        delta.TrySetPropertyValue(nameof(BankAccountExt.AccountNumber), "555-000");
+
+        var result = await controller.Patch(write.Id, delta, registry, CancellationToken.None);
+
+        Assert.IsType<StatusCodeResult>(result);
+        var reloaded = await ctx.BankAccounts.SingleAsync();
+        Assert.Equal("555-000", reloaded.AccountNumber);
     }
 }

@@ -70,8 +70,10 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// fresh <typeparamref name="TWrite"/> before persistence. Returns the
     /// created read-side projection.
     /// </summary>
-    public virtual async Task<IActionResult> Post([FromBody] TRead body, CancellationToken ct)
+    public virtual async Task<IActionResult> Post(
+        [FromBody] TRead body, [FromServices] IyuEntityPairRegistry registry, CancellationToken ct)
     {
+        if (ReadOnlyRejection(registry, ODataVerb.Post) is { } rejected) return rejected;
         if (body is null) return BadRequest();
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
@@ -100,8 +102,10 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// what is not defensible is letting statement order decide, so the order is
     /// deliberate and pinned by a test.
     /// </remarks>
-    public virtual async Task<IActionResult> Patch(Guid key, [FromBody] Delta<TRead> delta, CancellationToken ct)
+    public virtual async Task<IActionResult> Patch(
+        Guid key, [FromBody] Delta<TRead> delta, [FromServices] IyuEntityPairRegistry registry, CancellationToken ct)
     {
+        if (ReadOnlyRejection(registry, ODataVerb.Patch) is { } rejected) return rejected;
         if (delta is null) return BadRequest();
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
@@ -187,14 +191,41 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
                                  || key.StartsWith(n + "[", StringComparison.Ordinal));
 
     /// <summary>DELETE by key.</summary>
-    public virtual async Task<IActionResult> Delete(Guid key, CancellationToken ct)
+    public virtual async Task<IActionResult> Delete(
+        Guid key, [FromServices] IyuEntityPairRegistry registry, CancellationToken ct)
     {
+        if (ReadOnlyRejection(registry, ODataVerb.Delete) is { } rejected) return rejected;
+
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
         if (write is null) return NotFound();
 
         WriteSet.Remove(write);
         await Context.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Refuses <paramref name="verb"/> when the entity pair backing this controller
+    /// was registered read-only for it, via <c>IyuEdmModelBuilder.AddEntityPair</c>'s
+    /// <c>readOnlyVerbs</c> parameter.
+    /// </summary>
+    /// <remarks>
+    /// 405, not 400: the request is well-formed and the resource exists — it is
+    /// this specific method that the entity set does not support, which is
+    /// exactly what 405 Method Not Allowed means. <c>$metadata</c> advertises the
+    /// same restriction via the OData Capabilities vocabulary
+    /// (<see cref="IyuEdmModelBuilder"/>), so a client that reads it and one that
+    /// does not are rejected identically here — this check does not trust the
+    /// client to have read it.
+    /// </remarks>
+    private ObjectResult? ReadOnlyRejection(IyuEntityPairRegistry registry, ODataVerb verb)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        var pair = registry.FindByReadType(typeof(TRead));
+        if (pair is null || !pair.ReadOnlyVerbs.Contains(verb)) return null;
+
+        return StatusCode(StatusCodes.Status405MethodNotAllowed,
+            $"Entity set '{pair.SetName}' is registered read-only for {verb} and does not accept this request.");
     }
 
     /// <summary>

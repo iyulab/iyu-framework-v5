@@ -27,7 +27,10 @@ namespace Iyu.Server.GraphQL;
 /// Mutations are not wired by the runtime scaffold — they are more
 /// application-specific (input shapes, authorization) and will be emitted by
 /// the mdd-booster API generator in a later plan. <c>mutationPrefix</c> is
-/// recorded for that future use.
+/// recorded for that future use. When that generator lands, it must consult
+/// <c>IyuEntityPairRegistry.EntityPair.ReadOnlyVerbs</c> (Iyu.Server.OData) so a
+/// set the OData surface refuses POST/PATCH/DELETE for does not grow a GraphQL
+/// mutation that bypasses the same restriction.
 /// </para>
 /// </remarks>
 public sealed class IyuGraphQLSchemaBuilder

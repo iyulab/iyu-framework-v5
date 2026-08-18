@@ -1,6 +1,7 @@
 using System.Runtime.Serialization;
 using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
+using Microsoft.OData.Edm.Vocabularies;
 using Iyu.Server.OData;
 using Xunit;
 
@@ -220,5 +221,58 @@ public class IyuEdmModelBuilderTests
         Assert.DoesNotContain("Verdict", names);
         // No attribute on this member — falls back to the CLR name, same as before.
         Assert.Contains("Numeric", names);
+    }
+
+    private static bool RestrictionValue(IEdmModel model, IEdmEntitySet entitySet, string termName, string propertyName)
+    {
+        var annotation = model.VocabularyAnnotations.Single(
+            a => a.Target == entitySet && a.Term.Name == termName);
+        var record = Assert.IsAssignableFrom<IEdmRecordExpression>(annotation.Value);
+        var property = record.Properties.Single(p => p.Name == propertyName);
+        return Assert.IsAssignableFrom<IEdmBooleanConstantExpression>(property.Value).Value;
+    }
+
+    [Fact]
+    public void AddEntityPair_with_no_readOnlyVerbs_registers_no_capability_annotations()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+
+        var model = builder.GetEdmModel();
+        Assert.Empty(model.VocabularyAnnotations);
+    }
+
+    /// <summary>
+    /// A set registered read-only for POST/DELETE (but not PATCH) advertises exactly
+    /// those two restrictions on <c>$metadata</c> via the real OData Capabilities
+    /// vocabulary — not an <c>Iyu.*</c> vendor term — so any standard OData client
+    /// reads the same restriction the generic controller enforces.
+    /// </summary>
+    [Fact]
+    public void AddEntityPair_with_readOnlyVerbs_annotates_the_entity_set_with_the_standard_capabilities_vocabulary()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts", ODataVerb.Post, ODataVerb.Delete);
+
+        var model = builder.GetEdmModel();
+        var entitySet = model.EntityContainer.FindEntitySet("BankAccounts")!;
+
+        Assert.False(RestrictionValue(model, entitySet, "InsertRestrictions", "Insertable"));
+        Assert.False(RestrictionValue(model, entitySet, "DeleteRestrictions", "Deletable"));
+        Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Target == entitySet && a.Term.Name == "UpdateRestrictions");
+
+        var term = model.VocabularyAnnotations.Single(a => a.Target == entitySet && a.Term.Name == "InsertRestrictions").Term;
+        Assert.Equal("Org.OData.Capabilities.V1", term.Namespace);
+    }
+
+    [Fact]
+    public void AddEntityPair_stores_readOnlyVerbs_on_the_registered_pair()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts", ODataVerb.Patch);
+
+        var pair = builder.Registry.Find("BankAccounts");
+        Assert.NotNull(pair);
+        Assert.Equal(new[] { ODataVerb.Patch }, pair!.ReadOnlyVerbs);
     }
 }

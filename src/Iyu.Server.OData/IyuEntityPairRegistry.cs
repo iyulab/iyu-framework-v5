@@ -14,17 +14,25 @@ public sealed class IyuEntityPairRegistry
     private readonly ConcurrentDictionary<string, EntityPair> _bySetName = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Type, string> _byReadType = new();
 
+    private static readonly IReadOnlySet<ODataVerb> NoRestrictions = new HashSet<ODataVerb>();
+
     /// <summary>
     /// Registers a pair. Throws on duplicate set name or conflicting read-type
     /// registration — both indicate a configuration bug that should fail loudly.
     /// </summary>
-    public void Register<TRead, TWrite>(string setName)
+    /// <param name="setName">The OData entity set name.</param>
+    /// <param name="readOnlyVerbs">
+    /// Write verbs this set refuses. <c>null</c>/empty means every verb the
+    /// generic controller exposes (POST/PATCH/DELETE) is allowed — the
+    /// pre-existing behavior.
+    /// </param>
+    public void Register<TRead, TWrite>(string setName, IReadOnlySet<ODataVerb>? readOnlyVerbs = null)
         where TRead : IyuEntity
         where TWrite : IyuEntity
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
 
-        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite));
+        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions);
         if (!_bySetName.TryAdd(setName, pair))
             throw new InvalidOperationException($"Entity set '{setName}' is already registered.");
         if (!_byReadType.TryAdd(typeof(TRead), setName))
@@ -39,8 +47,12 @@ public sealed class IyuEntityPairRegistry
     public EntityPair? Find(string setName)
         => _bySetName.TryGetValue(setName, out var pair) ? pair : null;
 
+    /// <summary>Looks up a pair by its read type; returns <c>null</c> if unknown.</summary>
+    public EntityPair? FindByReadType(Type readType)
+        => _byReadType.TryGetValue(readType, out var setName) ? Find(setName) : null;
+
     /// <summary>Enumerates all registered pairs (snapshot).</summary>
     public IReadOnlyCollection<EntityPair> All => _bySetName.Values.ToList();
 
-    public sealed record EntityPair(string SetName, Type ReadType, Type WriteType);
+    public sealed record EntityPair(string SetName, Type ReadType, Type WriteType, IReadOnlySet<ODataVerb> ReadOnlyVerbs);
 }
