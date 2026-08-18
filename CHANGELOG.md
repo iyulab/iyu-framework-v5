@@ -20,7 +20,7 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
 
 ### Added
 
@@ -43,6 +43,8 @@ and the target, not just the newest. Each release states its own breaking change
   (every verb allowed). GraphQL needs no change yet: `IyuGraphQLSchemaBuilder` does not
   wire mutations in this runtime scaffold, so there is nothing there to restrict —
   `ReadOnlyVerbs` must be consulted once a future mutation generator adds one.
+  (`Iyu.Server.GraphQL` picked up only that forward-reference comment — no behavior
+  changed there.)
 
 ### Fixed
 
