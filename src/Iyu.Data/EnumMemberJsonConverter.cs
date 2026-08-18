@@ -57,6 +57,13 @@ internal sealed class EnumMemberJsonConverter<TEnum> : JsonConverter<TEnum>
 {
     public override TEnum Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
+        // The plain JsonStringEnumConverter this factory sits ahead of accepts a raw
+        // numeric value by default (AllowIntegerValues: true) -- an annotated enum must
+        // keep accepting that too, or opting an enum into [EnumMember] would silently
+        // narrow what every existing numeric-sending caller could do.
+        if (reader.TokenType == JsonTokenType.Number)
+            return (TEnum)Enum.ToObject(typeof(TEnum), reader.GetInt64());
+
         var raw = reader.GetString();
         if (raw is not null && EnumWireNames<TEnum>.FromWire.TryGetValue(raw, out var value))
             return value;

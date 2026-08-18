@@ -69,6 +69,16 @@ public class EnumMemberJsonConverterTests
     }
 
     [Fact]
+    public void Still_accepts_a_raw_numeric_value_like_the_plain_converter_does()
+    {
+        // The plain JsonStringEnumConverter this factory sits ahead of allows integer
+        // input by default -- opting an enum into [EnumMember] must not silently drop
+        // that for every existing numeric-sending caller.
+        var value = JsonSerializer.Deserialize<InspectionItemInputType>("1", Options());
+        Assert.Equal(InspectionItemInputType.Numeric, value);
+    }
+
+    [Fact]
     public void Member_without_EnumMember_attribute_falls_back_to_its_CLR_name()
     {
         var json = JsonSerializer.Serialize(InspectionItemInputType.Text, Options());

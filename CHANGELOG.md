@@ -36,10 +36,12 @@ and the target, not just the newest. Each release states its own breaking change
   `EnumWireNames<TEnum>` so the two cannot drift apart again — is registered ahead of the
   plain converter and claims only enum types carrying at least one `EnumMemberAttribute`;
   an enum with none falls through to the plain converter unchanged. Deserialization still
-  accepts the old CLR-cased spelling (case-insensitively) alongside the wire name, so
-  existing request bodies keep working — only the **output** changes. Consumer code that
-  string-compares an `/api` response against the old CLR-cased value (e.g.
-  `status === "Verdict"`) needs updating to the wire form (`"verdict"`) once this ships.
+  accepts the old CLR-cased spelling (case-insensitively) alongside the wire name, and a
+  raw numeric value still deserializes too (matching the plain converter's default
+  `AllowIntegerValues` behavior) — so existing request bodies keep working and only the
+  **output** changes. Consumer code that string-compares an `/api` response against the
+  old CLR-cased value (e.g. `status === "Verdict"`) needs updating to the wire form
+  (`"verdict"`) once this ships.
 
 ## [0.12.1] - 2026-08-18
 
