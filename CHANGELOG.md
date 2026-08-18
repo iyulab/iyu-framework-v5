@@ -18,7 +18,7 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
-## [Unreleased]
+## [0.13.0] - 2026-08-18
 
 **Packages affected:** `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
 
