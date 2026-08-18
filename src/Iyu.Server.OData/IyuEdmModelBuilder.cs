@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.Serialization;
 using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
 using Microsoft.OData.ModelBuilder;
@@ -102,7 +103,55 @@ public sealed class IyuEdmModelBuilder
                 configuration.RemoveProperty(property);
         }
 
+        ApplyEnumMemberNames();
         return _modelBuilder.GetEdmModel();
+    }
+
+    /// <summary>
+    /// Renames every EDM enum member to the wire name its CLR value declares via
+    /// <see cref="EnumMemberAttribute"/>, instead of leaving the CLR member name.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ODataConventionModelBuilder"/> discovers enum types itself while
+    /// building the model inside <see cref="ODataConventionModelBuilder.GetEdmModel"/> —
+    /// too late for a caller to reconfigure them, since <see cref="ODataModelBuilder.EnumTypes"/>
+    /// is still empty at that point (verified: registering an entity set with an enum
+    /// property leaves <c>EnumTypes.Count == 0</c> until <c>GetEdmModel()</c> runs). Each
+    /// discovered EDM member is also named after the CLR member — <see cref="EnumMemberAttribute"/>
+    /// is never consulted. A generated model's enums declare their wire form there (the
+    /// same attribute System.Text.Json and the rest of the wire already honor), so
+    /// without this fix-up the EDM (and <c>$metadata</c>) advertises one spelling while
+    /// every other layer speaks another: a request built from <c>$metadata</c>, using the
+    /// declared wire form, fails deserialization with no indication why the value was
+    /// wrong.
+    /// <para>
+    /// So this pre-registers every enum type reachable from a registered read type's own
+    /// properties via <see cref="ODataConventionModelBuilder.AddEnumType"/> — which
+    /// returns the same configuration convention discovery would have created, not a
+    /// duplicate — so its <see cref="EnumMemberConfiguration.Name"/> can be corrected
+    /// before the model is actually built. Nested complex-type properties are not walked;
+    /// generated entities are flat, so this covers what the pipeline actually produces.
+    /// </para>
+    /// </remarks>
+    private void ApplyEnumMemberNames()
+    {
+        var enumTypes = Registry.All
+            .SelectMany(pair => pair.ReadType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            .Select(p => Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType)
+            .Where(t => t.IsEnum)
+            .Distinct();
+
+        foreach (var enumType in enumTypes)
+        {
+            var configuration = _modelBuilder.AddEnumType(enumType);
+            foreach (var member in configuration.Members)
+            {
+                var field = enumType.GetField(member.MemberInfo.ToString()!);
+                var wireName = field?.GetCustomAttribute<EnumMemberAttribute>()?.Value;
+                if (!string.IsNullOrEmpty(wireName))
+                    member.Name = wireName;
+            }
+        }
     }
 
     /// <summary>

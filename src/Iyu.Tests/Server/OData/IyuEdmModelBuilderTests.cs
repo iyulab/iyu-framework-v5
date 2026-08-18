@@ -1,3 +1,4 @@
+using System.Runtime.Serialization;
 using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
 using Iyu.Server.OData;
@@ -182,5 +183,42 @@ public class IyuEdmModelBuilderTests
 
         var all = builder.Registry.All;
         Assert.Equal(2, all.Count);
+    }
+
+    public enum InputType
+    {
+        [EnumMember(Value = "verdict")]
+        Verdict,
+
+        // No [EnumMember] — the CLR name is the declared wire name too.
+        Numeric,
+    }
+
+    public class InspectionItem : IyuEntity
+    {
+        public InputType InputType { get; set; }
+    }
+
+    /// <summary>
+    /// The EDM must advertise the same enum spelling every other layer of the wire
+    /// already uses (generated C# declares <c>[EnumMember(Value = "verdict")]</c>, and
+    /// deserialization only accepts that spelling) — otherwise a client built from
+    /// <c>$metadata</c> sends the CLR name and gets an unexplained 400.
+    /// </summary>
+    [Fact]
+    public void Enum_member_names_follow_EnumMemberAttribute_not_the_clr_member_name()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<InspectionItem, InspectionItem>("InspectionItems");
+
+        var model = builder.GetEdmModel();
+        var enumType = model.SchemaElements.OfType<IEdmEnumType>()
+            .Single(e => e.Name == nameof(InputType));
+        var names = enumType.Members.Select(m => m.Name).ToList();
+
+        Assert.Contains("verdict", names);
+        Assert.DoesNotContain("Verdict", names);
+        // No attribute on this member — falls back to the CLR name, same as before.
+        Assert.Contains("Numeric", names);
     }
 }

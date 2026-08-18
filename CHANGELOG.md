@@ -20,7 +20,23 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-Nothing yet.
+**Packages affected:** `Iyu.Server.OData`
+
+### Fixed
+
+- **The EDM now names enum members after `[EnumMember(Value = ...)]`, not the CLR
+  member name.** `IyuEdmModelBuilder` wraps `ODataConventionModelBuilder`, which
+  discovers enum types and names each EDM member after the CLR enum member —
+  `EnumMemberAttribute` was never consulted. A generated model's enums declare their
+  wire form there, the same attribute the rest of the wire (`System.Text.Json`
+  included) already honors, so `$metadata` and deserialization disagreed: a client
+  built from `$metadata` sends the declared wire spelling and gets an unexplained 400,
+  because only the CLR spelling deserialized. Every enum reachable from a registered
+  entity pair's read type is now pre-registered and its members renamed before the
+  model is built, so `$metadata` and deserialization agree. No consumer action needed
+  — this only changes what the EDM was already supposed to say for any enum property
+  that carries `EnumMemberAttribute`; an enum with no such attributes on any member is
+  unaffected.
 
 ## [0.12.0] - 2026-08-04
 
