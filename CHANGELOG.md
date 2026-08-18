@@ -20,6 +20,10 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.12.1] - 2026-08-18
+
 **Packages affected:** `Iyu.Server.OData`
 
 ### Fixed
