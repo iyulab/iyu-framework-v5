@@ -75,29 +75,8 @@ public abstract class IyuDbContext(DbContextOptions options) : DbContext(options
 public class EnumMemberConverter<TEnum> : ValueConverter<TEnum, string>
     where TEnum : struct, Enum
 {
-    private static readonly Dictionary<TEnum, string> ToDb;
-    private static readonly Dictionary<string, TEnum> FromDb;
-
-    static EnumMemberConverter()
-    {
-        var type = typeof(TEnum);
-        var values = Enum.GetValues<TEnum>();
-        ToDb = new Dictionary<TEnum, string>(values.Length);
-        FromDb = new Dictionary<string, TEnum>(values.Length, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var val in values)
-        {
-            var name = val.ToString();
-            var field = type.GetField(name, BindingFlags.Public | BindingFlags.Static);
-            var attr = field?.GetCustomAttribute<EnumMemberAttribute>();
-            var dbValue = attr?.Value ?? name;
-            ToDb[val] = dbValue;
-            FromDb[dbValue] = val;
-        }
-    }
-
     public EnumMemberConverter()
-        : base(v => ToDb.GetValueOrDefault(v, v.ToString()),
-               v => FromDb.GetValueOrDefault(v, default))
+        : base(v => EnumWireNames<TEnum>.ToWire.GetValueOrDefault(v, v.ToString()),
+               v => EnumWireNames<TEnum>.FromWire.GetValueOrDefault(v, default))
     { }
 }

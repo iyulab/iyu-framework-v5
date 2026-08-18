@@ -20,7 +20,28 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-Nothing yet.
+**Packages affected:** `Iyu.Data`, `Iyu.MainServer`
+
+### Fixed
+
+- **`/api` (MVC) now serializes `[EnumMember(Value = ...)]`-annotated enums by their wire
+  name, matching `/$data` (OData) instead of disagreeing with it.** `AddJsonOptions`
+  registered a plain `JsonStringEnumConverter`, which always writes the CLR member name.
+  Once `IyuEdmModelBuilder` was fixed (`0.12.1`) to honor `EnumMemberAttribute` for
+  `/$data`, the two surfaces of the same server started spelling the same stored enum
+  value two different ways — a value read from `/$data` no longer matched the same
+  value read from a hand-rolled `/api` controller. A new `EnumMemberJsonConverterFactory`
+  (`Iyu.Data`) — sharing the same reflection-built wire-name lookup
+  `EnumMemberConverter<TEnum>` (the EF value converter) already used, now factored into
+  `EnumWireNames<TEnum>` so the two cannot drift apart again — is registered ahead of the
+  plain converter and claims only enum types carrying at least one `EnumMemberAttribute`;
+  an enum with none falls through to the plain converter unchanged. Deserialization still
+  accepts the old CLR-cased spelling (case-insensitively) alongside the wire name, so
+  existing request bodies keep working — only the **output** changes. Consumer code that
+  string-compares an `/api` response against the old CLR-cased value (e.g.
+  `status === "Verdict"`) needs updating to the wire form (`"verdict"`) once this ships.
+
+## [0.12.1] - 2026-08-18
 
 ## [0.12.1] - 2026-08-18
 

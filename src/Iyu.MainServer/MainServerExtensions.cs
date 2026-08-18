@@ -52,6 +52,12 @@ public static class MainServerExtensions
         var mvc = services.AddControllers()
             .AddJsonOptions(json =>
             {
+                // Enums carrying [EnumMember(Value=...)] serialize by that wire name here,
+                // matching IyuEdmModelBuilder's /$data behavior (Iyu.Server.OData) so /api
+                // and /$data cannot disagree on the same enum's spelling. An enum with no
+                // [EnumMember] attributes falls through to the plain converter below,
+                // unaffected — see EnumMemberJsonConverterFactory.CanConvert.
+                json.JsonSerializerOptions.Converters.Add(new Iyu.Data.EnumMemberJsonConverterFactory());
                 json.JsonSerializerOptions.Converters.Add(
                     new System.Text.Json.Serialization.JsonStringEnumConverter());
             })
