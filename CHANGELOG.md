@@ -18,6 +18,26 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`
+
+### Added
+
+- **A set's read-only verb restriction can now be set or changed after `AddEntityPair` already
+  registered it.** `IyuEdmModelBuilder.Restrict(setName, params ODataVerb[] readOnlyVerbs)` (backed
+  by a new `IyuEntityPairRegistry.Restrict`) updates an already-registered set in place instead of
+  requiring the restriction at the original `AddEntityPair` call site. For a consumer whose entity
+  registration is code-generated — one generated file calling `AddEntityPair(setName)` per set, with
+  no per-call-site control — the `readOnlyVerbs` parameter added in `0.13.0` was unreachable: it can
+  only be supplied by whoever writes the call, and a generated file is not hand-edited. `Restrict`
+  reaches the set from a location the consumer does own, after the generated registration runs.
+  Because `GetEdmModel()` reads the registry lazily (the same property `Exclude()` already relies on),
+  the restriction still reaches `$metadata` and the generic controller's per-request enforcement even
+  though it is applied after registration. `IyuEntityPairRegistry.Register` is unaffected — it still
+  throws on a genuine duplicate registration; `Restrict` only updates the verb set of a set already
+  known to be registered, and throws if the set was never registered at all.
+
 ## [0.14.0] - 2026-08-23
 
 **Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
