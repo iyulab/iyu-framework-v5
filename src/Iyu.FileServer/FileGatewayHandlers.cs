@@ -114,6 +114,29 @@ public static class FileGatewayHandlers
             enableRangeProcessing: true);
     }
 
+    /// <summary>HEAD counterpart of <see cref="DownloadAsync"/> — answers whether a storage key holds an
+    /// object, without transferring its bytes. Reuses the <see cref="FileTokenOp.Download"/> token: being
+    /// allowed to know a key exists is not a stronger claim than being allowed to read it, so a separate
+    /// token operation would only add friction for callers that mint one token and want both questions
+    /// answered from it.</summary>
+    public static async Task<IResult> ExistsAsync(
+        string token, FileAccessTokenService tokens, IAttachmentStorage storage, FileGatewayOptions gw,
+        CancellationToken ct, ILogger? logger = null)
+    {
+        if (!tokens.TryValidate(token, gw.SigningKey, out var t) || t!.Op != FileTokenOp.Download)
+            return Unauthorized(logger, FileTokenOp.Download, presented: true);
+        var stream = await storage.OpenReadAsync(t.StorageKey, ct);
+        if (stream is null)
+        {
+            logger?.LogInformation(
+                "File gateway served 404 for a HEAD check of {StorageKey}: the token is valid but nothing is stored there.",
+                t.StorageKey);
+            return Results.NotFound();
+        }
+        await stream.DisposeAsync();
+        return Results.Ok();
+    }
+
     public static async Task<IResult> DeleteAsync(
         string? token, HttpRequest request, FileAccessTokenService tokens,
         IAttachmentStorage storage, FileGatewayOptions gw, CancellationToken ct, ILogger? logger = null)

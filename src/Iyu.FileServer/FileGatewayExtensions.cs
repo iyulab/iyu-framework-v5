@@ -70,6 +70,8 @@ public static partial class FileGatewayExtensions
             => FileGatewayHandlers.UploadAsync(req, token, tk, st, o, ct, logger));
         app.MapGet(gw.RoutePrefix, (string token, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
             => FileGatewayHandlers.DownloadAsync(token, tk, st, o, ct, logger));
+        app.MapMethods(gw.RoutePrefix, new[] { HttpMethods.Head }, (string token, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
+            => FileGatewayHandlers.ExistsAsync(token, tk, st, o, ct, logger));
         app.MapDelete(gw.RoutePrefix, (string? token, HttpRequest req, FileAccessTokenService tk, IAttachmentStorage st, FileGatewayOptions o, CancellationToken ct)
             => FileGatewayHandlers.DeleteAsync(token, req, tk, st, o, ct, logger));
         return app;

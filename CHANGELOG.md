@@ -20,9 +20,17 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
 
 ### Added
+
+- **The file gateway answers `HEAD` — existence without transfer.** `FileGatewayHandlers.ExistsAsync`
+  (routed automatically by `MapIyuFileGateway()`) validates a `Download`-scoped token and reports
+  200/404 by opening and immediately discarding the read stream, never writing a body. Until now a
+  consumer that needed to confirm a blob actually landed before trusting its own "uploaded" flag had
+  no way to ask without a full `GET` — every caller either streamed bytes it would throw away or went
+  without the check entirely. Reuses the existing `Download` token operation rather than minting a
+  new one: the ability to know a key exists is not a stronger claim than the ability to read it.
 
 - **A read type property's `[Display(Description = "...")]` now surfaces on both API surfaces
   automatically.** `IyuEdmModelBuilder` exposes it as the standard `Org.OData.Core.V1.Description`

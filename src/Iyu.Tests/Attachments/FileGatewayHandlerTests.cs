@@ -208,6 +208,38 @@ public sealed class FileGatewayHandlerTests
     }
 
     [Fact]
+    public async Task Exists_returns_200_without_a_body_for_valid_download_token()
+    {
+        var storage = new FakeAttachmentStorage();
+        await storage.SaveAsync(new MemoryStream(Encoding.UTF8.GetBytes("pdf")), "2026/07/abc", "application/pdf", default);
+
+        var result = await FileGatewayHandlers.ExistsAsync(Token(FileTokenOp.Download), Tokens, storage, Gw, default);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(result);
+    }
+
+    [Fact]
+    public async Task Exists_returns_404_when_the_object_is_absent()
+    {
+        var storage = new FakeAttachmentStorage();
+
+        var result = await FileGatewayHandlers.ExistsAsync(Token(FileTokenOp.Download), Tokens, storage, Gw, default);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.NotFound>(result);
+    }
+
+    [Fact]
+    public async Task Exists_rejects_upload_token()
+    {
+        var storage = new FakeAttachmentStorage();
+        await storage.SaveAsync(new MemoryStream(Encoding.UTF8.GetBytes("pdf")), "2026/07/abc", "application/pdf", default);
+
+        var result = await FileGatewayHandlers.ExistsAsync(Token(FileTokenOp.Upload), Tokens, storage, Gw, default);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.UnauthorizedHttpResult>(result);
+    }
+
+    [Fact]
     public async Task Delete_removes_for_valid_delete_token()
     {
         var storage = new FakeAttachmentStorage();
