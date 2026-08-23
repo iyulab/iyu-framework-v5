@@ -1,7 +1,9 @@
+using System.ComponentModel.DataAnnotations;
 using System.Runtime.Serialization;
 using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
 using Microsoft.OData.Edm.Vocabularies;
+using Microsoft.OData.Edm.Vocabularies.V1;
 using Iyu.Server.OData;
 using Xunit;
 
@@ -274,5 +276,40 @@ public class IyuEdmModelBuilderTests
         var pair = builder.Registry.Find("BankAccounts");
         Assert.NotNull(pair);
         Assert.Equal(new[] { ODataVerb.Patch }, pair!.ReadOnlyVerbs);
+    }
+
+    public class Annotated : IyuEntity
+    {
+        [Display(Description = "The bank's public display name")]
+        public string BankName { get; set; } = "";
+
+        // No [Display] — must not gain a Description annotation.
+        public string AccountNumber { get; set; } = "";
+    }
+
+    /// <summary>
+    /// A generated entity's <c>[Display(Description = "...")]</c> reaches OData clients as the
+    /// standard <c>Org.OData.Core.V1.Description</c> term on <c>$metadata</c> — the same text a
+    /// generated form already shows, now visible to any OData-aware client too.
+    /// </summary>
+    [Fact]
+    public void Display_description_becomes_the_standard_odata_core_description_term()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Annotated, Annotated>("Annotateds");
+
+        var model = builder.GetEdmModel();
+        var entityType = model.SchemaElements.OfType<IEdmEntityType>()
+            .Single(t => t.Name == nameof(Annotated));
+        var bankNameProperty = entityType.FindProperty(nameof(Annotated.BankName));
+
+        var annotation = model.VocabularyAnnotations.Single(
+            a => a.Target == bankNameProperty && a.Term.Name == "Description");
+        Assert.Equal("Org.OData.Core.V1", annotation.Term.Namespace);
+        var value = Assert.IsAssignableFrom<IEdmStringConstantExpression>(annotation.Value);
+        Assert.Equal("The bank's public display name", value.Value);
+
+        var accountNumberProperty = entityType.FindProperty(nameof(Annotated.AccountNumber));
+        Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Target == accountNumberProperty);
     }
 }

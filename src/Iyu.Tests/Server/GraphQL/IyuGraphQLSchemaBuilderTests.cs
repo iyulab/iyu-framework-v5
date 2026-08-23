@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using HotChocolate;
 using HotChocolate.Execution;
 using Iyu.Core.Entities;
@@ -16,10 +17,20 @@ public class IyuGraphQLSchemaBuilderTests
         public string Name { get; set; } = "";
     }
 
+    public sealed class Annotated : IyuEntity
+    {
+        [Display(Description = "The bank's public display name")]
+        public string BankName { get; set; } = "";
+
+        // No [Display] — must not gain a description.
+        public string AccountNumber { get; set; } = "";
+    }
+
     public sealed class TestContext(DbContextOptions<TestContext> options) : IyuDbContext(options)
     {
         public DbSet<Widget> Widgets => Set<Widget>();
         public DbSet<Secretive> Secretives => Set<Secretive>();
+        public DbSet<Annotated> Annotateds => Set<Annotated>();
     }
 
     private static ServiceProvider BuildServices(string dbName, IyuGraphQLSchemaBuilder graphql)
@@ -166,5 +177,34 @@ public class IyuGraphQLSchemaBuilderTests
         graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
         Assert.Equal("widget", graphql.GetMutationPrefix("widgets"));
         Assert.Null(graphql.GetMutationPrefix("unknown"));
+    }
+
+    /// <summary>
+    /// A generated entity's <c>[Display(Description = "...")]</c> reaches GraphQL clients as
+    /// the field's standard <c>description</c> — the same text a generated form already shows,
+    /// now visible in schema introspection too.
+    /// </summary>
+    [Fact]
+    public async Task Display_description_becomes_the_graphql_field_description()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Annotated, Annotated>("annotateds", "annotated");
+
+        await using var sp = BuildServices(nameof(Display_description_becomes_the_graphql_field_description), graphql);
+        var executor = await sp.GetRequiredService<IRequestExecutorResolver>()
+            .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+
+        var result = await executor.ExecuteAsync(
+            "{ __type(name: \"Annotated\") { fields { name description } } }");
+        var json = result.ToJson();
+
+        Assert.Contains("\"name\": \"bankName\"", json);
+        Assert.Contains("The bank's public display name", json);
+
+        // accountNumber has no [Display] — its description must stay null.
+        var accountField = System.Text.Json.JsonDocument.Parse(json)
+            .RootElement.GetProperty("data").GetProperty("__type").GetProperty("fields")
+            .EnumerateArray().Single(f => f.GetProperty("name").GetString() == "accountNumber");
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, accountField.GetProperty("description").ValueKind);
     }
 }

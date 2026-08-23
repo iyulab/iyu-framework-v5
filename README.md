@@ -109,6 +109,15 @@ The property is *removed*, not blanked. A blank value would be indistinguishable
 row has no value", and would still let a caller recover the real one a character at a time
 with `$filter=startswith(...)`.
 
+### Field descriptions
+
+A read type property carrying `[Display(Description = "...")]` — the standard
+`System.ComponentModel.DataAnnotations` attribute, and what a generator's `@help`-style
+metadata typically becomes — surfaces automatically on both API surfaces, no extra call
+needed: OData exposes it as the standard `Org.OData.Core.V1.Description` term on
+`$metadata`, and GraphQL exposes it as the field's `description` in schema introspection.
+A property without the attribute keeps no description on either surface.
+
 Both calls work after the pair is registered, which is the point: a registration you cannot
 edit — one produced by a tool, or shared across several hosts — can still be subtracted from.
 

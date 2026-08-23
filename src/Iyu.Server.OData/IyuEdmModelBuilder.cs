@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.Serialization;
@@ -5,6 +6,7 @@ using Iyu.Core.Entities;
 using Microsoft.OData.Edm;
 using Microsoft.OData.Edm.Csdl;
 using Microsoft.OData.Edm.Vocabularies;
+using Microsoft.OData.Edm.Vocabularies.V1;
 using Microsoft.OData.ModelBuilder;
 
 namespace Iyu.Server.OData;
@@ -125,9 +127,48 @@ public sealed class IyuEdmModelBuilder
         // would mean that contract changed and the capability annotations below need
         // a different attachment point, not a silent skip.
         if (edmModel is EdmModel mutableModel)
+        {
             ApplyCapabilityRestrictions(mutableModel);
+            ApplyPropertyDescriptions(mutableModel);
+        }
 
         return edmModel;
+    }
+
+    /// <summary>
+    /// Carries a generated entity's <c>[Display(Description = "...")]</c> onto the EDM
+    /// property as the standard <c>Org.OData.Core.V1.Description</c> term.
+    /// </summary>
+    /// <remarks>
+    /// The same free text a generated form already shows via <c>[Display]</c>
+    /// (<c>EntityPairRenderer.cs</c>, mdd-booster) — this is the OData-client-facing
+    /// counterpart, using the ready-made <see cref="CoreVocabularyModel.DescriptionTerm"/>
+    /// rather than a hand-declared term (unlike <see cref="ApplyCapabilityRestrictions"/>,
+    /// whose Capabilities restriction terms have no built-in type in the pinned
+    /// <c>Microsoft.OData.Edm</c> version).
+    /// </remarks>
+    private void ApplyPropertyDescriptions(EdmModel model)
+    {
+        foreach (var pair in Registry.All)
+        {
+            var entityType = model.SchemaElements.OfType<IEdmEntityType>()
+                .FirstOrDefault(t => t.Name == pair.ReadType.Name);
+            if (entityType is null) continue;
+
+            foreach (var clrProperty in pair.ReadType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                var description = clrProperty.GetCustomAttribute<DisplayAttribute>()?.Description;
+                if (string.IsNullOrEmpty(description)) continue;
+
+                var edmProperty = entityType.FindProperty(clrProperty.Name);
+                if (edmProperty is null) continue;
+
+                var annotation = new EdmVocabularyAnnotation(
+                    edmProperty, CoreVocabularyModel.DescriptionTerm, new EdmStringConstant(description));
+                annotation.SetSerializationLocation(model, EdmVocabularyAnnotationSerializationLocation.Inline);
+                model.AddVocabularyAnnotation(annotation);
+            }
+        }
     }
 
     /// <summary>

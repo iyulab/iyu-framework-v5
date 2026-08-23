@@ -1,4 +1,6 @@
+using System.ComponentModel.DataAnnotations;
 using System.Linq.Expressions;
+using System.Reflection;
 using HotChocolate.Execution.Configuration;
 using HotChocolate.Resolvers;
 using HotChocolate.Types;
@@ -65,7 +67,37 @@ public sealed class IyuGraphQLSchemaBuilder
                 .Resolve(ResolveQueryable<TRead>);
         });
 
+        ApplyPropertyDescriptions<TRead>();
         return this;
+    }
+
+    /// <summary>
+    /// Carries a generated entity's <c>[Display(Description = "...")]</c> onto the GraphQL
+    /// field as its standard <c>description</c> — the same free text a generated form already
+    /// shows via <c>[Display]</c> (<c>EntityPairRenderer.cs</c>, mdd-booster), now visible in
+    /// schema introspection too.
+    /// </summary>
+    /// <remarks>
+    /// Reuses the same type-extension mechanism as <see cref="Exclude{T}"/>: a type extension
+    /// merges into the type HotChocolate already inferred for <typeparamref name="TRead"/>
+    /// rather than competing with it. Registered unconditionally at <see cref="AddEntityPair"/>
+    /// time (unlike <c>Exclude</c>, which is opt-in) because it never removes anything the
+    /// caller relies on — a property with no <c>[Display]</c> keeps its convention-inferred
+    /// description (none).
+    /// </remarks>
+    private void ApplyPropertyDescriptions<TRead>() where TRead : class
+    {
+        var descriptions = typeof(TRead).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => (Property: p, Description: p.GetCustomAttribute<DisplayAttribute>()?.Description))
+            .Where(x => !string.IsNullOrEmpty(x.Description))
+            .ToArray();
+        if (descriptions.Length == 0) return;
+
+        _typeCustomizations.Add((typeof(TRead), builder => builder.AddTypeExtension(new ObjectTypeExtension<TRead>(descriptor =>
+        {
+            foreach (var (property, description) in descriptions)
+                descriptor.Field(property).Description(description!);
+        }))));
     }
 
     /// <summary>
