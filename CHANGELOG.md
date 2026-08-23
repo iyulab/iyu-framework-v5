@@ -20,7 +20,17 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
+
+### Added
+
+- **A read type property's `[Display(Description = "...")]` now surfaces on both API surfaces
+  automatically.** `IyuEdmModelBuilder` exposes it as the standard `Org.OData.Core.V1.Description`
+  term on `$metadata` (via the built-in `CoreVocabularyModel.DescriptionTerm`), and
+  `IyuGraphQLSchemaBuilder` exposes it as the field's `description` in schema introspection (via a
+  type extension, the same mechanism `Exclude()` already uses to customize a registered type). No
+  new call is needed — both builders read the attribute at `AddEntityPair` / model-build time. A
+  property without the attribute keeps no description on either surface, same as before.
 
 ### Changed
 
