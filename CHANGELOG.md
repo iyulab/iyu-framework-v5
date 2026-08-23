@@ -18,6 +18,21 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.MainServer`
+
+### Changed
+
+- **BREAKING:** `IdentityServiceCollectionExtensions` (the `AddIyuIdentity` extension host in
+  `Iyu.MainServer.Identity`) is renamed to `IyuIdentityServiceCollectionExtensions`. The old name
+  collides with ASP.NET Core Identity's own extensions class of the same simple name — a consumer
+  that has both `Iyu.MainServer.Identity` and an ASP.NET Core Identity namespace in scope (exactly
+  the position anyone wiring cookie auth alongside this package is in) hit `CS0433` on the ambiguous
+  reference. `AddIyuIdentity(...)` itself is unaffected — it is an extension method and consumers
+  call it the same way regardless of the host class's name; only code that references the class by
+  name (e.g. `IdentityServiceCollectionExtensions.CookiePolicyName`) needs updating to the new name.
+
 ## [0.13.0] - 2026-08-18
 
 **Packages affected:** `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`

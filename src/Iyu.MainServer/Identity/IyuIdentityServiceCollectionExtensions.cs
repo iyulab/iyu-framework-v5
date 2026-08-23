@@ -13,7 +13,7 @@ namespace Iyu.MainServer.Identity;
 /// Consuming apps remain responsible for registering concrete <see cref="IIdentityStore"/> /
 /// <see cref="IServiceClientStore"/> implementations.
 /// </summary>
-public static class IdentityServiceCollectionExtensions
+public static class IyuIdentityServiceCollectionExtensions
 {
     /// <summary>Named authorization policy for the owner-scoped service-client management endpoints:
     /// cookie-only (human operators), never satisfied by the JWT bearer scheme service clients use.</summary>

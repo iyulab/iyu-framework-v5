@@ -15,7 +15,7 @@ public static class IdentityEndpointRouteExtensions
             => IdentityEndpointHandlers.TokenAsync(req, tokens, ct)).AllowAnonymous();
 
         var clients = app.MapGroup("/api/service-clients")
-            .RequireAuthorization(IdentityServiceCollectionExtensions.CookiePolicyName);
+            .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName);
         clients.MapPost("", (CreateServiceClientRequest req, HttpContext http, ServiceClientService svc, CancellationToken ct)
             => TryOwnerId(http, out var owner)
                 ? IdentityEndpointHandlers.CreateServiceClientAsync(req, owner, svc, ct)

@@ -127,11 +127,12 @@ public class IdentityRouteMapTests
             var authorize = listing.Metadata
                 .GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>();
 
-            // Fully qualified deliberately: the simple name collides with ASP.NET Core Identity's
-            // own IdentityServiceCollectionExtensions the moment a file has both usings — which is
-            // exactly the position a consumer wiring cookie auth is in. Carried as a finding.
+            // Simple name, unqualified: the type was renamed to IyuIdentityServiceCollectionExtensions
+            // specifically so it no longer collides with ASP.NET Core Identity's own extensions class
+            // when a consumer has both usings in scope (cycle-05 CS0433). This assertion is the
+            // regression check for that fix — it fails to compile again if the old collision returns.
             Assert.Contains(authorize,
-                a => a.Policy == Iyu.MainServer.Identity.IdentityServiceCollectionExtensions.CookiePolicyName);
+                a => a.Policy == IyuIdentityServiceCollectionExtensions.CookiePolicyName);
         }
         finally { ((IDisposable)app).Dispose(); }
     }
