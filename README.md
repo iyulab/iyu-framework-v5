@@ -233,7 +233,7 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.13.0**. Unit and integration tests run against every project on each
+Version **0.14.0**. Unit and integration tests run against every project on each
 build, and warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
 reports modules are all in place and consumed in production.
 
