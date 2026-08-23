@@ -56,6 +56,26 @@ public sealed class IyuEdmModelBuilder
     }
 
     /// <summary>
+    /// Restricts an already-registered set's write verbs from a location that does not own the
+    /// original <see cref="AddEntityPair{TRead,TWrite}"/> call site — e.g. a code-generated
+    /// registration file the consumer does not hand-edit.
+    /// </summary>
+    /// <remarks>
+    /// Order relative to other builder calls does not matter, the same way it does not for
+    /// <see cref="Exclude{T}"/>: this only requires that <paramref name="setName"/> was already
+    /// registered by the time this call runs, not that nothing else has run yet. It reaches both
+    /// surfaces that read <see cref="Registry"/>'s live state — the <c>$metadata</c> Capabilities
+    /// annotations built at <see cref="GetEdmModel"/> time, and
+    /// <c>IyuODataController&lt;TRead,TWrite&gt;</c>'s per-request dispatch — with a single update.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
+    public IyuEdmModelBuilder Restrict(string setName, params ODataVerb[] readOnlyVerbs)
+    {
+        Registry.Restrict(setName, new HashSet<ODataVerb>(readOnlyVerbs));
+        return this;
+    }
+
+    /// <summary>
     /// Removes <paramref name="properties"/> from the exposed model of
     /// <typeparamref name="T"/>, so that the EDM has no such property at all.
     /// </summary>

@@ -48,6 +48,11 @@ public sealed class RoutingWidgetsController(RoutingWidgetContext ctx)
 public sealed class ReadOnlyWidgetsController(RoutingWidgetContext ctx)
     : IyuODataController<RoutingWidgetExt, RoutingWidget>(ctx);
 
+// A third set name, for the Restrict-after-registration case below — same reasoning
+// as ReadOnlyWidgetsController on why it needs its own top-level controller.
+public sealed class RestrictedAfterTheFactWidgetsController(RoutingWidgetContext ctx)
+    : IyuODataController<RoutingWidgetExt, RoutingWidget>(ctx);
+
 /// <summary>
 /// End-to-end OData routing over an in-memory <see cref="TestServer"/>. Unlike
 /// <see cref="IyuODataControllerTests"/> (which invoke action methods directly),
@@ -187,6 +192,31 @@ public class ODataTestServerRoutingTests
             using var resp = await app.GetTestServer().CreateClient()
                 .PostAsJsonAsync("/$data/RoutingWidgets", new { Name = "a real widget" });
             Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// The scenario docket item #42's follow-up actually hit: a code-generated registration
+    /// file calls <c>AddEntityPair(setName)</c> with no per-call-site <c>readOnlyVerbs</c>, and
+    /// the restriction is applied afterward, from a call site the consumer does own, via
+    /// <see cref="IyuEdmModelBuilder.Restrict"/>. Through the real pipeline — not just the
+    /// registry/model-builder unit tests — a POST must still be refused.
+    /// </summary>
+    [Fact]
+    public async Task Post_Is_Rejected_ThroughTheRealPipeline_WhenRestrictedAfterRegistration()
+    {
+        var app = await StartAsync(options =>
+        {
+            options.ControllerAssemblies.Add(typeof(RestrictedAfterTheFactWidgetsController).Assembly);
+            options.ODataModel.AddEntityPair<RoutingWidgetExt, RoutingWidget>("RestrictedAfterTheFactWidgets");
+            options.ODataModel.Restrict("RestrictedAfterTheFactWidgets", ODataVerb.Post);
+        });
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .PostAsJsonAsync("/$data/RestrictedAfterTheFactWidgets", new { Name = "should not be created" });
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, resp.StatusCode);
         }
         finally { await app.DisposeAsync(); }
     }

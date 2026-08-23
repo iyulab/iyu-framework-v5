@@ -278,6 +278,56 @@ public class IyuEdmModelBuilderTests
         Assert.Equal(new[] { ODataVerb.Patch }, pair!.ReadOnlyVerbs);
     }
 
+    /// <summary>
+    /// A consumer whose registration is code-generated (a single generated call site, no
+    /// per-call <c>readOnlyVerbs</c>) can restrict a set after the fact from a location it does
+    /// own. Because <see cref="IyuEdmModelBuilder.GetEdmModel"/> reads <c>Registry.All</c> lazily
+    /// — the same deferred-apply property <see cref="IyuEdmModelBuilder.Exclude{T}"/> already relies on — the
+    /// restriction still reaches <c>$metadata</c> even though it was applied after registration.
+    /// </summary>
+    [Fact]
+    public void Restrict_updates_an_already_registered_set_and_it_still_reaches_metadata()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.Restrict("BankAccounts", ODataVerb.Post, ODataVerb.Delete);
+
+        Assert.Equal(
+            new[] { ODataVerb.Post, ODataVerb.Delete },
+            builder.Registry.Find("BankAccounts")!.ReadOnlyVerbs.OrderBy(v => v));
+
+        var model = builder.GetEdmModel();
+        var entitySet = model.EntityContainer.FindEntitySet("BankAccounts")!;
+        Assert.False(RestrictionValue(model, entitySet, "InsertRestrictions", "Insertable"));
+        Assert.False(RestrictionValue(model, entitySet, "DeleteRestrictions", "Deletable"));
+    }
+
+    [Fact]
+    public void Restrict_on_a_set_that_was_never_registered_throws()
+    {
+        var builder = new IyuEdmModelBuilder();
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => builder.Restrict("NeverRegistered", ODataVerb.Post));
+        Assert.Contains("NeverRegistered", ex.Message);
+    }
+
+    /// <summary>
+    /// <see cref="IyuEntityPairRegistry.Register{TRead,TWrite}"/>'s loud-failure guard against a
+    /// genuine duplicate registration is unaffected by <c>Restrict</c> existing — re-registering
+    /// the same set name still throws, it is only the verb set of an already-known set that
+    /// <c>Restrict</c> can update.
+    /// </summary>
+    [Fact]
+    public void Restrict_does_not_weaken_Register_s_duplicate_registration_guard()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.Restrict("BankAccounts", ODataVerb.Post);
+
+        Assert.Throws<InvalidOperationException>(
+            () => builder.AddEntityPair<CustomerExt, Customer>("BankAccounts"));
+    }
+
     public class Annotated : IyuEntity
     {
         [Display(Description = "The bank's public display name")]

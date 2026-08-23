@@ -43,6 +43,30 @@ public sealed class IyuEntityPairRegistry
         }
     }
 
+    /// <summary>
+    /// Updates the read-only verb restriction of an already-registered set, in place.
+    /// </summary>
+    /// <remarks>
+    /// For a consumer whose entity registration is code-generated — a single generated file
+    /// calls <see cref="IyuEdmModelBuilder.AddEntityPair{TRead,TWrite}"/> for every set with no
+    /// per-call-site control — <c>readOnlyVerbs</c> cannot be threaded through that call. This
+    /// lets such a consumer restrict a set after the fact, from a location it does own, without
+    /// re-registering it. <see cref="Register{TRead,TWrite}"/> still throws on a genuine
+    /// duplicate registration; this does not weaken that guard, since it only updates the verb
+    /// set of a set already known to be registered.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
+    public void Restrict(string setName, IReadOnlySet<ODataVerb> readOnlyVerbs)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(setName);
+        ArgumentNullException.ThrowIfNull(readOnlyVerbs);
+
+        _bySetName.AddOrUpdate(
+            setName,
+            _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
+            (_, existing) => existing with { ReadOnlyVerbs = readOnlyVerbs });
+    }
+
     /// <summary>Looks up a pair by set name; returns <c>null</c> if unknown.</summary>
     public EntityPair? Find(string setName)
         => _bySetName.TryGetValue(setName, out var pair) ? pair : null;

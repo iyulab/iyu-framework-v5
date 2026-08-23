@@ -109,6 +109,36 @@ The property is *removed*, not blanked. A blank value would be indistinguishable
 row has no value", and would still let a caller recover the real one a character at a time
 with `$filter=startswith(...)`.
 
+### Restricting write verbs
+
+A set backed entirely by a read-only view, or an audit-trail entity only the system itself
+should write, refuses some or all of POST/PATCH/DELETE:
+
+```csharp
+options.ODataModel.AddEntityPair<OrderSummaryExt, OrderSummary>(
+    "OrderSummaries", ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete);
+```
+
+The restriction is advertised on `$metadata` via the standard OData Capabilities vocabulary
+(`Org.OData.Capabilities.V1.InsertRestrictions`/`UpdateRestrictions`/`DeleteRestrictions`) and
+enforced by the generic controller with `405 Method Not Allowed` — a client that reads the
+metadata and one that skips it are rejected identically.
+
+**When the registration is not yours to edit**, e.g. a single generated file that calls
+`AddEntityPair(setName)` once per set with no per-call-site control, restrict the set
+afterward instead of at registration:
+
+```csharp
+RegisterGeneratedEntities(options);   // registration you may not own
+
+options.ODataModel.Restrict("DemoDataProvenances", ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete);
+```
+
+`Restrict` requires the set to already be registered — it throws if it is not — and reaches
+`$metadata` and controller enforcement identically to declaring `readOnlyVerbs` at
+`AddEntityPair` time, since both read the registry's live state rather than a value captured
+at registration.
+
 ### Field descriptions
 
 A read type property carrying `[Display(Description = "...")]` — the standard
