@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Iyu.Report/Iyu.Report.csproj" />
+  </Folder>
   <Project Path="src/Iyu.Core/Iyu.Core.csproj" />
   <Project Path="src/Iyu.Data/Iyu.Data.csproj" />
   <Project Path="src/Iyu.Server.OData/Iyu.Server.OData.csproj" />

@@ -12,7 +12,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.0" />
     <!-- ConsumerNamespaceGuidanceTests compiles a consumer-shaped source file. -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +24,7 @@
     <ProjectReference Include="..\Iyu.Core\Iyu.Core.csproj" />
     <ProjectReference Include="..\Iyu.Data\Iyu.Data.csproj" />
     <ProjectReference Include="..\Iyu.MainServer\Iyu.MainServer.csproj" />
+    <ProjectReference Include="..\Iyu.Report\Iyu.Report.csproj" />
     <ProjectReference Include="..\Iyu.FileServer\Iyu.FileServer.csproj" />
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />
     <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />
