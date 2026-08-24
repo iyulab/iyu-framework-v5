@@ -15,7 +15,7 @@ public class ConcurrentChefGenerationTests
         services.AddIyuReport();
         var provider = services.BuildServiceProvider();
 
-        var tasks = Enumerable.Range(0, 8).Select(async i =>
+        var tasks = Enumerable.Range(0, 8).Select(i => Task.Run(() =>
         {
             using var scope = provider.CreateScope();
             var chef = scope.ServiceProvider.GetRequiredService<Chef>();
@@ -38,7 +38,7 @@ public class ConcurrentChefGenerationTests
 
             using var result = new ClosedXML.Excel.XLWorkbook(outputStream);
             return result.Worksheet("Copy1").Cell("A1").GetString();
-        });
+        }));
 
         var titles = await Task.WhenAll(tasks);
 
