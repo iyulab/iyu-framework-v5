@@ -4,9 +4,9 @@ Runtime library for the Iyu stack. Consumed by apps generated from M3L models
 via [mdd-booster](https://github.com/iyulab/mdd-booster). Provides a single
 `AddIyuMainServer` entry point that wires EF Core, OData, and GraphQL on top of
 generator-produced entities, plus optional modules for identity, attachments,
-chat, and scheduled reports.
+chat, scheduled reports, and office-document template rendering.
 
-Targets .NET 10. All eight projects share one version and ship as separate
+Targets .NET 10. All nine projects share one version and ship as separate
 NuGet packages.
 
 ## Layers
@@ -21,6 +21,7 @@ NuGet packages.
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
+| `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
 
 ## Namespaces a consumer needs
 
@@ -239,6 +240,34 @@ Behaviour worth knowing before deploying it:
   Tokens are never logged. Successful transfers are not logged either — that is
   the host's request log.
 
+## Document templates (`Iyu.Report`)
+
+A thin DI wrapper around [DocuChef](https://github.com/iyulab/DocuChef)'s
+`Chef`/`IRecipe`/`IDish` API — nothing more. It holds no template storage and maps no
+endpoints; the consumer loads a template, binds data, and saves the result:
+
+```csharp
+builder.Services.AddIyuReport();   // registers DocuChef's Chef as a scoped service
+
+// wherever the report is generated:
+using var recipe = chef.LoadExcelTemplate(templateStream);
+recipe.AddVariable("Title", "Shipment Slip");
+recipe.AddVariable("Items", items);   // any bindable value — collections included
+
+using var dish = recipe.CookDish();
+dish.SaveAs(outputStream);
+```
+
+**Not the same thing as `Iyu.VaultAi`'s "scheduled reports"** — `Iyu.VaultAi` schedules and
+generates its own report content; `Iyu.Report` fills an Office document template (Excel,
+for now) with data the caller supplies, on demand. Independent modules, independent
+dependency footprint (`Iyu.Report` has no `Iyu.Core` reference and no
+`Microsoft.AspNetCore.App` framework reference), no shared code.
+
+For everything past `AddIyuReport()` — template syntax, binding rules, supported formats —
+see [DocuChef's own documentation](https://github.com/iyulab/DocuChef); this package
+does not wrap or re-document that surface.
+
 ## Upgrading
 
 Per-release changes — including every breaking change and the packages each release
@@ -246,7 +275,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All eight `Iyu.*` packages share one version, so a new number does not by itself mean the
+All nine `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
@@ -263,12 +292,16 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.15.0**. Unit and integration tests run against every project on each
+Version **0.16.0**. Unit and integration tests run against every project on each
 build, and warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
-reports modules are all in place and consumed in production.
+scheduled-report modules are all in place and consumed in production.
 
 Known gaps, in rough priority order:
 
+- `Iyu.Report` is new and validated against an anonymized template fixture covering the
+  structural complexity DocuChef exposes (merged-cell headers, variable-row tables,
+  free-text blocks, multi-sheet duplication) — it has not yet been validated against a
+  production template.
 - The Azure Blob storage backend has no automated coverage — the test suite uses
   a fake and the local filesystem backend. Backend-specific failure modes are
   therefore not caught here.

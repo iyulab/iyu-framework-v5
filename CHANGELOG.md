@@ -18,6 +18,25 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.16.0] - 2026-08-25
+
+**Packages affected:** `Iyu.Report`
+
+### Added
+
+- **New optional module: `Iyu.Report` — office-document template rendering.** A thin DI
+  wrapper around [DocuChef](https://github.com/iyulab/DocuChef)'s `Chef`/`IRecipe`/`IDish`
+  API: `AddIyuReport()` registers `Chef` as a scoped service, wired to the host's
+  `ILoggerFactory`. The module holds no template storage and maps no endpoints — a
+  consumer loads a template, binds data, and saves the rendered document; template syntax
+  and binding rules are DocuChef's surface, not re-documented here (see the package README
+  for the minimal usage shape).
+  Completely independent of the rest of this framework: no `Iyu.Core` reference, no
+  `Microsoft.AspNetCore.App` framework reference, and unrelated to `Iyu.VaultAi`'s
+  scheduled-report generation despite the similar name — `Iyu.VaultAi` schedules and
+  generates its own report content, `Iyu.Report` fills a template with data the caller
+  supplies, on demand.
+
 ## [0.15.0] - 2026-08-24
 
 **Packages affected:** `Iyu.Server.OData`
