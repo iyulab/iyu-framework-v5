@@ -9,7 +9,7 @@ record written after the fact can describe something that did not happen.
 
 ## How to read a release here
 
-**Every `Iyu.*` package shares one version number.** A release publishes all eight at the
+**Every `Iyu.*` package shares one version number.** A release publishes all ten at the
 new number whether or not each one changed, so the version alone cannot tell you if the
 code you depend on moved. Each entry below therefore opens with **Packages affected** —
 if your dependency is not listed, that release changed nothing you consume, and upgrading
