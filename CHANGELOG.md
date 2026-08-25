@@ -18,6 +18,23 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.17.0] - 2026-08-25
+
+**Packages affected:** `Iyu.DocConvert`
+
+### Added
+
+- **New optional module: `Iyu.DocConvert` — document-to-PDF conversion.**
+  `AddIyuDocConvert()` registers `IDocumentConverter.ConvertToPdfAsync(Stream, string
+  contentType, CancellationToken)` against a self-hosted [Gotenberg](https://gotenberg.dev)
+  instance (a MIT-licensed HTTP wrapper around LibreOffice — no local process management, no
+  commercial licensing). The default `GotenbergDocumentConverter` reads the caller's stream
+  without disposing it, buffering to bytes before building the multipart request so the
+  caller's stream lifetime is unaffected. Completely independent of the rest of this
+  framework: no `Iyu.Core` reference, and unrelated to (but composable with) `Iyu.Report` —
+  the two can be chained (render a template, then convert the result) but neither depends on
+  the other. See the README's "Document conversion" section for setup and MIME-type coverage.
+
 ## [0.16.0] - 2026-08-25
 
 **Packages affected:** `Iyu.Report`
