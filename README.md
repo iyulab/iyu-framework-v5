@@ -4,9 +4,10 @@ Runtime library for the Iyu stack. Consumed by apps generated from M3L models
 via [mdd-booster](https://github.com/iyulab/mdd-booster). Provides a single
 `AddIyuMainServer` entry point that wires EF Core, OData, and GraphQL on top of
 generator-produced entities, plus optional modules for identity, attachments,
-chat, scheduled reports, and office-document template rendering.
+chat, scheduled reports, office-document template rendering, and document-to-PDF
+conversion.
 
-Targets .NET 10. All nine projects share one version and ship as separate
+Targets .NET 10. All ten projects share one version and ship as separate
 NuGet packages.
 
 ## Layers
@@ -22,6 +23,7 @@ NuGet packages.
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
+| `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
 
@@ -268,6 +270,36 @@ For everything past `AddIyuReport()` — template syntax, binding rules, support
 see [DocuChef's own documentation](https://github.com/iyulab/DocuChef); this package
 does not wrap or re-document that surface.
 
+## Document conversion (`Iyu.DocConvert`)
+
+`IDocumentConverter.ConvertToPdfAsync(source, sourceContentType)` — converts an Office or
+OpenDocument file to PDF. One built-in implementation, backed by
+[Gotenberg](https://gotenberg.dev) (a self-hosted, MIT-licensed HTTP wrapper around
+LibreOffice — not a commercial dependency):
+
+```csharp
+builder.Services.AddIyuDocConvert(o => o.BaseUrl = "http://localhost:3000");
+
+// wherever a PDF is needed:
+using var pdf = await converter.ConvertToPdfAsync(
+    docxStream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+```
+
+Requires a running Gotenberg instance — `docker run --rm -p 3000:3000 gotenberg/gotenberg:8`
+is the whole setup; this fits the on-prem-first deployment `AddIyuMainServer` already assumes
+(the same pattern as pointing `UseSqlServer` at a connection string). `sourceContentType` must
+be one of the MIME types `GotenbergDocumentConverter` maps to a LibreOffice-readable extension
+(`.docx`/`.xlsx`/`.pptx`, legacy `.doc`/`.xls`/`.ppt`, OpenDocument `.odt`/`.ods`/`.odp`,
+`.csv`/`.txt`/`.rtf`) — an unrecognized type throws `NotSupportedException` rather than
+guessing. `source` is read but not disposed; the caller keeps ownership, same convention as
+`IAttachmentStorage.SaveAsync`.
+
+**Not part of `Iyu.Report`.** `Iyu.Report` fills a template with data; `Iyu.DocConvert` takes
+an already-produced Office file and renders it to PDF — the two compose (bind a template, then
+convert the result) but neither depends on the other. `Iyu.DocConvert` has no `Iyu.Core`
+reference and no `Microsoft.AspNetCore.App` framework reference, same independence as
+`Iyu.Report`.
+
 ## Upgrading
 
 Per-release changes — including every breaking change and the packages each release
@@ -275,7 +307,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All nine `Iyu.*` packages share one version, so a new number does not by itself mean the
+All ten `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
@@ -302,6 +334,9 @@ Known gaps, in rough priority order:
   structural complexity DocuChef exposes (merged-cell headers, variable-row tables,
   free-text blocks, multi-sheet duplication) — it has not yet been validated against a
   production template.
+- `Iyu.DocConvert` is new. `GotenbergDocumentConverter` is covered by unit tests against a
+  stubbed HTTP handler (request shape, content-type mapping, error surfacing); it has not yet
+  been round-tripped against a live Gotenberg instance in this repo's own test suite.
 - The Azure Blob storage backend has no automated coverage — the test suite uses
   a fake and the local filesystem backend. Backend-specific failure modes are
   therefore not caught here.
