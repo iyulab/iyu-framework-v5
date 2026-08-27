@@ -123,6 +123,58 @@ public sealed class IyuEdmModelBuilder
 
     private readonly List<(Type Type, PropertyInfo[] Properties)> _exclusions = new();
 
+    /// <summary>
+    /// Marks <paramref name="properties"/> as not writable through the generic
+    /// OData POST/PATCH surface, while leaving them exposed for reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For a value that genuinely belongs in the model — a caller should see it,
+    /// filter on it, select it — but must only ever change through a dedicated
+    /// domain endpoint (a state-transition action, say), never through a client
+    /// handing the generic write path a plain new value. <see cref="Exclude{T}"/>
+    /// is the wrong tool here: it removes the property from the EDM entirely,
+    /// closing the read side too.
+    /// </para>
+    /// <para>
+    /// <b>Name the read type of the pair</b>, for the same reason
+    /// <see cref="Exclude{T}"/> does — request bodies bind to <c>TRead</c>, so a
+    /// name from the write type would exclude nothing a client-facing request
+    /// could ever have carried.
+    /// </para>
+    /// <para>
+    /// Enforcement happens twice, deliberately: <c>$metadata</c> advertises the
+    /// property as <c>Org.OData.Core.V1.Computed</c> (the standard term for
+    /// "server-supplied, do not send on insert/update") for a client that reads
+    /// the metadata, and <c>IyuODataController&lt;TRead,TWrite&gt;</c> silently
+    /// drops the property from what it copies onto the write entity for a client
+    /// that does not — the same two-layer pattern <c>AddEntityPair</c>'s
+    /// <c>readOnlyVerbs</c> already uses for whole-set restrictions. Silently
+    /// dropping rather than rejecting the request matches <c>Computed</c>'s own
+    /// definition and the precedent already set for
+    /// <c>Id</c>/<c>CreatedAt</c>/<c>UpdatedAt</c> in
+    /// <c>IyuODataController{TRead,TWrite}.CopySelectedProperties</c>.
+    /// </para>
+    /// <para>
+    /// Order does not matter, for the same reason as <see cref="Exclude{T}"/>:
+    /// nothing is applied until <see cref="GetEdmModel"/>.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// An entry of <paramref name="properties"/> is not a direct property access.
+    /// </exception>
+    public IyuEdmModelBuilder ExcludeFromWrite<T>(params Expression<Func<T, object?>>[] properties)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+        if (properties.Length == 0) return this;
+
+        _writeExclusions.Add((typeof(T), properties.Select(ExposedProperty.Resolve).ToArray()));
+        return this;
+    }
+
+    private readonly List<(Type Type, PropertyInfo[] Properties)> _writeExclusions = new();
+
     /// <summary>Finalizes the EDM model, applying every recorded exclusion first.</summary>
     /// <exception cref="InvalidOperationException">
     /// An exclusion names a type the model does not expose.
@@ -139,6 +191,14 @@ public sealed class IyuEdmModelBuilder
                 configuration.RemoveProperty(property);
         }
 
+        foreach (var (type, properties) in _writeExclusions)
+        {
+            EnsureExposed(type);
+            var pair = Registry.All.Single(p => p.ReadType == type);
+            var names = properties.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+            Registry.RestrictProperties(pair.SetName, names);
+        }
+
         ApplyEnumMemberNames();
         var edmModel = _modelBuilder.GetEdmModel();
 
@@ -150,6 +210,7 @@ public sealed class IyuEdmModelBuilder
         {
             ApplyCapabilityRestrictions(mutableModel);
             ApplyPropertyDescriptions(mutableModel);
+            ApplyWriteExclusionAnnotations(mutableModel);
         }
 
         return edmModel;
@@ -247,6 +308,34 @@ public sealed class IyuEdmModelBuilder
                 Annotate(model, entitySet, updateTerm, "Updatable");
             if (pair.ReadOnlyVerbs.Contains(ODataVerb.Delete))
                 Annotate(model, entitySet, deleteTerm, "Deletable");
+        }
+    }
+
+    /// <summary>
+    /// Advertises every <see cref="ExcludeFromWrite{T}"/>-marked property as
+    /// <c>Org.OData.Core.V1.Computed</c> on <c>$metadata</c>, using the built-in
+    /// <see cref="CoreVocabularyModel.ComputedTerm"/> rather than a hand-declared
+    /// one — unlike <see cref="ApplyCapabilityRestrictions"/>'s Capabilities
+    /// terms, the pinned <c>Microsoft.OData.Edm</c> version already ships this one.
+    /// </summary>
+    private void ApplyWriteExclusionAnnotations(EdmModel model)
+    {
+        foreach (var pair in Registry.All.Where(p => p.WriteExcludedProperties.Count > 0))
+        {
+            var entityType = model.SchemaElements.OfType<IEdmEntityType>()
+                .FirstOrDefault(t => t.Name == pair.ReadType.Name);
+            if (entityType is null) continue;
+
+            foreach (var propertyName in pair.WriteExcludedProperties)
+            {
+                var edmProperty = entityType.FindProperty(propertyName);
+                if (edmProperty is null) continue;
+
+                var annotation = new EdmVocabularyAnnotation(
+                    edmProperty, CoreVocabularyModel.ComputedTerm, new EdmBooleanConstant(true));
+                annotation.SetSerializationLocation(model, EdmVocabularyAnnotationSerializationLocation.Inline);
+                model.AddVocabularyAnnotation(annotation);
+            }
         }
     }
 

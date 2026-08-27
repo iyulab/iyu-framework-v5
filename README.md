@@ -112,6 +112,31 @@ The property is *removed*, not blanked. A blank value would be indistinguishable
 row has no value", and would still let a caller recover the real one a character at a time
 with `$filter=startswith(...)`.
 
+### Making one property read-only
+
+A domain field can genuinely need to change — just never through the generic write path.
+A state machine's current-state field, say, where a dedicated action endpoint is what
+should apply a transition (and log it), while a plain `PATCH` naming the field directly
+would let a client skip that endpoint entirely. `Exclude<T>()` above is the wrong tool: it
+closes reads too, and this field should stay fully queryable.
+
+```csharp
+options.ODataModel.ExcludeFromWrite<OrderExt>(x => x.Status);
+```
+
+Unlike `Exclude<T>()`, the property stays in the model — `$select`/`$filter`/`$orderby`
+are unaffected — and instead picks up the standard `Org.OData.Core.V1.Computed` term on
+`$metadata` ("server-supplied, do not send on insert/update"). A `POST`/`PATCH` naming it
+anyway is not rejected: the value is silently dropped from what the generic controller
+copies onto the write entity, the same way `Id`/`CreatedAt`/`UpdatedAt` already are. A
+write straight to the write-side `DbSet` — a dedicated endpoint reached through your own
+controller action, for instance — is unaffected; it never goes through the generic
+controller's copy step at all.
+
+Same read-type rule as `Exclude<T>()`, for the same reason: request bodies bind to
+`TRead`, so name that side. Also order-independent and callable after the fact from a
+generated registration, exactly like `Exclude<T>()`.
+
 ### Restricting write verbs
 
 A set backed entirely by a read-only view, or an audit-trail entity only the system itself

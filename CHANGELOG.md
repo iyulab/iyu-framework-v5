@@ -18,6 +18,24 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.18.0] - 2026-08-27
+
+**Packages affected:** `Iyu.Server.OData`
+
+### Added
+
+- **`IyuEdmModelBuilder.ExcludeFromWrite<T>()`** — marks one or more properties of a
+  registered read type as not writable through the generic OData POST/PATCH surface,
+  while leaving them fully readable (`$select`/`$filter`/`$orderby` unaffected). For a
+  domain field that must only change through a dedicated action endpoint (a state
+  transition, say) and never through a client handing the generic write path a plain new
+  value — `Exclude<T>()` is the wrong tool for this, since it removes the property from
+  reads too. Advertises the property as the standard `Org.OData.Core.V1.Computed` term on
+  `$metadata`, and `IyuODataController<TRead,TWrite>` silently drops it from what it
+  copies onto the write entity — the same two-layer enforcement `AddEntityPair`'s
+  `readOnlyVerbs` parameter already uses for whole-set restrictions. Order-independent,
+  like `Exclude<T>()`: callable before or after `AddEntityPair`.
+
 ## [0.17.0] - 2026-08-25
 
 **Packages affected:** `Iyu.DocConvert`

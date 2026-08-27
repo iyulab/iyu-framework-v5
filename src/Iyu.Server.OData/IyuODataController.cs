@@ -80,7 +80,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         var write = new TWrite();
         if (body.Id == Guid.Empty) body.Id = Guid.NewGuid();
         write.Id = body.Id;
-        CopyCommonProperties(body, write);
+        CopyCommonProperties(body, write, registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties);
 
         WriteSet.Add(write);
         await Context.SaveChangesAsync(ct);
@@ -123,7 +123,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         if (!ValidateChangedProperties(readProjection, changedNames))
             return BadRequest(ModelState);
 
-        CopySelectedProperties(readProjection, write, changedNames);
+        CopySelectedProperties(readProjection, write, changedNames, registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties);
         await Context.SaveChangesAsync(ct);
 
         return StatusCode(StatusCodes.Status204NoContent);
@@ -235,15 +235,23 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// properties and collections are naturally excluded because only scalar
     /// writable properties match.
     /// </summary>
-    protected static void CopyCommonProperties(TRead source, TWrite target)
-        => CopySelectedProperties(source, target, filter: null);
+    /// <param name="source">The bound request body.</param>
+    /// <param name="target">The freshly constructed write entity.</param>
+    /// <param name="excluded">
+    /// Property names to skip regardless of <paramref name="source"/>/<paramref name="target"/>
+    /// overlap — the set's <see cref="IyuEdmModelBuilder.ExcludeFromWrite{T}"/>
+    /// marks, if any.
+    /// </param>
+    protected static void CopyCommonProperties(TRead source, TWrite target, IReadOnlySet<string>? excluded = null)
+        => CopySelectedProperties(source, target, filter: null, excluded);
 
     /// <summary>
     /// Copies a subset of properties from <paramref name="source"/> to
     /// <paramref name="target"/>. When <paramref name="filter"/> is non-null,
     /// only property names present in it are considered. Always skips
     /// <c>Id</c>/<c>CreatedAt</c>/<c>UpdatedAt</c> — those are owned by the
-    /// caller (Id) or the interceptor (timestamps).
+    /// caller (Id) or the interceptor (timestamps) — and any name present in
+    /// <paramref name="excluded"/> (<see cref="IyuEdmModelBuilder.ExcludeFromWrite{T}"/>).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -269,7 +277,8 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// consumer in view, not a tidy-up to fold into an unrelated release.
     /// </para>
     /// </remarks>
-    protected static void CopySelectedProperties(TRead source, TWrite target, ISet<string>? filter)
+    protected static void CopySelectedProperties(
+        TRead source, TWrite target, ISet<string>? filter, IReadOnlySet<string>? excluded = null)
     {
         var targetProps = typeof(TWrite).GetProperties()
             .Where(p => p.CanWrite && p.GetSetMethod(nonPublic: false) is not null)
@@ -278,6 +287,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         foreach (var srcProp in typeof(TRead).GetProperties())
         {
             if (filter is not null && !filter.Contains(srcProp.Name)) continue;
+            if (excluded is not null && excluded.Contains(srcProp.Name)) continue;
             if (!targetProps.TryGetValue(srcProp.Name, out var tgtProp)) continue;
             if (!tgtProp.PropertyType.IsAssignableFrom(srcProp.PropertyType)) continue;
             if (srcProp.Name is nameof(IyuEntity.Id)

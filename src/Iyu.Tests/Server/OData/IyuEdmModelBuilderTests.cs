@@ -362,4 +362,99 @@ public class IyuEdmModelBuilderTests
         var accountNumberProperty = entityType.FindProperty(nameof(Annotated.AccountNumber));
         Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Target == accountNumberProperty);
     }
+
+    public class Stateful : IyuEntity
+    {
+        public string Name { get; set; } = "";
+        public string Status { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Unlike <see cref="IyuEdmModelBuilder.Exclude{T}"/>, the property must stay in the EDM — a
+    /// caller can still read/select/filter it — and instead pick up the standard
+    /// <c>Org.OData.Core.V1.Computed</c> term, the built-in vocabulary's own
+    /// spelling for "server-supplied, do not send on insert/update".
+    /// </summary>
+    [Fact]
+    public void ExcludeFromWrite_keeps_the_property_in_the_edm_and_marks_it_computed()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Stateful, Stateful>("Statefuls");
+        builder.ExcludeFromWrite<Stateful>(x => x.Status);
+
+        var model = builder.GetEdmModel();
+        var entityType = model.SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == nameof(Stateful));
+        var statusProperty = entityType.FindProperty(nameof(Stateful.Status));
+
+        Assert.NotNull(statusProperty);   // still in the model — this is not Exclude<T>
+
+        var annotation = model.VocabularyAnnotations.Single(a => a.Target == statusProperty);
+        Assert.Equal("Org.OData.Core.V1", annotation.Term.Namespace);
+        Assert.Equal("Computed", annotation.Term.Name);
+        var value = Assert.IsAssignableFrom<IEdmBooleanConstantExpression>(annotation.Value);
+        Assert.True(value.Value);
+
+        var nameProperty = entityType.FindProperty(nameof(Stateful.Name));
+        Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Target == nameProperty);
+    }
+
+    /// <summary>The registry is what the generic controller actually consults at request time.</summary>
+    [Fact]
+    public void ExcludeFromWrite_records_the_property_name_on_the_registered_pair()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Stateful, Stateful>("Statefuls");
+        builder.ExcludeFromWrite<Stateful>(x => x.Status);
+
+        builder.GetEdmModel();
+
+        var pair = builder.Registry.Find("Statefuls");
+        Assert.NotNull(pair);
+        Assert.Contains(nameof(Stateful.Status), pair!.WriteExcludedProperties);
+        Assert.DoesNotContain(nameof(Stateful.Name), pair.WriteExcludedProperties);
+    }
+
+    /// <summary>Same guard as <see cref="IyuEdmModelBuilder.Exclude{T}"/>, for the same reason — request bodies bind to the read type.</summary>
+    [Fact]
+    public void ExcludeFromWrite_rejects_the_write_type_and_says_which_type_to_pass()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.ExcludeFromWrite<BankAccount>(x => x.AccountNumber);
+
+        var error = Assert.Throws<InvalidOperationException>(() => builder.GetEdmModel());
+        Assert.Contains(nameof(BankAccountExt), error.Message, StringComparison.Ordinal);
+        Assert.Contains("BankAccounts", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExcludeFromWrite_rejects_a_type_the_model_does_not_expose()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.ExcludeFromWrite<CustomerExt>(x => x.Name);
+
+        var error = Assert.Throws<InvalidOperationException>(() => builder.GetEdmModel());
+        Assert.Contains(nameof(CustomerExt), error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A typo must not silently leave the field writable.</summary>
+    [Fact]
+    public void ExcludeFromWrite_rejects_a_non_property_expression()
+    {
+        var builder = new IyuEdmModelBuilder();
+        Assert.Throws<ArgumentException>(() => builder.ExcludeFromWrite<Stateful>(x => x.Name.Length.ToString()));
+    }
+
+    /// <summary>Order-independence, same as <see cref="IyuEdmModelBuilder.Exclude{T}"/>: nothing applies until <see cref="IyuEdmModelBuilder.GetEdmModel"/>.</summary>
+    [Fact]
+    public void ExcludeFromWrite_applies_even_though_it_was_called_before_the_pair_was_registered()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.ExcludeFromWrite<Stateful>(x => x.Status);
+        builder.AddEntityPair<Stateful, Stateful>("Statefuls");
+
+        builder.GetEdmModel();
+        Assert.Contains(nameof(Stateful.Status), builder.Registry.Find("Statefuls")!.WriteExcludedProperties);
+    }
 }

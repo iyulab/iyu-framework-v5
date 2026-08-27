@@ -15,6 +15,7 @@ public sealed class IyuEntityPairRegistry
     private readonly ConcurrentDictionary<Type, string> _byReadType = new();
 
     private static readonly IReadOnlySet<ODataVerb> NoRestrictions = new HashSet<ODataVerb>();
+    private static readonly IReadOnlySet<string> NoProperties = new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>
     /// Registers a pair. Throws on duplicate set name or conflicting read-type
@@ -32,7 +33,7 @@ public sealed class IyuEntityPairRegistry
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
 
-        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions);
+        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties);
         if (!_bySetName.TryAdd(setName, pair))
             throw new InvalidOperationException($"Entity set '{setName}' is already registered.");
         if (!_byReadType.TryAdd(typeof(TRead), setName))
@@ -67,6 +68,35 @@ public sealed class IyuEntityPairRegistry
             (_, existing) => existing with { ReadOnlyVerbs = readOnlyVerbs });
     }
 
+    /// <summary>
+    /// Marks <paramref name="propertyNames"/> of an already-registered set as not
+    /// writable through the generic controller's POST/PATCH copy step, in place.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <see cref="Restrict"/>: a consumer whose registration is generated
+    /// (one call site, no per-property control) restricts a property after the
+    /// fact from a location it owns. Unlike <see cref="Restrict"/>, this does not
+    /// remove read access — the property stays in the EDM and in
+    /// <c>IyuODataController{TRead,TWrite}.Get</c>'s projection; only the copy
+    /// from the bound read-side body onto the write entity skips it.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
+    public void RestrictProperties(string setName, IReadOnlySet<string> propertyNames)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(setName);
+        ArgumentNullException.ThrowIfNull(propertyNames);
+
+        _bySetName.AddOrUpdate(
+            setName,
+            _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
+            (_, existing) => existing with
+            {
+                WriteExcludedProperties = new HashSet<string>(existing.WriteExcludedProperties, StringComparer.Ordinal)
+                    .Concat(propertyNames)
+                    .ToHashSet(StringComparer.Ordinal),
+            });
+    }
+
     /// <summary>Looks up a pair by set name; returns <c>null</c> if unknown.</summary>
     public EntityPair? Find(string setName)
         => _bySetName.TryGetValue(setName, out var pair) ? pair : null;
@@ -78,5 +108,10 @@ public sealed class IyuEntityPairRegistry
     /// <summary>Enumerates all registered pairs (snapshot).</summary>
     public IReadOnlyCollection<EntityPair> All => _bySetName.Values.ToList();
 
-    public sealed record EntityPair(string SetName, Type ReadType, Type WriteType, IReadOnlySet<ODataVerb> ReadOnlyVerbs);
+    public sealed record EntityPair(
+        string SetName,
+        Type ReadType,
+        Type WriteType,
+        IReadOnlySet<ODataVerb> ReadOnlyVerbs,
+        IReadOnlySet<string> WriteExcludedProperties);
 }
