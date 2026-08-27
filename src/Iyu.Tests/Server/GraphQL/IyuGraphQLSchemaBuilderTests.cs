@@ -39,7 +39,16 @@ public class IyuGraphQLSchemaBuilderTests
         services.AddDbContext<TestContext>(o => o.UseInMemoryDatabase(dbName));
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<TestContext>());
 
-        var gql = services.AddGraphQLServer();
+        var gql = services.AddGraphQLServer()
+            // HotChocolate 16 blocks __type/__schema by default when AddGraphQLServer()
+            // resolves to the HotChocolate.AspNetCore overload (as it does here, via
+            // Iyu.Server.GraphQL's package reference) outside a detected Development
+            // environment — this bare ServiceCollection has no IHostEnvironment for it to
+            // detect, so it fails closed. Several of this file's tests query __type for
+            // schema-shape assertions — turn it back on at the schema-builder level for
+            // this test-only provider (production wiring in MainServerExtensions is a
+            // separate decision, not exercised by these tests).
+            .DisableIntrospection(disable: false);
         graphql.ApplyTo(gql);
 
         return services.BuildServiceProvider();
@@ -62,7 +71,7 @@ public class IyuGraphQLSchemaBuilderTests
             await ctx.SaveChangesAsync();
         }
 
-        var executor = await sp.GetRequiredService<IRequestExecutorResolver>()
+        var executor = await sp
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
         var result = await executor.ExecuteAsync("{ widgets { name } }");
@@ -100,7 +109,7 @@ public class IyuGraphQLSchemaBuilderTests
             await ctx.SaveChangesAsync();
         }
 
-        var executor = await sp.GetRequiredService<IRequestExecutorResolver>()
+        var executor = await sp
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
         // The remaining field still works...
@@ -154,7 +163,7 @@ public class IyuGraphQLSchemaBuilderTests
 
         await using var sp = BuildServices(
             nameof(Exclude_applies_even_though_it_was_called_before_the_pair_was_registered), graphql);
-        var executor = await sp.GetRequiredService<IRequestExecutorResolver>()
+        var executor = await sp
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
         var probed = (await executor.ExecuteAsync("{ secretives { secretHash } }")).ToJson();
@@ -191,7 +200,7 @@ public class IyuGraphQLSchemaBuilderTests
         graphql.AddEntityPair<Annotated, Annotated>("annotateds", "annotated");
 
         await using var sp = BuildServices(nameof(Display_description_becomes_the_graphql_field_description), graphql);
-        var executor = await sp.GetRequiredService<IRequestExecutorResolver>()
+        var executor = await sp
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
         var result = await executor.ExecuteAsync(

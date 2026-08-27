@@ -88,8 +88,16 @@ public static class MainServerExtensions
         // discovery already found them) does not double-register controller types.
         RegisterControllerParts(mvc.PartManager, CandidateControllerAssemblies(typeof(TContext), configure, options));
 
-        var gql = services.AddGraphQLServer();
-        options.GraphQL.ApplyTo(gql);
+        // HotChocolate rejects a schema whose Query type has zero fields at host
+        // startup (RequestExecutorWarmupService eagerly builds it) — a consumer that
+        // registered no GraphQL entity pairs would otherwise crash the whole host, not
+        // just the GraphQL surface. Only wire GraphQL when there is something to expose;
+        // UseIyuMainServer makes the matching call on the read side (MapGraphQL).
+        if (options.GraphQL.QueryNames.Count > 0)
+        {
+            var gql = services.AddGraphQLServer();
+            options.GraphQL.ApplyTo(gql);
+        }
 
         // Stash the options so UseIyuMainServer can finish the pipeline wiring.
         services.AddSingleton(options);
@@ -108,7 +116,12 @@ public static class MainServerExtensions
 
         app.UseRouting();
         app.MapControllers();
-        app.MapGraphQL();
+
+        var options = app.Services.GetRequiredService<IyuMainServerOptions>();
+        if (options.GraphQL.QueryNames.Count > 0)
+        {
+            app.MapGraphQL();
+        }
         return app;
     }
 
