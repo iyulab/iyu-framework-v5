@@ -291,6 +291,12 @@ for now) with data the caller supplies, on demand. Independent modules, independ
 dependency footprint (`Iyu.Report` has no `Iyu.Core` reference and no
 `Microsoft.AspNetCore.App` framework reference), no shared code.
 
+**Non-goals: no template registry, no generation-history tracking, no endpoint mapping.**
+Deciding which templates exist and where they live, recording who generated what output and
+when, and exposing report generation over HTTP are all consumer-application concerns —
+`Iyu.Report` only turns a template stream plus data into an output stream, and stops there by
+design, not by omission.
+
 For everything past `AddIyuReport()` — template syntax, binding rules, supported formats —
 see [DocuChef's own documentation](https://github.com/iyulab/DocuChef); this package
 does not wrap or re-document that surface.
