@@ -6,7 +6,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.24.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.29.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Iyu.Core/Iyu.Core.csproj" />
