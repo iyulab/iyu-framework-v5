@@ -20,7 +20,7 @@ and the target, not just the newest. Each release states its own breaking change
 
 ## [0.19.0] - 2026-08-28
 
-**Packages affected:** `Iyu.MainServer`
+**Packages affected:** `Iyu.Data`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.OData`
 
 ### Added
 
@@ -34,6 +34,14 @@ and the target, not just the newest. Each release states its own breaking change
   `400 { error: "permissions_exceed_owner", exceeding: [...] }`; otherwise the client's
   permission set is replaced (not merged) with the intersection of the request and the
   owner's permissions.
+
+### Changed
+
+- **Dependency versions bumped, patch/minor only, no new public API.**
+  `Microsoft.EntityFrameworkCore`/`.Relational` `10.0.5` → `10.0.11` · `Azure.Storage.Blobs`
+  `12.24.0` → `12.29.2` · `Microsoft.AspNetCore.Authentication.JwtBearer` `10.0.0` → `10.0.11` ·
+  `System.IdentityModel.Tokens.Jwt` `8.19.1` → `8.22.0` · `Microsoft.AspNetCore.OData` `9.4.1`
+  → `9.5.0` · `DocuChef` `0.4.0` → `0.5.0`.
 
 ### Changed — breaking
 
