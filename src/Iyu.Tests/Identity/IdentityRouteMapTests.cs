@@ -54,8 +54,8 @@ public class IdentityRouteMapTests
             .ToList();
 
     /// <summary>
-    /// The four service-client operations, at the paths the identity README documents. The listing
-    /// is the one that makes the other three usable after the issuing response is gone, so its
+    /// The five service-client operations, at the paths the identity README documents. The listing
+    /// is the one that makes the other four usable after the issuing response is gone, so its
     /// absence is not a missing convenience — it is the credential becoming unrevokable.
     /// </summary>
     [Theory]
@@ -64,6 +64,7 @@ public class IdentityRouteMapTests
     [InlineData("GET", "/api/service-clients")]
     [InlineData("DELETE", "/api/service-clients/{id:guid}")]
     [InlineData("POST", "/api/service-clients/{id:guid}/rotate")]
+    [InlineData("PATCH", "/api/service-clients/{id:guid}/permissions")]
     public void The_documented_route_is_mapped(string method, string pattern)
     {
         var app = BuildApp();

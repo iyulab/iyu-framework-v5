@@ -15,21 +15,31 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
 
 토큰 흐름: `POST /api/auth/token {clientId, clientSecret, grant_type:"client_credentials"}` → 단기 JWT → `Authorization: Bearer`.
 
-## 서비스 클라이언트 — 네 가지 조작
+## 서비스 클라이언트 — 다섯 가지 조작
 
 | 메서드 | 경로 | 하는 일 |
 |---|---|---|
 | `POST` | `/api/service-clients` | 발급. `secret` 을 **1회만** 돌려준다 |
 | `GET` | `/api/service-clients` | **소유자 자신의 것을 열거.** 폐기된 것도 포함하며 `isActive` 로 구분된다 |
 | `POST` | `/api/service-clients/{id}/rotate` | 새 `secret` 발급 |
+| `PATCH` | `/api/service-clients/{id}/permissions` | 권한 집합 교체. `secret` 은 그대로 |
 | `DELETE` | `/api/service-clients/{id}` | 폐기 |
 
 `secret` 은 잃으면 되찾을 수 없다 — 회전한다. **`id` 는 되찾을 수 있다**: 회전·폐기가 요구하는
 `id` 를 발급 응답을 잃은 뒤에 얻는 곳이 `GET` 이다. 그것이 이 엔드포인트가 있는 이유이며,
 없으면 앞의 셋은 발급 응답을 보관했을 때만 쓸 수 있다.
 
-네 경로 모두 쿠키 인증(소유자 본인)을 요구하고, 남의 클라이언트는 **404** 다(403 이 아니다 —
+다섯 경로 모두 쿠키 인증(소유자 본인)을 요구하고, 남의 클라이언트는 **404** 다(403 이 아니다 —
 존재 자체를 알리지 않는다).
+
+### 권한만 바꾸고 싶을 때 — `rotate` 와의 차이
+
+`rotate`는 시크릿을 새로 발급한다(상대방이 새 값을 재배포해야 함). **권한만 조정하고 싶다면**
+`PATCH .../permissions`를 쓴다 — 시크릿은 그대로 유지되어 통신이 끊기지 않는다. `POST`(발급)와
+같은 `subset ⊆ owner` 규칙이 적용된다: 요청한 권한이 소유자 자신의 권한을 넘으면 `400
+{ error: "permissions_exceed_owner", exceeding: [...] }`이고, 넘지 않는 요청은 소유자 권한과의
+교집합(`PermissionScope.Effective`)으로 **전체 교체**된다(병합이 아니다 — 이전 권한 중 새 목록에
+없는 것은 빠진다).
 
 ### 저장소가 지켜야 할 것 — `ListServiceClientsByOwnerAsync`
 

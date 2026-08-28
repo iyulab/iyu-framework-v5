@@ -18,6 +18,55 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.19.0] - 2026-08-28
+
+**Packages affected:** `Iyu.MainServer`
+
+### Added
+
+- **`PATCH /api/service-clients/{id}/permissions`** — replaces a service client's permission
+  grant without rotating its secret. `rotate` and the other three operations key on `id`, but
+  none of them let an owner adjust *what* a client can do without also reissuing *how* it
+  authenticates — forcing a secret rotation just to narrow or widen scope means the far end
+  has to redeploy a credential it did not need to change, and the client is unreachable for
+  however long that takes. Subject to the same `subset ⊆ owner` rule `POST` already enforces:
+  a request exceeding the owner's own permissions is rejected with
+  `400 { error: "permissions_exceed_owner", exceeding: [...] }`; otherwise the client's
+  permission set is replaced (not merged) with the intersection of the request and the
+  owner's permissions.
+
+### Changed — breaking
+
+- **`IServiceClientStore` gains a required member**, `UpdatePermissionsAsync`. Every
+  implementation must add it; the framework provides no default deliberately, for the same
+  reason `ListServiceClientsByOwnerAsync` on `IIdentityStore` (0.12.0) has none — a default
+  that silently no-ops would let an un-updated store compile and then accept permission
+  updates that never actually take effect.
+
+  **To migrate**, replace the client's permission rows within the same transaction as the
+  ownership check:
+
+  ```csharp
+  public async Task<bool> UpdatePermissionsAsync(Guid id, Guid ownerUserId,
+      IReadOnlyList<string> permissions, CancellationToken ct)
+  {
+      var client = await _db.ServiceClients
+          .FirstOrDefaultAsync(c => c.Id == id && c.OwnerUserId == ownerUserId, ct);
+      if (client is null) return false;
+
+      _db.ServiceClientPermissions.RemoveRange(
+          _db.ServiceClientPermissions.Where(p => p.ServiceClientId == id));
+      _db.ServiceClientPermissions.AddRange(
+          permissions.Select(code => new ServiceClientPermission { ServiceClientId = id, Code = code }));
+      await _db.SaveChangesAsync(ct);
+      return true;
+  }
+  ```
+
+  Scope strictly by `(id, ownerUserId)` — the same pair `DeactivateAsync`/`UpdateSecretAsync`
+  already key on — so a caller who does not own the client gets the same "not found" outcome
+  the other three operations already give, not a different error shape.
+
 ## [0.18.1] - 2026-08-28
 
 **Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`

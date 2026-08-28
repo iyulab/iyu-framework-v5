@@ -53,4 +53,14 @@ public static class IdentityEndpointHandlers
         var r = await svc.RotateAsync(id, ownerUserId, ct);
         return r.Ok ? Results.Ok(new { secret = r.PlaintextSecret }) : Results.NotFound();
     }
+
+    public static async Task<IResult> UpdateServiceClientPermissionsAsync(
+        Guid id, UpdateServiceClientPermissionsRequest req, Guid ownerUserId, ServiceClientService svc, CancellationToken ct)
+    {
+        var r = await svc.UpdatePermissionsAsync(id, ownerUserId, req.Permissions ?? Array.Empty<string>(), ct);
+        if (r.Ok) return Results.NoContent();
+        if (r.Error == "permissions_exceed_owner")
+            return Results.BadRequest(new { error = r.Error, exceeding = r.Exceeding });
+        return Results.NotFound();
+    }
 }

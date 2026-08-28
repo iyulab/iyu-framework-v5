@@ -106,4 +106,12 @@ public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
         _clients[idx] = _clients[idx] with { SecretHash = newSecretHash };
         return Task.FromResult(true);
     }
+
+    public Task<bool> UpdatePermissionsAsync(Guid id, Guid ownerUserId, IReadOnlyList<string> permissions, CancellationToken ct)
+    {
+        var idx = _clients.FindIndex(c => c.Id == id && c.OwnerUserId == ownerUserId);
+        if (idx < 0) return Task.FromResult(false);
+        _clientPerms[id] = permissions.ToList();
+        return Task.FromResult(true);
+    }
 }

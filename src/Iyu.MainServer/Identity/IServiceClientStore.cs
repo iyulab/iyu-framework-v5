@@ -7,4 +7,5 @@ public interface IServiceClientStore
         DateTimeOffset? expiresAt, IReadOnlyList<string> permissions, CancellationToken ct);
     Task<bool> DeactivateAsync(Guid id, Guid ownerUserId, CancellationToken ct);
     Task<bool> UpdateSecretAsync(Guid id, Guid ownerUserId, string newSecretHash, CancellationToken ct);
+    Task<bool> UpdatePermissionsAsync(Guid id, Guid ownerUserId, IReadOnlyList<string> permissions, CancellationToken ct);
 }

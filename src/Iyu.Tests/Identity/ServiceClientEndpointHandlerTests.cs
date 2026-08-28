@@ -60,4 +60,37 @@ public class ServiceClientEndpointHandlerTests
         var res = await IdentityEndpointHandlers.RotateServiceClientAsync(created.Id, stranger, svc, default);
         Assert.Equal(404, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
     }
+
+    [Fact]
+    public async Task UpdatePermissions_Ok_Returns204()
+    {
+        var (svc, _, owner) = Make();
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+        var res = await IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(
+            created.Id, new UpdateServiceClientPermissionsRequest(["orders.write"]), owner, svc, default);
+        Assert.Equal(204, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdatePermissions_Exceeding_Returns400()
+    {
+        var (svc, _, owner) = Make();
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+        var res = await IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(
+            created.Id, new UpdateServiceClientPermissionsRequest(["settlement.write"]), owner, svc, default);
+        Assert.Equal(400, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdatePermissions_ByStranger_Returns404()
+    {
+        var (svc, store, owner) = Make();
+        // Stranger's own permission set must not exceeding-fail first — matching "orders.read"
+        // isolates the assertion to the ownership check, the thing this test is actually about.
+        var stranger = store.AddUser("x", "남", perms: ["orders.read"]);
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+        var res = await IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(
+            created.Id, new UpdateServiceClientPermissionsRequest(["orders.read"]), stranger, svc, default);
+        Assert.Equal(404, Assert.IsAssignableFrom<IStatusCodeHttpResult>(res).StatusCode);
+    }
 }

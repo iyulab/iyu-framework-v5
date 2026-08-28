@@ -51,4 +51,51 @@ public class ServiceClientServiceTests
         Assert.False(await svc.RevokeAsync(id, stranger, default));   // 남은 못 폐기
         Assert.True(await svc.RevokeAsync(id, owner, default));       // 소유자는 폐기
     }
+
+    [Fact]
+    public async Task UpdatePermissions_RejectsPermsExceedingOwner()
+    {
+        var store = new FakeIdentityStore();
+        var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
+        var svc = new ServiceClientService(store, store);
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+
+        var r = await svc.UpdatePermissionsAsync(created.Id, owner, ["orders.read", "settlement.write"], default);
+
+        Assert.False(r.Ok);
+        Assert.Equal(new[] { "settlement.write" }, r.Exceeding);
+    }
+
+    [Fact]
+    public async Task UpdatePermissions_ReplacesEffectiveSet_SecretUnchanged()
+    {
+        var store = new FakeIdentityStore();
+        var owner = store.AddUser("owner", "소유자", perms: ["orders.read", "orders.write"]);
+        var svc = new ServiceClientService(store, store);
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+        var secretHashBefore = (await store.FindServiceClientByClientIdAsync(created.ClientId!, default))!.SecretHash;
+
+        var r = await svc.UpdatePermissionsAsync(created.Id, owner, ["orders.write"], default);
+
+        Assert.True(r.Ok);
+        var persisted = await store.FindServiceClientByClientIdAsync(created.ClientId!, default);
+        Assert.Equal(secretHashBefore, persisted!.SecretHash);
+        var listed = await svc.ListAsync(owner, default);
+        Assert.Equal(new[] { "orders.write" }, listed.Single(c => c.Id == created.Id).Permissions);
+    }
+
+    [Fact]
+    public async Task UpdatePermissions_OnlyByOwner()
+    {
+        var store = new FakeIdentityStore();
+        var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
+        var stranger = store.AddUser("x", "남", perms: ["orders.read"]);
+        var svc = new ServiceClientService(store, store);
+        var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
+
+        var r = await svc.UpdatePermissionsAsync(created.Id, stranger, ["orders.read"], default);
+
+        Assert.False(r.Ok);
+        Assert.Equal("not_found", r.Error);
+    }
 }

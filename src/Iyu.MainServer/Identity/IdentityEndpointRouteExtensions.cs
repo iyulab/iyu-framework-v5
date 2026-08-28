@@ -32,6 +32,10 @@ public static class IdentityEndpointRouteExtensions
             => TryOwnerId(http, out var owner)
                 ? IdentityEndpointHandlers.RotateServiceClientAsync(id, owner, svc, ct)
                 : Task.FromResult(Results.Unauthorized()));
+        clients.MapPatch("/{id:guid}/permissions", (Guid id, UpdateServiceClientPermissionsRequest req, HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => TryOwnerId(http, out var owner)
+                ? IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(id, req, owner, svc, ct)
+                : Task.FromResult(Results.Unauthorized()));
         return app;
     }
 
