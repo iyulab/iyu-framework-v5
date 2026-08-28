@@ -18,6 +18,21 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.19.1] - 2026-08-28
+
+**Packages affected:** `Iyu.Data`
+
+### Fixed
+
+- **A `DateTimeOffset` bound without an explicit UTC offset (OData model binding,
+  `DateTimeOffset.Parse`) no longer fails the save with an unhandled 500.** It commonly carries
+  the server process's local offset instead of zero, and the PostgreSQL provider rejects any
+  non-zero offset for `timestamp with time zone`. `IyuDateTimeOffsetNormalizationInterceptor`
+  now re-expresses every non-UTC `DateTimeOffset` on `Added`/`Modified` entries at offset zero
+  via `ToUniversalTime()` at `SavingChanges` — same instant, value's meaning unchanged.
+  Registered in `IyuDbContext.OnConfiguring` alongside the existing `IyuTimestampInterceptor`,
+  so every save path (OData, direct EF usage, seeding) behaves the same regardless of provider.
+
 ## [0.19.0] - 2026-08-28
 
 **Packages affected:** `Iyu.Data`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.OData`
