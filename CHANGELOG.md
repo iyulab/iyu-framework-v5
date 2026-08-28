@@ -18,6 +18,23 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.18.1] - 2026-08-28
+
+**Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`
+
+### Changed
+
+- **HotChocolate upgraded `14.3.1` → `16.6.1`.** No new public API — this is an internal
+  dependency bump plus one bug fix uncovered by it.
+
+### Fixed
+
+- **A host with no GraphQL entity pairs registered (OData-only consumers) failed to start.**
+  HotChocolate 16 rejects a `Query` type with zero fields at warmup instead of at first
+  request. `MainServerExtensions` now only wires `AddGraphQLServer()`/`MapGraphQL()` when at
+  least one GraphQL entity pair is registered, regardless of HotChocolate version — there is
+  no reason to stand up an empty `/graphql` endpoint for a consumer that never uses it.
+
 ## [0.18.0] - 2026-08-27
 
 **Packages affected:** `Iyu.Server.OData`
