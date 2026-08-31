@@ -18,6 +18,24 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.20.0] - 2026-08-31
+
+**Packages affected:** `Iyu.Server.GraphQL`
+
+### Added
+
+- **`AddEntityPair` takes an optional `authorizePolicy` parameter.** GraphQL query fields
+  registered this way previously had no authorization hook: the OData surface's
+  `IyuODataController` gets per-entity authorization for free from ASP.NET Core MVC's
+  convention pipeline, but GraphQL's fluent schema-building API closes each field at
+  registration time with no equivalent extension point, so an entity restricted on OData was
+  still fully readable via GraphQL with only base authentication enforced. The first
+  `AddEntityPair` call that passes a policy auto-registers a bridge handler evaluating it
+  against ASP.NET Core's `IAuthorizationService` (HotChocolate ships the `@authorize`
+  directive but no default handler for it), so there is no separate registration step to
+  forget. A policy name that does not resolve fails closed via HotChocolate's own
+  `PolicyNotFound`, instead of throwing an unhandled exception.
+
 ## [0.19.1] - 2026-08-28
 
 **Packages affected:** `Iyu.Data`
