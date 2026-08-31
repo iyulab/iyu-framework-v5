@@ -32,7 +32,9 @@ namespace Iyu.Server.GraphQL;
 /// recorded for that future use. When that generator lands, it must consult
 /// <c>IyuEntityPairRegistry.EntityPair.ReadOnlyVerbs</c> (Iyu.Server.OData) so a
 /// set the OData surface refuses POST/PATCH/DELETE for does not grow a GraphQL
-/// mutation that bypasses the same restriction.
+/// mutation that bypasses the same restriction — and it should let the same
+/// <c>authorizePolicy</c> a pair registered for reads cover its mutations too, so a write
+/// surface does not reopen the read-side authorization gap this parameter closes.
 /// </para>
 /// </remarks>
 public sealed class IyuGraphQLSchemaBuilder
@@ -42,6 +44,7 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
     private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
     private readonly Dictionary<Type, string> _exposedTypes = new();
+    private bool _usesAuthorization;
 
     /// <summary>
     /// Registers a query field named <paramref name="queryName"/> that returns
@@ -49,22 +52,38 @@ public sealed class IyuGraphQLSchemaBuilder
     /// <see cref="IyuDbContext"/>. <paramref name="mutationPrefix"/> is
     /// recorded for future mutation generation.
     /// </summary>
-    public IyuGraphQLSchemaBuilder AddEntityPair<TRead, TWrite>(string queryName, string mutationPrefix)
+    /// <param name="queryName">The GraphQL query field name.</param>
+    /// <param name="mutationPrefix">Recorded for future mutation generation; not used yet.</param>
+    /// <param name="authorizePolicy">
+    /// An ASP.NET Core authorization policy name (e.g. one registered by
+    /// <c>Iyu.MainServer.Identity.AddIyuIdentity</c>'s permission catalog) required to read this
+    /// field. <see langword="null"/> (the default) leaves the field covered by whatever
+    /// <c>FallbackPolicy</c> is configured — the same posture every field had before this
+    /// parameter existed. Passing a policy is how a GraphQL query field reaches the same
+    /// per-entity authorization OData's <c>IyuODataController</c> gets for free from ASP.NET Core
+    /// MVC's convention pipeline; <see cref="ApplyTo"/> wires the bridge handler that enforces it
+    /// automatically the first time any pair uses this parameter.
+    /// </param>
+    public IyuGraphQLSchemaBuilder AddEntityPair<TRead, TWrite>(
+        string queryName, string mutationPrefix, string? authorizePolicy = null)
         where TRead : class
         where TWrite : IyuEntity
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationPrefix);
+        if (authorizePolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(authorizePolicy);
         if (!_queryNames.Add(queryName))
             throw new InvalidOperationException($"GraphQL query field '{queryName}' is already registered.");
         _mutationPrefixes[queryName] = mutationPrefix;
         _exposedTypes[typeof(TRead)] = queryName;
+        if (authorizePolicy is not null) _usesAuthorization = true;
 
         _fieldBuilders.Add(descriptor =>
         {
-            descriptor.Field(queryName)
+            var field = descriptor.Field(queryName)
                 .Type<ListType<ObjectType<TRead>>>()
                 .Resolve(ResolveQueryable<TRead>);
+            if (authorizePolicy is not null) field.Authorize(authorizePolicy);
         });
 
         ApplyPropertyDescriptions<TRead>();
@@ -191,6 +210,8 @@ public sealed class IyuGraphQLSchemaBuilder
             EnsureExposed(type);
             customize(executorBuilder);
         }
+        if (_usesAuthorization)
+            executorBuilder.AddIyuGraphQLAuthorization();
     }
 
     /// <summary>Exposes the mutation prefix recorded for a given query name.</summary>

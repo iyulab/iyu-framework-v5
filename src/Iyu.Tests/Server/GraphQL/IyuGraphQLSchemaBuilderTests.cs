@@ -1,9 +1,12 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using HotChocolate;
 using HotChocolate.Execution;
 using Iyu.Core.Entities;
 using Iyu.Data;
 using Iyu.Server.GraphQL;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -33,11 +36,13 @@ public class IyuGraphQLSchemaBuilderTests
         public DbSet<Annotated> Annotateds => Set<Annotated>();
     }
 
-    private static ServiceProvider BuildServices(string dbName, IyuGraphQLSchemaBuilder graphql)
+    private static ServiceProvider BuildServices(
+        string dbName, IyuGraphQLSchemaBuilder graphql, Action<IServiceCollection>? configureServices = null)
     {
         var services = new ServiceCollection();
         services.AddDbContext<TestContext>(o => o.UseInMemoryDatabase(dbName));
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<TestContext>());
+        configureServices?.Invoke(services);
 
         var gql = services.AddGraphQLServer()
             // HotChocolate 16 blocks __type/__schema by default when AddGraphQLServer()
@@ -48,10 +53,27 @@ public class IyuGraphQLSchemaBuilderTests
             // schema-shape assertions — turn it back on at the schema-builder level for
             // this test-only provider (production wiring in MainServerExtensions is a
             // separate decision, not exercised by these tests).
-            .DisableIntrospection(disable: false);
+            .DisableIntrospection(disable: false)
+            .ModifyRequestOptions(o => o.IncludeExceptionDetails = true);
         graphql.ApplyTo(gql);
 
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>
+    /// Stands in for what an ASP.NET Core request pipeline would otherwise populate:
+    /// <see cref="IHttpContextAccessor.HttpContext"/> with a <see cref="ClaimsPrincipal"/> bearing
+    /// <paramref name="claims"/>. Passing none leaves the accessor's <c>HttpContext</c> null,
+    /// which the GraphQL authorization bridge treats as an anonymous user — the same posture a
+    /// real anonymous request has.
+    /// </summary>
+    private static void SetCurrentUser(IServiceProvider services, params (string Type, string Value)[] claims)
+    {
+        var identity = claims.Length == 0
+            ? new ClaimsIdentity()
+            : new ClaimsIdentity(claims.Select(c => new Claim(c.Type, c.Value)), authenticationType: "Test");
+        services.GetRequiredService<IHttpContextAccessor>().HttpContext =
+            new DefaultHttpContext { User = new ClaimsPrincipal(identity) };
     }
 
     [Fact]
@@ -215,5 +237,138 @@ public class IyuGraphQLSchemaBuilderTests
             .RootElement.GetProperty("data").GetProperty("__type").GetProperty("fields")
             .EnumerateArray().Single(f => f.GetProperty("name").GetString() == "accountNumber");
         Assert.Equal(System.Text.Json.JsonValueKind.Null, accountField.GetProperty("description").ValueKind);
+    }
+
+    private static void ConfigurePermissionPolicy(IServiceCollection services, string policyName, string claimValue)
+    {
+        // DefaultAuthorizationService (registered by AddAuthorization) needs ILogger<T> — present
+        // for free in a real host (WebApplication.CreateBuilder), missing on this bare
+        // ServiceCollection unless added explicitly.
+        services.AddLogging();
+        services.AddHttpContextAccessor();
+        services.AddAuthorization(opts =>
+            opts.AddPolicy(policyName, p => p.RequireClaim("perm", claimValue)));
+    }
+
+    /// <summary>
+    /// docket #139: a query field registered with <c>authorizePolicy</c> must reject a caller
+    /// who lacks the required claim — this is the exact gap the issue reported (GraphQL had no
+    /// per-entity authorization while OData already did for the same data).
+    /// </summary>
+    [Fact]
+    public async Task Field_with_authorize_policy_rejects_a_caller_without_the_claim()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+
+        await using var sp = BuildServices(
+            nameof(Field_with_authorize_policy_rejects_a_caller_without_the_claim), graphql,
+            services => ConfigurePermissionPolicy(services, "widgets.read", "widgets.read"));
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Widgets.Add(new Widget { Id = Guid.NewGuid(), Name = "SHOULD-NOT-LEAK" });
+            await ctx.SaveChangesAsync();
+        }
+        // No claim at all — the same posture a bearer token missing the permission has.
+        SetCurrentUser(sp);
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var json = result.ToJson();
+
+        Assert.Contains("\"errors\"", json);
+        Assert.DoesNotContain("SHOULD-NOT-LEAK", json);
+    }
+
+    /// <summary>The same field, same policy, with the required claim present — must succeed.</summary>
+    [Fact]
+    public async Task Field_with_authorize_policy_allows_a_caller_with_the_claim()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+
+        await using var sp = BuildServices(
+            nameof(Field_with_authorize_policy_allows_a_caller_with_the_claim), graphql,
+            services => ConfigurePermissionPolicy(services, "widgets.read", "widgets.read"));
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Widgets.Add(new Widget { Id = Guid.NewGuid(), Name = "alpha" });
+            await ctx.SaveChangesAsync();
+        }
+        SetCurrentUser(sp, ("perm", "widgets.read"));
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var json = result.ToJson();
+
+        Assert.Contains("alpha", json);
+        Assert.DoesNotContain("\"errors\"", json);
+    }
+
+    /// <summary>
+    /// A typo'd or not-yet-registered policy name must fail closed (a clean GraphQL error), not
+    /// throw an unhandled exception from inside <see cref="Microsoft.AspNetCore.Authorization.IAuthorizationService"/> —
+    /// the bridge resolves the policy itself first precisely so this case maps to HotChocolate's
+    /// own <c>PolicyNotFound</c> outcome instead.
+    /// </summary>
+    [Fact]
+    public async Task Field_with_an_unregistered_authorize_policy_fails_closed()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+
+        await using var sp = BuildServices(
+            nameof(Field_with_an_unregistered_authorize_policy_fails_closed), graphql,
+            services =>
+            {
+                services.AddLogging();
+                services.AddHttpContextAccessor();
+                services.AddAuthorization(); // no "widgets.read" policy registered
+            });
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Widgets.Add(new Widget { Id = Guid.NewGuid(), Name = "SHOULD-NOT-LEAK" });
+            await ctx.SaveChangesAsync();
+        }
+        SetCurrentUser(sp, ("perm", "widgets.read"));
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var json = result.ToJson();
+
+        Assert.Contains("\"errors\"", json);
+        Assert.DoesNotContain("SHOULD-NOT-LEAK", json);
+        Assert.DoesNotContain("Unexpected Execution Error", json);
+    }
+
+    /// <summary>
+    /// Backward compatibility: a pair registered without <c>authorizePolicy</c> (every call site
+    /// before this parameter existed) must not gain a claim requirement it never asked for — no
+    /// authorization handler is even wired unless some pair opts in.
+    /// </summary>
+    [Fact]
+    public async Task Field_without_authorize_policy_is_reachable_by_an_anonymous_caller()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
+
+        await using var sp = BuildServices(
+            nameof(Field_without_authorize_policy_is_reachable_by_an_anonymous_caller), graphql);
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Widgets.Add(new Widget { Id = Guid.NewGuid(), Name = "alpha" });
+            await ctx.SaveChangesAsync();
+        }
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var json = result.ToJson();
+
+        Assert.Contains("alpha", json);
+        Assert.DoesNotContain("\"errors\"", json);
     }
 }

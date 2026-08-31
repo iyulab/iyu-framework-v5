@@ -17,7 +17,7 @@ NuGet packages.
 | `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`), identity contracts, and the attachment contracts (`IAttachmentStorage`, `FileAccessToken`, `FileAccessTokenService`) |
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
 | `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder |
-| `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
+| `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix, authorizePolicy)` (HotChocolate-based) |
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients) |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
@@ -111,6 +111,30 @@ than let the call quietly do nothing.
 The property is *removed*, not blanked. A blank value would be indistinguishable from "this
 row has no value", and would still let a caller recover the real one a character at a time
 with `$filter=startswith(...)`.
+
+### Per-entity authorization on the GraphQL surface
+
+`IyuODataController<TRead,TWrite>` is a plain ASP.NET Core MVC controller, so a consumer can
+already attach per-entity authorization to it with an ordinary `IApplicationModelConvention`
+(`opts.Conventions.Add(...)` on `AddControllers`/`AddMvcOptions`) — no framework support needed,
+that mechanism is standard MVC. GraphQL query fields have no equivalent free hook: they are built
+by a fluent descriptor API, not resolved through MVC. `AddEntityPair`'s third parameter closes
+that gap:
+
+```csharp
+options.GraphQL.AddEntityPair<OrderExt, Order>("orders", "order", authorizePolicy: "orders.read");
+```
+
+`authorizePolicy` is an ASP.NET Core authorization policy name — the same ones
+`AddIyuIdentity`'s `permissionCatalog` registers for OData/MVC. Passing it applies the field
+the same way `[Authorize(Policy = "...")]` would; omitting it (the default) leaves the field
+exactly as before this parameter existed, covered only by whatever `FallbackPolicy` is
+configured. The first `AddEntityPair` call that uses this parameter also wires the bridge
+HotChocolate needs to evaluate that policy against `IAuthorizationService` — HotChocolate ships
+the `.Authorize(policy)` descriptor extension but no default handler that checks it against
+ASP.NET Core's own authorization services, so without this a policy name on a field would have
+nothing to enforce it. No separate registration call is needed; a schema that never passes
+`authorizePolicy` never pays for it.
 
 ### Making one property read-only
 
