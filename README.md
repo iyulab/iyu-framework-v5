@@ -10,6 +10,16 @@ conversion.
 Targets .NET 10. All ten projects share one version and ship as separate
 NuGet packages.
 
+## Role in the stack
+
+A consumer app builds directly on this framework's interfaces, abstractions, and base
+classes — `IyuEntity`, `IyuDbContext`, the OData/GraphQL builders, the identity/authorization
+primitives — while mdd-booster generates the model-shaped code that sits on top of them from
+an M3L model. The split is deliberate: this framework owns the parts that stay the same no
+matter what the model looks like (extension points, cross-cutting mechanisms, wiring), so a
+consumer app doesn't reimplement them per project; mdd-booster owns the parts that depend on
+the model itself. Neither side assumes anything about which app is consuming it.
+
 ## Layers
 
 | Project | Role |
