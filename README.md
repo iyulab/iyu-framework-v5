@@ -146,6 +146,24 @@ ASP.NET Core's own authorization services, so without this a policy name on a fi
 nothing to enforce it. No separate registration call is needed; a schema that never passes
 `authorizePolicy` never pays for it.
 
+**When the registration is not yours to edit**, e.g. a single generated file that calls
+`AddEntityPair(queryName, mutationPrefix)` once per pair with no per-call-site control, apply the
+policy afterward instead of at registration:
+
+```csharp
+RegisterGeneratedEntities(options);   // registration you may not own
+
+options.GraphQL.Restrict("orders", "orders.read");
+```
+
+`Restrict` requires the field to already be registered via `AddEntityPair` — it throws if it is
+not — and reaches the schema identically to declaring `authorizePolicy` at `AddEntityPair` time,
+since both read the same live state rather than a value captured at registration. Unlike
+`options.ODataModel.Restrict`, this one **must run before `ApplyTo`** — `ApplyTo` decides
+synchronously, during service configuration, whether to wire the authorization handler into DI, so
+a `Restrict` call made afterward throws rather than silently registering a policy nothing will
+ever enforce.
+
 ### Making one property read-only
 
 A domain field can genuinely need to change — just never through the generic write path.

@@ -42,9 +42,11 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly List<Action<IObjectTypeDescriptor>> _fieldBuilders = new();
     private readonly HashSet<string> _queryNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _authorizePolicies = new(StringComparer.Ordinal);
     private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
     private readonly Dictionary<Type, string> _exposedTypes = new();
     private bool _usesAuthorization;
+    private bool _applied;
 
     /// <summary>
     /// Registers a query field named <paramref name="queryName"/> that returns
@@ -76,17 +78,64 @@ public sealed class IyuGraphQLSchemaBuilder
             throw new InvalidOperationException($"GraphQL query field '{queryName}' is already registered.");
         _mutationPrefixes[queryName] = mutationPrefix;
         _exposedTypes[typeof(TRead)] = queryName;
+        _authorizePolicies[queryName] = authorizePolicy;
         if (authorizePolicy is not null) _usesAuthorization = true;
 
+        // Reads _authorizePolicies at build time (deferred to ApplyTo's AddQueryType callback,
+        // which HotChocolate does not invoke until schema construction) rather than closing over
+        // the authorizePolicy parameter directly, so a later Restrict() call for this queryName
+        // is still picked up — the same registration-call-site independence
+        // IyuEntityPairRegistry.Restrict gives the OData surface (Iyu.Server.OData).
         _fieldBuilders.Add(descriptor =>
         {
             var field = descriptor.Field(queryName)
                 .Type<ListType<ObjectType<TRead>>>()
                 .Resolve(ResolveQueryable<TRead>);
-            if (authorizePolicy is not null) field.Authorize(authorizePolicy);
+            if (_authorizePolicies[queryName] is { } policy) field.Authorize(policy);
         });
 
         ApplyPropertyDescriptions<TRead>();
+        return this;
+    }
+
+    /// <summary>
+    /// Applies (or replaces) the authorization policy for an already-registered query field, from
+    /// a location that does not own the original <see cref="AddEntityPair{TRead,TWrite}"/> call
+    /// site — e.g. a code-generated registration file the consumer does not hand-edit. The
+    /// GraphQL counterpart of <c>IyuEdmModelBuilder.Restrict</c> (Iyu.Server.OData):
+    /// codegen keeps emitting the plain <c>AddEntityPair(queryName, mutationPrefix)</c> call, and
+    /// the consumer layers authorization on afterward from its own composition root.
+    /// </summary>
+    /// <param name="queryName">A field name already registered via <see cref="AddEntityPair{TRead,TWrite}"/>.</param>
+    /// <param name="authorizePolicy">
+    /// The ASP.NET Core authorization policy name to require for this field — same contract as
+    /// <see cref="AddEntityPair{TRead,TWrite}"/>'s <c>authorizePolicy</c> parameter.
+    /// </param>
+    /// <remarks>
+    /// Must be called before <see cref="ApplyTo"/>. Unlike <c>IyuEdmModelBuilder.Restrict</c> —
+    /// which only needs to land before the EDM model is finalized, well after service
+    /// configuration — this needs <see cref="IyuGraphQLAuthorizationExtensions.AddIyuGraphQLAuthorization"/>
+    /// wired into DI, and <see cref="ApplyTo"/> decides whether to do that synchronously, during
+    /// service configuration. Calling this after <see cref="ApplyTo"/> throws rather than silently
+    /// registering a policy no handler will ever enforce.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="queryName"/> was never registered via <see cref="AddEntityPair{TRead,TWrite}"/>,
+    /// or this is called after <see cref="ApplyTo"/>.
+    /// </exception>
+    public IyuGraphQLSchemaBuilder Restrict(string queryName, string authorizePolicy)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(authorizePolicy);
+        if (_applied)
+            throw new InvalidOperationException(
+                $"Cannot restrict GraphQL query field '{queryName}': ApplyTo has already run. "
+                + "Call Restrict before ApplyTo — it wires the authorization handler into DI synchronously.");
+        if (!_queryNames.Contains(queryName))
+            throw new InvalidOperationException(
+                $"Cannot restrict GraphQL query field '{queryName}': it was never registered via AddEntityPair.");
+        _authorizePolicies[queryName] = authorizePolicy;
+        _usesAuthorization = true;
         return this;
     }
 
@@ -199,6 +248,7 @@ public sealed class IyuGraphQLSchemaBuilder
     public void ApplyTo(IRequestExecutorBuilder executorBuilder)
     {
         ArgumentNullException.ThrowIfNull(executorBuilder);
+        _applied = true;
         var fieldBuilders = _fieldBuilders.ToArray(); // capture snapshot
         executorBuilder.AddQueryType(descriptor =>
         {

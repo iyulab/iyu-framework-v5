@@ -371,4 +371,106 @@ public class IyuGraphQLSchemaBuilderTests
         Assert.Contains("alpha", json);
         Assert.DoesNotContain("\"errors\"", json);
     }
+
+    /// <summary>
+    /// A consumer whose registration is code-generated cannot pass <c>authorizePolicy</c> at the
+    /// <see cref="IyuGraphQLSchemaBuilder.AddEntityPair{TRead,TWrite}"/> call site it does not
+    /// own — <see cref="IyuGraphQLSchemaBuilder.Restrict"/> lets it apply the policy afterward,
+    /// from its own composition root, the same shape <c>IyuEdmModelBuilder.Restrict</c> already
+    /// gives the OData surface.
+    /// </summary>
+    [Fact]
+    public async Task Restrict_after_plain_registration_rejects_a_caller_without_the_claim()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget"); // no authorizePolicy — as codegen emits it
+        graphql.Restrict("widgets", "widgets.read");                // applied from a separate call site
+
+        await using var sp = BuildServices(
+            nameof(Restrict_after_plain_registration_rejects_a_caller_without_the_claim), graphql,
+            services => ConfigurePermissionPolicy(services, "widgets.read", "widgets.read"));
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Widgets.Add(new Widget { Id = Guid.NewGuid(), Name = "SHOULD-NOT-LEAK" });
+            await ctx.SaveChangesAsync();
+        }
+        SetCurrentUser(sp); // no claim
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var json = result.ToJson();
+
+        Assert.Contains("\"errors\"", json);
+        Assert.DoesNotContain("SHOULD-NOT-LEAK", json);
+    }
+
+    /// <summary>The same field, same policy applied via <c>Restrict</c>, with the required claim present.</summary>
+    [Fact]
+    public async Task Restrict_after_plain_registration_allows_a_caller_with_the_claim()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
+        graphql.Restrict("widgets", "widgets.read");
+
+        await using var sp = BuildServices(
+            nameof(Restrict_after_plain_registration_allows_a_caller_with_the_claim), graphql,
+            services => ConfigurePermissionPolicy(services, "widgets.read", "widgets.read"));
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Widgets.Add(new Widget { Id = Guid.NewGuid(), Name = "alpha" });
+            await ctx.SaveChangesAsync();
+        }
+        SetCurrentUser(sp, ("perm", "widgets.read"));
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var json = result.ToJson();
+
+        Assert.Contains("alpha", json);
+        Assert.DoesNotContain("\"errors\"", json);
+    }
+
+    /// <summary>Order-independence within registration: Restrict may run before AddEntityPair too.</summary>
+    [Fact]
+    public void Restrict_before_add_entity_pair_throws_because_the_field_is_not_registered_yet()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        var error = Assert.Throws<InvalidOperationException>(() => graphql.Restrict("widgets", "widgets.read"));
+        Assert.Contains("widgets", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Naming a query field that was never registered is refused — the same fail-loud posture
+    /// <see cref="IyuGraphQLSchemaBuilder.Exclude{T}"/> and <c>IyuEntityPairRegistry.Restrict</c>
+    /// (Iyu.Server.OData) already take, instead of silently doing nothing.
+    /// </summary>
+    [Fact]
+    public void Restrict_on_an_unregistered_query_name_throws()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
+        var error = Assert.Throws<InvalidOperationException>(() => graphql.Restrict("unknown", "some.policy"));
+        Assert.Contains("unknown", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Unlike <c>IyuEdmModelBuilder.Restrict</c>, this one has a real ordering constraint:
+    /// <see cref="IyuGraphQLSchemaBuilder.ApplyTo"/> decides synchronously, during service
+    /// configuration, whether to wire the authorization handler into DI — a policy applied after
+    /// that decision was made would silently never be enforced, so it is refused instead.
+    /// </summary>
+    [Fact]
+    public void Restrict_after_apply_to_throws()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
+
+        var services = new ServiceCollection();
+        graphql.ApplyTo(services.AddGraphQLServer());
+
+        var error = Assert.Throws<InvalidOperationException>(() => graphql.Restrict("widgets", "widgets.read"));
+        Assert.Contains("ApplyTo", error.Message, StringComparison.Ordinal);
+    }
 }
