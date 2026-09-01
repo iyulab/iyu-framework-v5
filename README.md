@@ -80,6 +80,62 @@ Resulting endpoints:
 - `GET /$data/Orders?$filter=Status eq 'confirmed'` — OData query
 - `POST /graphql` with `{ orders { ... } }` — GraphQL query
 
+## Identity
+
+`AddIyuIdentity` wires authentication/authorization *infrastructure*: dual-scheme authentication
+(cookie for browsers/API clients, JWT bearer for OAuth2 `client_credentials` service clients),
+per-permission authorization policies built from a `permissionCatalog`, and `IIdentityStore` as
+the read-side seam a consumer implements against its own user store. `MapIyuIdentity` maps only
+the service-client surface (`/api/auth/token` plus `/api/service-clients/*`) — **there is no
+built-in human sign-in endpoint, local or federated.** That is deliberate: authenticating a
+person and turning the result into a signed-in `ClaimsPrincipal` is left to the consuming app,
+the same way the generic OData controller leaves business validation to the consumer. The
+framework's job stops at making the cookie scheme, the policies, and `IIdentityStore` available
+to build on.
+
+Two recipes for that composition — same seam, same shape, only the credential check differs:
+
+**Local username/password:**
+
+```csharp
+app.MapPost("/api/auth/login", async (LoginRequest req, IIdentityStore store, HttpContext http, CancellationToken ct) =>
+{
+    var user = await store.FindUserByUsernameAsync(req.Username, ct);
+    if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
+
+    var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [new(ClaimTypes.NameIdentifier, user.Id.ToString())], CookieAuthenticationDefaults.AuthenticationScheme));
+    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+    return Results.Ok();
+}).AllowAnonymous();
+```
+
+**External OIDC / AD federation** (a customer-hosted IdP — common in on-premises deployments
+where each site brings its own directory):
+
+```csharp
+builder.Services.AddAuthentication()
+    .AddOpenIdConnect("oidc", opts => { /* Authority, ClientId, ClientSecret from config */ });
+// AddIyuIdentity already registered the cookie scheme this callback signs into.
+
+app.MapGet("/api/auth/oidc/callback", async (HttpContext http, IIdentityStore store, CancellationToken ct) =>
+{
+    var externalPrincipal = (await http.AuthenticateAsync("oidc")).Principal!;
+    var user = await store.FindUserByUsernameAsync(externalPrincipal.Identity!.Name!, ct)
+        ?? await ProvisionFromExternalClaimsAsync(externalPrincipal, ct);   // consumer-owned find-or-provision
+
+    var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [new(ClaimTypes.NameIdentifier, user.Id.ToString())], CookieAuthenticationDefaults.AuthenticationScheme));
+    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+    return Results.Redirect("/");
+});
+```
+
+`ProvisionFromExternalClaimsAsync` — whether a first-seen federated identity is auto-provisioned
+or must already exist, and which external claims map to which local fields — is a policy
+decision specific to each deployment, which is why it stays application code rather than a
+framework callback signature.
+
 ## Read/Write pair model
 
 Each logical entity has two CLR types:
