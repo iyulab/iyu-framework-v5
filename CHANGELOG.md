@@ -18,6 +18,22 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.21.0] - 2026-09-01
+
+**Packages affected:** `Iyu.Server.GraphQL`
+
+### Added
+
+- **`IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)`.** Applies or replaces the
+  authorization policy for an already-registered query field, from a location that does not
+  own the original `AddEntityPair` call site — e.g. a code-generated registration file. This is
+  the GraphQL counterpart of `IyuEdmModelBuilder.Restrict` on the OData surface, added for the
+  same reason: code that emits `AddEntityPair(queryName, mutationPrefix)` without a per-call-site
+  `authorizePolicy` argument still needs a way to layer authorization on afterward, from the
+  consumer's own composition root. Unlike the OData version, `Restrict` must be called before
+  `ApplyTo` — `ApplyTo` decides synchronously whether to wire the authorization handler into DI,
+  so a call afterward throws rather than silently registering a policy nothing will enforce.
+
 ## [0.20.0] - 2026-08-31
 
 **Packages affected:** `Iyu.Server.GraphQL`
