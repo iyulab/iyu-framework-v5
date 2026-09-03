@@ -48,11 +48,7 @@ public sealed class IdentityTokenService
         };
         claims.AddRange(effective.Select(p => new Claim(_opts.PermissionClaimType, p)));
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(_opts.Issuer, _opts.Audience, claims,
-            notBefore: now.UtcDateTime, expires: now.Add(_opts.Lifetime).UtcDateTime, signingCredentials: creds);
-        var jwt = new JwtSecurityTokenHandler().WriteToken(token);
+        var jwt = SignToken(claims, _opts.Lifetime, now);
 
         await _store.TouchServiceClientAsync(client.Id, now, ct);
         return new(true, null, jwt, (int)_opts.Lifetime.TotalSeconds, effective);
@@ -87,16 +83,21 @@ public sealed class IdentityTokenService
         var claimsList = claims as IReadOnlyCollection<Claim> ?? claims.ToList();
         var now = _clock.GetUtcNow();
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(_opts.Issuer, _opts.Audience, claimsList,
-            notBefore: now.UtcDateTime, expires: now.Add(lifetime).UtcDateTime, signingCredentials: creds);
-        var jwt = new JwtSecurityTokenHandler().WriteToken(token);
+        var jwt = SignToken(claimsList, lifetime, now);
 
         var permissions = claimsList
             .Where(c => c.Type == _opts.PermissionClaimType)
             .Select(c => c.Value)
             .ToArray();
         return new(true, null, jwt, (int)lifetime.TotalSeconds, permissions);
+    }
+
+    private string SignToken(IEnumerable<Claim> claims, TimeSpan lifetime, DateTimeOffset now)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(_opts.Issuer, _opts.Audience, claims,
+            notBefore: now.UtcDateTime, expires: now.Add(lifetime).UtcDateTime, signingCredentials: creds);
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }
