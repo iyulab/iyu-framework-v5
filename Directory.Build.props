@@ -11,7 +11,7 @@
 
   <PropertyGroup>
     <!-- 버전 (모노 버전: 배포 패키지 10개 모두 동일) -->
-    <Version>0.22.0</Version>
+    <Version>0.23.0</Version>
   </PropertyGroup>
 
   <PropertyGroup>

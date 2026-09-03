@@ -18,6 +18,20 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.23.0] - 2026-09-03
+
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+### Added
+
+- **`IyuEdmModelBuilder.RestrictPolicy(setName, readPolicy?, writePolicy?)`.** Requires an
+  ASP.NET Core authorization policy to touch a registered OData entity set — GET requires
+  `readPolicy`, POST/PATCH/DELETE require `writePolicy`. This is the OData counterpart of
+  `IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)`: the two surfaces expose the
+  same registry-backed capability, and only GraphQL previously had a way to require a policy
+  without hand-rolling an `IApplicationModelConvention`. The first registered set that uses
+  either parameter wires the enforcement automatically — no separate registration step.
+
 ## [0.22.0] - 2026-09-03
 
 **Packages affected:** `Iyu.MainServer`
