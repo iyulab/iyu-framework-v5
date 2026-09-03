@@ -18,6 +18,18 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.22.0] - 2026-09-03
+
+**Packages affected:** `Iyu.MainServer`
+
+### Added
+
+- **`IdentityTokenService.IssueUserToken(claims, lifetimeOverride?)`.** Issues a signed JWT for an
+  already-authenticated human principal — the counterpart to `IssueClientCredentialsAsync` for
+  clients that cannot use the cookie scheme, such as a native mobile or desktop app completing its
+  own sign-in flow. Reuses the existing signing pipeline and `IdentityTokenOptions`; no new
+  configuration surface. Synchronous, since this path performs no store lookup.
+
 ## [0.21.0] - 2026-09-01
 
 **Packages affected:** `Iyu.Server.GraphQL`
