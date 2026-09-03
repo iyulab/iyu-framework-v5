@@ -57,4 +57,46 @@ public sealed class IdentityTokenService
         await _store.TouchServiceClientAsync(client.Id, now, ct);
         return new(true, null, jwt, (int)_opts.Lifetime.TotalSeconds, effective);
     }
+
+    /// <summary>
+    /// Signs a JWT for a caller-supplied claim set — the counterpart to
+    /// <see cref="IssueClientCredentialsAsync"/> for a human principal the consuming app has
+    /// already authenticated by its own means (password check, external IdP, etc.). This service
+    /// does not verify credentials; the caller is trusted to have done so before calling.
+    /// </summary>
+    /// <param name="claims">
+    /// The claims to embed (e.g. <c>sub</c>, and any <see cref="IdentityTokenOptions.PermissionClaimType"/>
+    /// claims the caller wants enforced) — this method neither adds nor validates business claims.
+    /// </param>
+    /// <param name="lifetimeOverride">
+    /// Overrides <see cref="IdentityTokenOptions.Lifetime"/> for this token. Human clients without a
+    /// refresh flow (e.g. a mobile app queuing work offline) often need a longer lifetime than the
+    /// short-lived default tuned for service clients.
+    /// </param>
+    /// <remarks>
+    /// Synchronous, unlike <see cref="IssueClientCredentialsAsync"/> — there is no store lookup here,
+    /// only signing of the claims the caller already assembled.
+    /// </remarks>
+    public TokenResult IssueUserToken(IEnumerable<Claim> claims, TimeSpan? lifetimeOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(claims);
+        var lifetime = lifetimeOverride ?? _opts.Lifetime;
+        if (lifetime <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(lifetimeOverride), lifetime, "Lifetime must be positive.");
+
+        var claimsList = claims as IReadOnlyCollection<Claim> ?? claims.ToList();
+        var now = _clock.GetUtcNow();
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(_opts.Issuer, _opts.Audience, claimsList,
+            notBefore: now.UtcDateTime, expires: now.Add(lifetime).UtcDateTime, signingCredentials: creds);
+        var jwt = new JwtSecurityTokenHandler().WriteToken(token);
+
+        var permissions = claimsList
+            .Where(c => c.Type == _opts.PermissionClaimType)
+            .Select(c => c.Value)
+            .ToArray();
+        return new(true, null, jwt, (int)lifetime.TotalSeconds, permissions);
+    }
 }

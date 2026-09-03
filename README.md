@@ -136,6 +136,29 @@ or must already exist, and which external claims map to which local fields — i
 decision specific to each deployment, which is why it stays application code rather than a
 framework callback signature.
 
+**Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
+session verifies the user by whichever means the app already uses (the local check above, or an
+external IdP), then calls `IdentityTokenService.IssueUserToken` — the same signing primitive
+`IssueClientCredentialsAsync` uses for service clients, opened up for a caller-supplied claim set:
+
+```csharp
+app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, IdentityTokenService tokens, CancellationToken ct) =>
+{
+    var user = await store.FindUserByUsernameAsync(req.Username, ct);
+    if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
+
+    var claims = new[] { new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()) };
+    var result = tokens.IssueUserToken(claims, lifetimeOverride: TimeSpan.FromDays(30));
+    return Results.Ok(new { accessToken = result.AccessToken, expiresIn = result.ExpiresInSeconds });
+}).AllowAnonymous();
+```
+
+`IssueUserToken` does not authenticate — it only signs the claims it is handed, using the same
+`IdentityTokenOptions` (`SigningKey`/`Issuer`/`Audience`) the cookie/OIDC recipes above never touch.
+`lifetimeOverride` is there because a client without a refresh flow (a mobile app queuing work
+offline) typically needs a longer-lived token than the short default tuned for service clients —
+pass nothing to keep `IdentityTokenOptions.Lifetime`.
+
 ## Read/Write pair model
 
 Each logical entity has two CLR types:
