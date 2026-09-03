@@ -1,5 +1,6 @@
 using System.Reflection;
 using Iyu.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.OData;
@@ -87,6 +88,18 @@ public static class MainServerExtensions
         // plus any the consumer named explicitly. Deduplicated so production (where
         // discovery already found them) does not double-register controller types.
         RegisterControllerParts(mvc.PartManager, CandidateControllerAssemblies(typeof(TContext), configure, options));
+
+        // Wire OData per-set authorization only when some registered pair actually uses
+        // RestrictPolicy — the same "only pay for what you use" gate options.GraphQL.ApplyTo
+        // applies for its own authorization bridge (_usesAuthorization). AddAuthorizationCore
+        // guarantees a working IAuthorizationService even for a consumer that calls
+        // RestrictPolicy without ever calling AddIyuIdentity.
+        if (options.ODataModel.Registry.All.Any(p => p.ReadPolicy is not null || p.WritePolicy is not null))
+        {
+            services.AddAuthorizationCore();
+            mvc.AddMvcOptions(o => o.Conventions.Add(
+                new IyuODataAuthorizationConvention(options.ODataModel.Registry)));
+        }
 
         // HotChocolate rejects a schema whose Query type has zero fields at host
         // startup (RequestExecutorWarmupService eagerly builds it) — a consumer that

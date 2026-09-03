@@ -328,6 +328,76 @@ public class IyuEdmModelBuilderTests
             () => builder.AddEntityPair<CustomerExt, Customer>("BankAccounts"));
     }
 
+    /// <summary>docket #179 — the OData counterpart of <c>IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)</c>.</summary>
+    [Fact]
+    public void RestrictPolicy_stores_the_policies_on_the_registered_pair()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.RestrictPolicy("BankAccounts", readPolicy: "accounts.read", writePolicy: "accounts.write");
+
+        var pair = builder.Registry.Find("BankAccounts");
+        Assert.NotNull(pair);
+        Assert.Equal("accounts.read", pair!.ReadPolicy);
+        Assert.Equal("accounts.write", pair.WritePolicy);
+    }
+
+    /// <summary>
+    /// One side only, the other left <see langword="null"/> — the common case (e.g. anyone can
+    /// read, only a write claim is required) must not force the caller to invent a value for the
+    /// side it does not want restricted.
+    /// </summary>
+    [Fact]
+    public void RestrictPolicy_leaves_the_unset_side_null()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.RestrictPolicy("BankAccounts", writePolicy: "accounts.write");
+
+        var pair = builder.Registry.Find("BankAccounts");
+        Assert.Null(pair!.ReadPolicy);
+        Assert.Equal("accounts.write", pair.WritePolicy);
+    }
+
+    /// <summary>
+    /// Each call replaces both fields wholesale — the same full-replace semantics
+    /// <see cref="IyuEdmModelBuilder.Restrict"/> already has for <c>ReadOnlyVerbs</c> — rather
+    /// than merging field-by-field across calls, which would make the effect of a given call
+    /// depend on call order in a way nothing here documents.
+    /// </summary>
+    [Fact]
+    public void RestrictPolicy_replaces_both_policies_on_each_call_rather_than_merging()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
+        builder.RestrictPolicy("BankAccounts", readPolicy: "accounts.read", writePolicy: "accounts.write");
+        builder.RestrictPolicy("BankAccounts", readPolicy: "accounts.read.v2");
+
+        var pair = builder.Registry.Find("BankAccounts");
+        Assert.Equal("accounts.read.v2", pair!.ReadPolicy);
+        Assert.Null(pair.WritePolicy);   // cleared, not carried over from the first call
+    }
+
+    [Fact]
+    public void RestrictPolicy_on_a_set_that_was_never_registered_throws()
+    {
+        var builder = new IyuEdmModelBuilder();
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => builder.RestrictPolicy("NeverRegistered", readPolicy: "some.policy"));
+        Assert.Contains("NeverRegistered", ex.Message);
+    }
+
+    /// <summary>Same call-site independence as <see cref="IyuEdmModelBuilder.Restrict"/> — the pair only needs to already exist, not be freshly registered.</summary>
+    [Fact]
+    public void RestrictPolicy_applies_from_a_call_site_that_does_not_own_registration()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts"); // as codegen emits it, no policy
+        builder.RestrictPolicy("BankAccounts", readPolicy: "accounts.read"); // applied afterward
+
+        Assert.Equal("accounts.read", builder.Registry.Find("BankAccounts")!.ReadPolicy);
+    }
+
     public class Annotated : IyuEntity
     {
         [Display(Description = "The bank's public display name")]

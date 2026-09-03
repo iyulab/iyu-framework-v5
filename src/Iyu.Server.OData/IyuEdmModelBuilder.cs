@@ -76,6 +76,47 @@ public sealed class IyuEdmModelBuilder
     }
 
     /// <summary>
+    /// Requires an ASP.NET Core authorization policy to touch an already-registered set — the
+    /// OData counterpart of <c>IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)</c>
+    /// (Iyu.Server.GraphQL): both close the same asymmetry against
+    /// <see cref="IyuEntityPairRegistry"/>'s per-set state, GraphQL via a HotChocolate field
+    /// directive, this one via ASP.NET Core MVC's own convention pipeline.
+    /// </summary>
+    /// <param name="setName">A set already registered via <see cref="AddEntityPair{TRead,TWrite}"/>.</param>
+    /// <param name="readPolicy">Policy required for GET (list and by-key). <see langword="null"/> leaves reads unrestricted.</param>
+    /// <param name="writePolicy">
+    /// Policy required for POST/PATCH/DELETE. <see langword="null"/> leaves writes unrestricted by
+    /// this mechanism (still subject to <see cref="Restrict"/>'s verb restrictions, if any are set).
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// A distinct method name from the verb-based <see cref="Restrict"/>, to avoid <c>params</c>
+    /// overload ambiguity — same registration-order independence as <see cref="Restrict"/>/
+    /// <see cref="Exclude{T}"/>: this only requires that <paramref name="setName"/> is already
+    /// registered by the time this call runs, not that nothing else has run yet.
+    /// </para>
+    /// <para>
+    /// Enforced by an <c>IControllerModelConvention</c> that <c>AddIyuMainServer</c>
+    /// (Iyu.MainServer) wires automatically the first time any registered set uses this — no
+    /// separate step to remember, the same auto-wiring <c>AddIyuGraphQLAuthorization</c> already
+    /// gives the GraphQL side.
+    /// </para>
+    /// <para>
+    /// An unregistered policy name is not handled specially — it throws
+    /// <see cref="InvalidOperationException"/> at first use, ASP.NET Core MVC's own standard
+    /// <c>AuthorizeFilter</c> behavior, identical to a hand-written <c>[Authorize(Policy =
+    /// "typo")]</c> anywhere else in the app. Register the policy first (<c>AddAuthorization</c>,
+    /// or <c>AddIyuIdentity</c>'s <c>permissionCatalog</c>).
+    /// </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
+    public IyuEdmModelBuilder RestrictPolicy(string setName, string? readPolicy = null, string? writePolicy = null)
+    {
+        Registry.RestrictPolicy(setName, readPolicy, writePolicy);
+        return this;
+    }
+
+    /// <summary>
     /// Removes <paramref name="properties"/> from the exposed model of
     /// <typeparamref name="T"/>, so that the EDM has no such property at all.
     /// </summary>

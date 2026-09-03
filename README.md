@@ -201,14 +201,28 @@ The property is *removed*, not blanked. A blank value would be indistinguishable
 row has no value", and would still let a caller recover the real one a character at a time
 with `$filter=startswith(...)`.
 
-### Per-entity authorization on the GraphQL surface
+### Per-entity authorization
 
-`IyuODataController<TRead,TWrite>` is a plain ASP.NET Core MVC controller, so a consumer can
-already attach per-entity authorization to it with an ordinary `IApplicationModelConvention`
-(`opts.Conventions.Add(...)` on `AddControllers`/`AddMvcOptions`) — no framework support needed,
-that mechanism is standard MVC. GraphQL query fields have no equivalent free hook: they are built
-by a fluent descriptor API, not resolved through MVC. `AddEntityPair`'s third parameter closes
-that gap:
+Beyond authentication, a caller may need a specific claim to touch a given set/field at all — both
+surfaces below take an ASP.NET Core authorization policy name, the same ones `AddIyuIdentity`'s
+`permissionCatalog` registers.
+
+**OData** — `IyuODataController<TRead,TWrite>` is a plain MVC controller, so this rides ASP.NET
+Core's standard `IControllerModelConvention` mechanism rather than anything OData-specific:
+
+```csharp
+options.ODataModel.AddEntityPair<OrderExt, Order>("orders");
+options.ODataModel.RestrictPolicy("orders", readPolicy: "orders.read", writePolicy: "orders.write");
+```
+
+GET requires `readPolicy`, POST/PATCH/DELETE require `writePolicy`; either may be left `null` (the
+default) to leave that side unrestricted by this mechanism. The first call that uses either wires
+the `AuthorizeFilter` automatically — no separate registration step. A distinct method from
+`Restrict` (verbs, below) to avoid `params` overload ambiguity; both read the registry's live state,
+so `RestrictPolicy` may run before or after `AddEntityPair`, in either order relative to `Restrict`.
+
+**GraphQL** — query fields have no attribute-based equivalent (they are built by a fluent descriptor
+API, not resolved through MVC), so `AddEntityPair`'s third parameter is the counterpart:
 
 ```csharp
 options.GraphQL.AddEntityPair<OrderExt, Order>("orders", "order", authorizePolicy: "orders.read");
@@ -397,6 +411,82 @@ Behaviour worth knowing before deploying it:
   (`FileGatewayExtensions.LogCategory`) so it can be filtered independently.
   Tokens are never logged. Successful transfers are not logged either — that is
   the host's request log.
+
+## Chat (`Iyu.Server.Chat`)
+
+A thin adapter over BareChat (`PackageReference Include="BareChat"`) that maps iyu's own claim
+conventions onto BareChat's user context, gated behind one configuration flag:
+
+```csharp
+builder.Services.AddIyuChat(builder.Configuration);   // reads the "Chat" section
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseIyuChat();   // must come after host authentication — BareChat reads HttpContext.User
+```
+
+```jsonc
+// appsettings.json
+"Chat": {
+  "Enabled": true
+  // every other BareChatOptions field is valid here too — the section binds straight into it
+}
+```
+
+**`Chat:Enabled` is the only flag this adapter adds.** `false` or a missing section makes both
+`AddIyuChat` and `UseIyuChat` complete no-ops — no services registered, no routes mounted. When
+`true`, the rest of the `Chat` section binds directly into `BareChatOptions`, so every option
+BareChat itself exposes is reachable here without this package re-declaring it.
+
+**Display names, not login IDs.** iyu's claim convention puts the login ID in `ClaimTypes.Name`
+and the human-readable name in `ClaimTypes.GivenName`; BareChat's default provider shows
+`Identity.Name` (the login ID) as the chat display name. `IyuChatAuthProvider` replaces that
+default to prefer `GivenName`, falling back to the login ID only when no given-name claim is
+present. The user identifier stays `ClaimTypes.NameIdentifier`, BareChat's own standard.
+
+For everything past these two calls — message model, moderation, storage — see BareChat's own
+documentation; this package only adapts identity and toggles the feature on.
+
+## Scheduled reports (`Iyu.VaultAi`)
+
+A hosted scheduler plus embedded viewer SPA that generates Markdown reports via an LLM agent
+and serves them at a mounted route. Registration is conditional: both
+`AddVaultAiReports(configuration)` and `UseVaultAiReports()` no-op (the feature is entirely
+absent — no hosted service, no routes) when the `VaultAi:Url` configuration key is blank, so
+leaving the section out of `appsettings.json` is how a consumer opts out.
+
+```csharp
+builder.Services.AddVaultAiReports(builder.Configuration);   // reads the "VaultAi" section
+
+var app = builder.Build();
+app.UseVaultAiReports();   // API + SPA at VaultAiSettings.BasePath (default "/vault-ai-reports")
+```
+
+```jsonc
+// appsettings.json
+"VaultAi": {
+  "Url": "https://vault-ai.internal",
+  "Token": "...",
+  "ReportAgentId": "...",
+  "ReportPath": "reports"   // see below
+}
+```
+
+**`ReportPath` accepts an absolute path, and that is the supported way to keep report history
+across deployments.** When it is relative (the default, `"reports"`), both the scheduler and
+the API middleware resolve it under `IWebHostEnvironment.ContentRootPath` — the app's own
+folder. A deployment pattern that replaces that folder on every release (a zero-downtime
+release-folder swap, or an Azure App Service slot swap) therefore loses everything written
+there, because the runtime-generated `reports/*/output` and `reports/*/logs` are not part of
+the publish payload and the old folder is discarded. Setting `ReportPath` to an absolute path
+outside the deploy lifecycle (e.g. `"C:/data/vault-ai-reports"`) sidesteps this entirely —
+`Path.IsPathRooted` is checked before combining with `ContentRootPath`, so a rooted value is
+used exactly as given, in both `ReportSchedulerService` and the middleware's request handling.
+
+Report folders are content-addressed by name (`{ReportPath}/{slug}/info.json` +
+`prompt.md`, with `output/*.md` and `logs/*.log` populated at runtime) and are not created by
+this package — a consumer seeds them ahead of the first scheduled run.
 
 ## Document templates (`Iyu.Report`)
 

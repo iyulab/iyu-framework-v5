@@ -33,7 +33,7 @@ public sealed class IyuEntityPairRegistry
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
 
-        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties);
+        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties, null, null);
         if (!_bySetName.TryAdd(setName, pair))
             throw new InvalidOperationException($"Entity set '{setName}' is already registered.");
         if (!_byReadType.TryAdd(typeof(TRead), setName))
@@ -97,6 +97,31 @@ public sealed class IyuEntityPairRegistry
             });
     }
 
+    /// <summary>
+    /// Requires an ASP.NET Core authorization policy to touch an already-registered set — the
+    /// OData counterpart of <c>IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)</c>
+    /// (Iyu.Server.GraphQL). Replaces both policies wholesale, the same full-replace semantics as
+    /// <see cref="Restrict"/>: pass the existing value back for whichever side is not changing.
+    /// </summary>
+    /// <param name="setName">A set already registered via <see cref="Register{TRead,TWrite}"/>.</param>
+    /// <param name="readPolicy">Policy required for GET. <c>null</c> leaves reads unrestricted.</param>
+    /// <param name="writePolicy">
+    /// Policy required for POST/PATCH/DELETE. <c>null</c> leaves writes unrestricted by this
+    /// mechanism (still subject to <see cref="Restrict"/>'s verb restrictions, if any are set).
+    /// </param>
+    /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
+    public void RestrictPolicy(string setName, string? readPolicy, string? writePolicy)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(setName);
+        if (readPolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(readPolicy);
+        if (writePolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(writePolicy);
+
+        _bySetName.AddOrUpdate(
+            setName,
+            _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
+            (_, existing) => existing with { ReadPolicy = readPolicy, WritePolicy = writePolicy });
+    }
+
     /// <summary>Looks up a pair by set name; returns <c>null</c> if unknown.</summary>
     public EntityPair? Find(string setName)
         => _bySetName.TryGetValue(setName, out var pair) ? pair : null;
@@ -113,5 +138,7 @@ public sealed class IyuEntityPairRegistry
         Type ReadType,
         Type WriteType,
         IReadOnlySet<ODataVerb> ReadOnlyVerbs,
-        IReadOnlySet<string> WriteExcludedProperties);
+        IReadOnlySet<string> WriteExcludedProperties,
+        string? ReadPolicy,
+        string? WritePolicy);
 }
