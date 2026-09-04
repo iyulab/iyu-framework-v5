@@ -45,6 +45,13 @@ public static class MainServerExtensions
         var options = new IyuMainServerOptions();
         configure(options);
 
+        // Maps write-path DbUpdateException (unique/FK/concurrency violations, ...) to a structured
+        // 409 ProblemDetails instead of a bare 500 — see IyuWriteExceptionHandler. Wired
+        // unconditionally: it costs nothing for a consumer that never hits it, matching this
+        // extension's own AddDbContext line just above.
+        services.AddExceptionHandler<IyuWriteExceptionHandler>();
+        services.AddProblemDetails();
+
         services.AddDbContext<TContext>(configureDb);
         // Let the generic OData controller and any other consumer resolve the
         // base class IyuDbContext from DI without knowing the concrete type.
@@ -127,6 +134,11 @@ public static class MainServerExtensions
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        // First in the pipeline so it wraps everything UseIyuMainServer maps below it — the
+        // authentication/authorization middleware a consumer adds before calling this (see
+        // RestrictPolicyEndToEndTests) runs ahead of it, which is fine: this handler only cares
+        // about write-path exceptions from inside the routed action, not the auth pipeline.
+        app.UseExceptionHandler();
         app.UseRouting();
         app.MapControllers();
 

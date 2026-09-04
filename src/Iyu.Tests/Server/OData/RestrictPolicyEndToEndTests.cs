@@ -211,13 +211,19 @@ public class RestrictPolicyEndToEndTests
 
     /// <summary>
     /// An unregistered policy name is not a "fail closed" case (unlike the GraphQL bridge, which
-    /// explicitly checks and returns a clean GraphQL error) — this is ASP.NET Core MVC's own
-    /// standard <c>AuthorizeFilter</c> behavior, identical to what a consumer would get from a
-    /// hand-written <c>[Authorize(Policy = "typo")]</c> anywhere else in the same app. Pinned here
-    /// so a future change to the convention does not silently alter this to something else.
+    /// explicitly checks and returns a clean GraphQL error) — ASP.NET Core MVC's own standard
+    /// <c>AuthorizeFilter</c> throws an <see cref="InvalidOperationException"/> for it, identical to
+    /// what a hand-written <c>[Authorize(Policy = "typo")]</c> would throw anywhere else in the same
+    /// app. Since <c>AddIyuMainServer</c> now wires a global <c>IExceptionHandler</c>/
+    /// <c>AddProblemDetails()</c> pair (G-1, <c>ROADMAP.md</c> §2) so that no unhandled exception —
+    /// not just a write-path <see cref="Microsoft.EntityFrameworkCore.DbUpdateException"/> — reaches
+    /// a client raw, that same exception no longer escapes the TestServer call: it is caught and
+    /// turned into a structured 500 <c>ProblemDetails</c> like every other unhandled exception this
+    /// framework's pipeline sees. Pinned here so a future change to either convention does not
+    /// silently alter this to something else.
     /// </summary>
     [Fact]
-    public async Task Get_with_an_unregistered_policy_name_throws_the_same_way_a_hand_written_Authorize_attribute_would()
+    public async Task Get_with_an_unregistered_policy_name_returns_a_structured_500_naming_the_policy()
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -234,9 +240,9 @@ public class RestrictPolicyEndToEndTests
         await app.StartAsync();
         try
         {
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => app.GetTestServer().CreateClient().GetAsync($"/$data/{Set}"));
-            Assert.Contains("never.registered", ex.Message, StringComparison.Ordinal);
+            using var resp = await app.GetTestServer().CreateClient().GetAsync($"/$data/{Set}");
+            Assert.Equal(HttpStatusCode.InternalServerError, resp.StatusCode);
+            Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
         }
         finally { await app.DisposeAsync(); }
     }

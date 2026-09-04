@@ -174,6 +174,19 @@ write entity using reflection; extras are dropped. `CreatedAt`/`UpdatedAt`/`Id`
 are explicitly excluded because they are owned by the interceptor or the
 caller's explicit assignment.
 
+### Write failure responses
+
+`AddIyuMainServer` wires a global exception handler (`AddExceptionHandler` + `AddProblemDetails`,
+completed by `UseIyuMainServer`'s `app.UseExceptionHandler()`) so no unhandled write-path exception
+reaches a client raw. A `SaveChangesAsync` failure that surfaces as `DbUpdateException` — a
+unique-index violation, a foreign-key violation, an optimistic-concurrency conflict — is answered
+with a `409 Conflict` `application/problem+json` body; every other unhandled exception still falls
+through to a generic, structured `500`. Neither response includes the underlying exception's message
+or type: this framework stays provider-agnostic (no Npgsql/SqlClient package reference), so it does
+not attempt to distinguish *which* constraint failed — only that the write conflicted with the
+current state of the data. No opt-in is needed; a consumer that never hits either path pays nothing
+for it.
+
 ### Keeping a stored value off the API surface
 
 Every public property of a read type is reachable through `$data` and GraphQL. For a
