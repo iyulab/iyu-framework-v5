@@ -2,6 +2,7 @@ using Iyu.Core.Entities;
 using Iyu.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.OData.Deltas;
 using Microsoft.AspNetCore.OData.Query;
 using Microsoft.AspNetCore.OData.Routing.Controllers;
@@ -74,8 +75,12 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         [FromBody] TRead body, [FromServices] IyuEntityPairRegistry registry, CancellationToken ct)
     {
         if (ReadOnlyRejection(registry, ODataVerb.Post) is { } rejected) return rejected;
+        // Checked before the null check below: a malformed EDM literal (e.g. a DateTimeOffset
+        // string with no offset) fails the whole [FromBody] bind — body comes back null with no
+        // clue why, unless the binder's own ModelState entry is looked at first. See
+        // SanitizedModelState's remarks for why that entry needs sanitizing before it goes out.
+        if (!ModelState.IsValid) return BadRequest(SanitizedModelState());
         if (body is null) return BadRequest();
-        if (!ModelState.IsValid) return BadRequest(ModelState);
 
         var write = new TWrite();
         if (body.Id == Guid.Empty) body.Id = Guid.NewGuid();
@@ -106,6 +111,10 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         Guid key, [FromBody] Delta<TRead> delta, [FromServices] IyuEntityPairRegistry registry, CancellationToken ct)
     {
         if (ReadOnlyRejection(registry, ODataVerb.Patch) is { } rejected) return rejected;
+        // Same reasoning as Post: a malformed EDM literal fails the whole Delta<TRead> bind before
+        // NotFound is even checked, and the binder's own ModelState entry needs sanitizing — see
+        // SanitizedModelState's remarks.
+        if (!ModelState.IsValid) return BadRequest(SanitizedModelState());
         if (delta is null) return BadRequest();
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
@@ -121,7 +130,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         delta.Patch(readProjection);
 
         if (!ValidateChangedProperties(readProjection, changedNames))
-            return BadRequest(ModelState);
+            return BadRequest(SanitizedModelState());
 
         CopySelectedProperties(readProjection, write, changedNames, registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties);
         await Context.SaveChangesAsync(ct);
@@ -226,6 +235,37 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
 
         return StatusCode(StatusCodes.Status405MethodNotAllowed,
             $"Entity set '{pair.SetName}' is registered read-only for {verb} and does not accept this request.");
+    }
+
+    /// <summary>
+    /// Rebuilds <c>ModelState</c> with every binder/deserialization-originated error
+    /// message replaced by a generic one, before it is returned to the client.
+    /// </summary>
+    /// <remarks>
+    /// A malformed EDM literal (e.g. a <c>DateTimeOffset</c> string with no offset) fails OData's
+    /// own body binder, which adds an error to <c>ModelState</c> carrying the raw
+    /// <c>ODataException</c> message — internal vocabulary (<c>Edm.DateTimeOffset</c>, the
+    /// exception's type name) a client has no business seeing. A <c>[Required]</c>-style
+    /// annotation failure, by contrast, never attaches an <see cref="ModelError.Exception"/> — MVC
+    /// only sets it for errors raised by model binding/deserialization, never for
+    /// <c>TryValidateModel</c>'s own DataAnnotations messages. That is the distinction this method
+    /// relies on, not string-matching the message text: it survives a future OData/EF package
+    /// upgrade changing exactly what that text says, which is not something a regex could promise.
+    /// </remarks>
+    private ModelStateDictionary SanitizedModelState()
+    {
+        var sanitized = new ModelStateDictionary();
+        foreach (var (key, entry) in ModelState)
+        {
+            if (entry is null) continue;
+            foreach (var error in entry.Errors)
+            {
+                sanitized.AddModelError(key, error.Exception is not null
+                    ? "The value could not be converted to its expected type."
+                    : error.ErrorMessage);
+            }
+        }
+        return sanitized;
     }
 
     /// <summary>

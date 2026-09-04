@@ -187,6 +187,14 @@ not attempt to distinguish *which* constraint failed — only that the write con
 current state of the data. No opt-in is needed; a consumer that never hits either path pays nothing
 for it.
 
+A request body a client sends *before* `SaveChangesAsync` is even reached can also fail — a
+malformed EDM literal (e.g. a `DateTimeOffset` string with no UTC offset) fails OData's own body
+binder, not the database. `Post`/`Patch` still answer `400`, but with a generic, sanitized message
+in place of the binder's own error: internal vocabulary like the `Edm.*` type name or the
+underlying exception's type never reaches the response. An ordinary `[Required]`/annotation-driven
+validation failure is unaffected — it never carried that vocabulary to begin with, and is returned
+exactly as authored.
+
 ### Keeping a stored value off the API surface
 
 Every public property of a read type is reachable through `$data` and GraphQL. For a
