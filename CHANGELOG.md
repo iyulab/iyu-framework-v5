@@ -18,6 +18,31 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.24.0] - 2026-09-05
+
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+### Added
+
+- **Structured error responses for OData write failures.** `AddIyuMainServer` now always wires
+  ASP.NET Core's `IExceptionHandler`/`AddProblemDetails()` pipeline: a `DbUpdateException` (or
+  `DbUpdateConcurrencyException`) thrown from a generic write action now returns a 409
+  `application/problem+json` response instead of leaking the underlying provider exception, and
+  every other unhandled exception falls through to `AddProblemDetails()`'s generic 500. No
+  per-provider error classification (unique/foreign-key/concurrency) is attempted — the framework
+  has no direct dependency on Npgsql/SqlClient to classify against, so the response stays
+  provider-agnostic by design.
+
+### Fixed
+
+- **A model-binding failure on POST/PATCH could leak internal EDM type names in the 400
+  response.** `IyuODataController` checked for a null body before consulting `ModelState`, so a
+  binder-level failure (a malformed payload the OData deserializer itself rejected) fell through
+  to the wrong branch and exposed the raw error. The check order is now reversed, and the
+  model-state error is classified by whether `ModelError.Exception` is null — a binder/
+  deserialization failure now gets a fixed placeholder message, while a `DataAnnotations`
+  validation error keeps surfacing its own message.
+
 ## [0.23.0] - 2026-09-03
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
