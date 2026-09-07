@@ -271,6 +271,22 @@ public sealed class IyuGraphQLSchemaBuilder
     /// <summary>Snapshot of all registered query field names.</summary>
     public IReadOnlyCollection<string> QueryNames => _queryNames.ToList();
 
+    /// <summary>
+    /// The authorization policy recorded for a query field — <c>null</c> when the field is
+    /// registered but nothing was attached, and for an unregistered name.
+    /// </summary>
+    /// <remarks>
+    /// The read-side counterpart of <see cref="Restrict"/>. Without it this builder could be asked
+    /// *what* it exposes (<see cref="QueryNames"/>) and *how* mutations are named
+    /// (<see cref="GetMutationPrefix"/>) but not *what protects any of it* — so a consumer had no
+    /// way to check its GraphQL surface short of standing up an unauthorized caller per field.
+    /// Use <see cref="QueryNames"/> to tell "registered, unprotected" from "not registered".
+    /// </remarks>
+    public string? GetAuthorizePolicy(string queryName)
+        => queryName is not null && _authorizePolicies.TryGetValue(queryName, out var policy)
+            ? policy
+            : null;
+
     private static IQueryable<T> ResolveQueryable<T>(IResolverContext ctx)
         where T : class
     {

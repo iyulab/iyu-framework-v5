@@ -52,7 +52,20 @@ public static class MainServerExtensions
         services.AddExceptionHandler<IyuWriteExceptionHandler>();
         services.AddProblemDetails();
 
-        services.AddDbContext<TContext>(configureDb);
+        // The write-rule interceptor is attached here rather than in IyuDbContext.OnConfiguring
+        // (where the framework's own stateless interceptors live) because rules come from DI and
+        // may hold scoped dependencies — OnConfiguring cannot see the application container.
+        // ISaveChangesInterceptor is not a singleton interceptor and EF does not resolve
+        // application interceptors from the app container on its own, so AddDbContext's
+        // (sp, options) overload is the documented seam for this.
+        // Registered unconditionally: with no rules registered the interceptor is a no-op, the
+        // same "costs nothing for a consumer that never hits it" posture as the exception handler.
+        services.AddScoped<Iyu.Data.WriteRules.IyuWriteRuleInterceptor>();
+        services.AddDbContext<TContext>((sp, db) =>
+        {
+            configureDb(db);
+            db.AddInterceptors(sp.GetRequiredService<Iyu.Data.WriteRules.IyuWriteRuleInterceptor>());
+        });
         // Let the generic OData controller and any other consumer resolve the
         // base class IyuDbContext from DI without knowing the concrete type.
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<TContext>());
@@ -60,6 +73,17 @@ public static class MainServerExtensions
         // constructor injection — adding a constructor parameter would break every
         // generated controller subclass, which calls only `base(context)`.
         services.AddSingleton(options.ODataModel.Registry);
+
+        // Authorization surface report — lets a consumer pin "no registered entity is exposed
+        // without a policy" as a contract test instead of standing up an unauthorized caller per
+        // (entity, surface) pair by hand. Both providers are registered unconditionally: a surface
+        // with nothing on it simply contributes no entries, and enumerating providers from DI is
+        // what lets a third surface join without this method learning its name.
+        services.AddSingleton<Iyu.Core.Authorization.IAuthorizationSurfaceProvider>(
+            _ => new Iyu.Server.OData.ODataAuthorizationSurfaceProvider(options.ODataModel.Registry));
+        services.AddSingleton<Iyu.Core.Authorization.IAuthorizationSurfaceProvider>(
+            _ => new Iyu.Server.GraphQL.GraphQLAuthorizationSurfaceProvider(options.GraphQL));
+        services.AddSingleton<Iyu.Core.Authorization.IAuthorizationSurfaceReport, AuthorizationSurfaceReport>();
 
         var mvc = services.AddControllers()
             .AddJsonOptions(json =>

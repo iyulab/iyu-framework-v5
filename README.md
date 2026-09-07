@@ -278,6 +278,91 @@ synchronously, during service configuration, whether to wire the authorization h
 a `Restrict` call made afterward throws rather than silently registering a policy nothing will
 ever enforce.
 
+### Checking that nothing was left unprotected
+
+Attaching a policy per entity is one thing; knowing you attached it **everywhere** is another, and
+the two look identical from outside. An entity set with no policy and one whose policy the caller
+happens to satisfy both answer `200` — the difference only shows when someone stands up a caller
+who *should* be refused. Surfaces make that worse: a pair registers successfully on OData and
+GraphQL independently, so protecting one and forgetting the other fails silently, and a surface
+added later is not covered by any check written before it.
+
+`IAuthorizationSurfaceReport` answers it from the registrations themselves:
+
+```csharp
+var report = app.Services.GetRequiredService<IAuthorizationSurfaceReport>();
+
+// Pin it as a contract test — new entities and new surfaces widen it automatically.
+Assert.Empty(report.Unprotected);
+```
+
+`Entries` is every (surface, entity, read/write) triple with the policy attached to it;
+`Unprotected` is the subset whose policy is `null`. Registered automatically by `AddIyuMainServer`.
+
+> 🔴 **`null` means "not attached through this framework", not "reachable by anyone."**
+> The report sees what `RestrictPolicy` (OData) and `AddEntityPair`/`Restrict` (GraphQL) attached.
+> A policy applied some other way — an `[Authorize]` attribute on a hand-written controller, an MVC
+> convention over controller models, endpoint metadata, a gateway in front — is **invisible here**.
+>
+> So an app that authorizes through a controller convention will see *every* entry come back
+> `null`. That is not a finding, and reading it as one leads somewhere worse than not looking:
+> a report that cries wolf gets ignored. **To make this report mean something, attach policies
+> where the framework can see them** — `RestrictPolicy` / `Restrict`. Doing so also removes the
+> parallel entity→policy map such a convention needs, since the registration becomes the one place
+> that knows.
+
+Two entries are deliberately *not* emitted, because a row that can never be given a policy would
+sit in `Unprotected` forever and make the empty-list assertion unusable:
+
+- a set whose `readOnlyVerbs` refuse every write verb has no write half;
+- GraphQL emits reads only — it records a `mutationPrefix` but generates no mutations yet.
+
+### Rules on the generic write path
+
+`AddEntityPair` opens generic writes (OData `PATCH`, GraphQL) over an entity. Guarding a field on
+one of those entry points does not guard the others, and does not guard the next one added — so a
+rule like *"this field cannot change once the order is billed"* has to sit where every entry point
+converges, at save time.
+
+Derive from `EntityWriteRule<T>` and register by scanning:
+
+```csharp
+public sealed class OrderVatTypeLock : EntityWriteRule<Order>
+{
+    protected override void Apply(WriteRuleContext<Order> ctx)
+    {
+        if (!ctx.IsUpdated || !ctx.IsModified(nameof(Order.VatType))) return;
+        if (ctx.Entity.BilledDate is not null)
+            throw new DomainRuleException("Cannot change VAT handling after invoicing.");
+    }
+}
+
+builder.Services.AddIyuWriteRules(typeof(Program).Assembly);
+```
+
+The context carries what a rule needs without re-deriving it: `Entity`, `IsAdded` / `IsUpdated`,
+`IsModified(name)`, `Original<T>(name)` / `Current<T>(name)`, and `Db` for rules that write a row
+of their own (a change log added there is saved by the same `SaveChanges`).
+
+| Kind of rule | Shape |
+|---|---|
+| Conditional lock / permission | check `IsUpdated` + `IsModified`, then **throw** — the exception propagates unchanged, so your own domain exception and its response mapping stay yours |
+| Default, derivation, normalization | check `IsAdded` (or both) and assign to `ctx.Entity` |
+| Change log | read `Original<T>` / `Current<T>`, `ctx.Db.Add(...)` the record |
+
+Notes that matter in practice:
+
+- **`IsModified` is always `true` on an insert** — every property of a new row is being written.
+  A lock that should only guard edits must test `IsUpdated` first.
+- **Deletes are not dispatched.** A rule about a field's value has nothing to say about a row on
+  its way out.
+- **Rules run in one pass and do not see entries created by other rules**, so no rule can depend on
+  another having run first — ordering never becomes a hidden contract.
+- A rule on a base type covers derived entities.
+- **Scanning is the point, not a convenience.** A hand-written registration line per rule fails by
+  omission, and an omitted rule is indistinguishable at runtime from one whose condition never
+  fired: nothing throws, nothing logs, the invariant is simply not enforced.
+
 ### Making one property read-only
 
 A domain field can genuinely need to change — just never through the generic write path.

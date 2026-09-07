@@ -246,4 +246,34 @@ public class RestrictPolicyEndToEndTests
         }
         finally { await app.DisposeAsync(); }
     }
+
+    /// <summary>
+    /// The report a consumer resolves to pin "nothing registered is unprotected" as a contract
+    /// test. Resolved from the running host, not constructed by hand, because the value of the
+    /// report is that <c>AddIyuMainServer</c> wires it — a hand-built one proves nothing about
+    /// whether a consumer can actually get at it.
+    /// </summary>
+    [Fact]
+    public async Task Authorization_surface_report_resolves_from_the_host_and_sees_the_restricted_set()
+    {
+        await using var app = await StartAsync();
+
+        var report = app.Services
+            .GetRequiredService<Iyu.Core.Authorization.IAuthorizationSurfaceReport>();
+
+        Assert.Empty(report.Unprotected);
+        Assert.Collection(report.Entries.Where(e => e.Surface == "OData").OrderBy(e => e.Operation),
+            e =>
+            {
+                Assert.Equal(Set, e.Entity);
+                Assert.Equal(Iyu.Core.Authorization.AuthorizationSurfaceOperation.Read, e.Operation);
+                Assert.Equal(ReadPolicy, e.Policy);
+            },
+            e =>
+            {
+                Assert.Equal(Set, e.Entity);
+                Assert.Equal(Iyu.Core.Authorization.AuthorizationSurfaceOperation.Write, e.Operation);
+                Assert.Equal(WritePolicy, e.Policy);
+            });
+    }
 }
