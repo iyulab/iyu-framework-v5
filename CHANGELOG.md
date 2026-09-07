@@ -18,6 +18,82 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.25.0] - 2026-09-08
+
+**Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`
+
+### Added
+
+- **`IAuthorizationSurfaceReport` — check that nothing registered was left unprotected.** An entity
+  set with no policy and one whose policy the caller happens to satisfy both answer `200`; the
+  difference only shows when someone stands up a caller who *should* be refused. And because a pair
+  registers on OData and GraphQL independently, protecting one surface and forgetting the other
+  fails silently. Resolve the report and pin it as a contract test:
+
+  ```csharp
+  var report = app.Services.GetRequiredService<IAuthorizationSurfaceReport>();
+  Assert.Empty(report.Unprotected);
+  ```
+
+  `Entries` is every (surface, entity, read/write) triple with the policy attached to it. Surfaces
+  register themselves as `IAuthorizationSurfaceProvider`, so a surface added later joins the report
+  — and the assertion above — without the test changing. Registered by `AddIyuMainServer`.
+
+  🔴 **`null` means "not attached through this framework", not "reachable by anyone."** The report
+  sees what `RestrictPolicy` (OData) and `AddEntityPair`/`Restrict` (GraphQL) attached; a policy
+  applied by an `[Authorize]` attribute, an MVC convention over controller models, endpoint
+  metadata, or a gateway is invisible to it. An app that authorizes through a controller convention
+  will therefore see *every* entry come back `null` — that is not a finding. To make the report
+  mean something, attach policies where the framework can see them.
+
+  Two entries are deliberately not emitted, because a row that can never be given a policy would
+  sit in `Unprotected` forever and make the empty-list assertion unusable: a set whose
+  `readOnlyVerbs` refuse every write verb has no write half, and GraphQL emits reads only — it
+  records a `mutationPrefix` but generates no mutations yet.
+
+- **`IyuGraphQLSchemaBuilder.GetAuthorizePolicy(queryName)`.** The builder could be asked what it
+  exposes (`QueryNames`) and how mutations are named (`GetMutationPrefix`) but not what protected
+  any of it. Returns `null` for a field registered without a policy and for an unregistered name —
+  use `QueryNames` to tell those apart.
+
+- **`EntityWriteRule<T>` — a place to put rules on the generic write path.** `AddEntityPair` opens
+  generic writes (OData `PATCH`, GraphQL) over an entity, and guarding a field at one entry point
+  does not guard the others or the next one added. Rules run at save time, after every entry point
+  converges:
+
+  ```csharp
+  public sealed class OrderVatTypeLock : EntityWriteRule<Order>
+  {
+      protected override void Apply(WriteRuleContext<Order> ctx)
+      {
+          if (!ctx.IsUpdated || !ctx.IsModified(nameof(Order.VatType))) return;
+          if (ctx.Entity.BilledDate is not null) throw new DomainRuleException("…");
+      }
+  }
+
+  services.AddIyuWriteRules(typeof(Program).Assembly);
+  ```
+
+  The context carries `Entity`, `IsAdded`/`IsUpdated`, `IsModified(name)`, `Original<T>`/`Current<T>`,
+  and `Db` for rules that write a row of their own. An exception thrown from a rule propagates out
+  of `SaveChanges` unchanged, so an application keeps its own domain exception type and whatever
+  maps it to a response.
+
+  Registration is by assembly scan rather than a line per rule on purpose: a hand-written list fails
+  by omission, and an omitted rule is indistinguishable at runtime from one whose condition never
+  fired — nothing throws, nothing logs, the invariant is simply not enforced.
+
+  Notes that bite in practice: **`IsModified` is always `true` on an insert** (every property of a
+  new row is being written), so a lock guarding an edit must test `IsUpdated` first; deletes are not
+  dispatched; rules run in one pass and do not see entries created by other rules, so ordering never
+  becomes a hidden contract; a rule on a base type covers derived entities.
+
+### Changed
+
+- `AddIyuMainServer` now registers the `DbContext` through `AddDbContext`'s `(sp, options)` overload
+  so the write-rule interceptor can be resolved from the application container. A consumer's
+  `configureDb` callback is unaffected.
+
 ## [0.24.0] - 2026-09-05
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
