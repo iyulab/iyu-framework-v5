@@ -159,6 +159,42 @@ app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore st
 offline) typically needs a longer-lived token than the short default tuned for service clients —
 pass nothing to keep `IdentityTokenOptions.Lifetime`.
 
+### Diagnosing a service client that stopped working
+
+`ServiceClientSummary` — what `ListServiceClientsAsync` returns to an owner — carries two
+timestamps that answer different questions, and the pair is what makes a failing credential
+diagnosable without reading the database:
+
+| | Means |
+|---|---|
+| `LastUsedAt` | When it last obtained a token, or `null` if it never has |
+| `SecretRotatedAt` | When the secret was last replaced, or `null` if it is still the one issued |
+
+Read together they separate causes that look identical from the outside — the endpoint answers
+every rejection with one `invalid_client`, deliberately:
+
+- `SecretRotatedAt` **newer than** `LastUsedAt` — the holder is presenting the previous secret.
+  The credential is healthy; the rotation was never delivered.
+- `LastUsedAt` is `null` on an active client — the secret never worked at all, so what was
+  handed over was wrong from the start.
+- Neither, and `IsActive` is false — it was revoked.
+
+`SecretRotatedAt` names one event rather than being a general "last modified": a permission
+change is not a rotation, and folding the two into one column puts the owner back to guessing
+which happened.
+
+**Implementing the store**: `IServiceClientStore.UpdateSecretAsync` receives the rotation
+timestamp — persist it, and return it on the summary. The value is passed in rather than taken
+from the store's own clock so that a rotation and a last-use can be compared without having been
+stamped by two different machines.
+
+**Server-side diagnosis**: rejected `client_credentials` requests are logged with the cause —
+no such client, revoked, expired, or secret mismatch — at `Warning`, against the category
+`Iyu.MainServer.Identity.IdentityTokenService`. The *response* stays one undifferentiated
+`invalid_client` with equalized timing, which is what stops the endpoint confirming which client
+ids exist; the log is how the operator, who already has the database, is not left with the same
+information as the caller. The secret is never logged in any form.
+
 ## Read/Write pair model
 
 Each logical entity has two CLR types:

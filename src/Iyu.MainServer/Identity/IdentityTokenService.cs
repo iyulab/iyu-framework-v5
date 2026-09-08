@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Iyu.MainServer.Identity;
@@ -19,9 +20,12 @@ public sealed class IdentityTokenService
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
 
-    public IdentityTokenService(IIdentityStore store, IdentityTokenOptions opts, TimeProvider clock)
+    private readonly ILogger<IdentityTokenService> _log;
+
+    public IdentityTokenService(IIdentityStore store, IdentityTokenOptions opts, TimeProvider clock,
+        ILogger<IdentityTokenService> log)
     {
-        _store = store; _opts = opts; _clock = clock;
+        _store = store; _opts = opts; _clock = clock; _log = log;
     }
 
     public async Task<TokenResult> IssueClientCredentialsAsync(string clientId, string secret, CancellationToken ct)
@@ -32,10 +36,16 @@ public sealed class IdentityTokenService
         if (client is null || !client.IsActive || (client.ExpiresAt is { } exp && exp <= now))
         {
             _ = ServiceClientSecrets.Verify(secret, _dummyHash);   // equalize timing with wrong-secret path
+            LogRejection(clientId, client is null ? "no such client"
+                                 : !client.IsActive ? "client is revoked"
+                                 : "client has expired");
             return new(false, "invalid_client", null, 0, empty);
         }
         if (!ServiceClientSecrets.Verify(secret, client.SecretHash))
+        {
+            LogRejection(clientId, "secret does not match");
             return new(false, "invalid_client", null, 0, empty);
+        }
 
         var ownerPerms = await _store.GetUserPermissionsAsync(client.OwnerUserId, ct);
         var clientPerms = await _store.GetServiceClientPermissionsAsync(client.Id, ct);
@@ -53,6 +63,32 @@ public sealed class IdentityTokenService
         await _store.TouchServiceClientAsync(client.Id, now, ct);
         return new(true, null, jwt, (int)_opts.Lifetime.TotalSeconds, effective);
     }
+
+    /// <summary>
+    /// Records, for the operator only, which of the indistinguishable rejection causes applied.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The response stays undifferentiated on purpose and this does not change it.</b> One
+    /// <c>invalid_client</c> for every cause, with the dummy-hash verification above equalizing
+    /// timing, is what stops the endpoint from confirming which client ids exist. That defence is
+    /// aimed at the caller.
+    /// </para>
+    /// <para>
+    /// It was also, accidentally, aimed at the operator: nothing recorded the cause anywhere, so
+    /// the person running the server had no more information than the attacker and had to read the
+    /// credential rows directly to tell a revoked key from a mistyped secret. The log is where that
+    /// asymmetry is restored — the side that already has the database gets the answer, the side on
+    /// the wire still gets one word.
+    /// </para>
+    /// <para>
+    /// The client id is logged because it is the public half of the credential and the only handle
+    /// an operator can search by. The secret never is, in any form: not the value, not its length,
+    /// not a hash of it.
+    /// </para>
+    /// </remarks>
+    private void LogRejection(string clientId, string reason) =>
+        _log.LogWarning("client_credentials rejected for {ClientId}: {Reason}", clientId, reason);
 
     /// <summary>
     /// Signs a JWT for a caller-supplied claim set — the counterpart to

@@ -14,7 +14,8 @@ public class TokenEndpointHandlerTests
         (clientId, secret, var hash) = ServiceClientSecrets.Generate();
         store.AddClient(clientId, hash, owner, perms: ["orders.read"]);
         return new IdentityTokenService(store, new IdentityTokenOptions
-        { SigningKey = "0123456789abcdef0123456789abcdef" }, TimeProvider.System);
+        { SigningKey = "0123456789abcdef0123456789abcdef" }, TimeProvider.System,
+            new RecordingLogger<IdentityTokenService>());
     }
 
     [Fact]

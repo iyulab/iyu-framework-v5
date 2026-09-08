@@ -3,6 +3,7 @@ using System.Text.Json;
 using Iyu.Core.Identity;
 using Iyu.MainServer.Identity;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Xunit;
 
@@ -18,7 +19,7 @@ public class ServiceClientListingTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read", "orders.write"]);
-        return (new ServiceClientService(store, store), store, owner);
+        return (new ServiceClientService(store, store, TimeProvider.System), store, owner);
     }
 
     private static IReadOnlyList<ServiceClientSummary> Listed(IResult result)
@@ -114,7 +115,18 @@ public class ServiceClientListingTests
         Assert.False(string.IsNullOrEmpty(hash));
         Assert.DoesNotContain(hash, json, StringComparison.Ordinal);
         Assert.DoesNotContain(created.PlaintextSecret!, json, StringComparison.Ordinal);
-        Assert.DoesNotContain("ecret", json, StringComparison.Ordinal);   // no field named *ecret* at all
+
+        // And no *textual* field is named like a credential. Scoping this to string-valued members
+        // is what lets the payload carry a rotation timestamp: a number cannot hold a secret, so a
+        // date named after one is not the leak this is watching for. Matching the name alone would
+        // have forced the field to be called something less exact to get past its own guard.
+        foreach (var property in JsonDocument.Parse(json).RootElement.EnumerateArray()
+                     .SelectMany(element => element.EnumerateObject())
+                     .Where(property => property.Value.ValueKind is JsonValueKind.String))
+        {
+            Assert.DoesNotContain("secret", property.Name, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hash", property.Name, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -125,14 +137,91 @@ public class ServiceClientListingTests
     [Fact]
     public void The_summary_type_declares_no_secret_bearing_member()
     {
-        var members = typeof(ServiceClientSummary)
+        // Only members that could hold credential material are judged by name. A member whose type
+        // cannot carry text carries no secret whatever it is called, and excluding it by type keeps
+        // the assertion about leakage rather than about vocabulary.
+        var carriers = typeof(ServiceClientSummary)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => CanCarryText(p.PropertyType))
             .Select(p => p.Name)
             .ToList();
 
-        Assert.DoesNotContain(members, n => n.Contains("Secret", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(members, n => n.Contains("Hash", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(carriers, n => n.Contains("Secret", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(carriers, n => n.Contains("Hash", StringComparison.OrdinalIgnoreCase));
         Assert.False(typeof(IServiceClient).IsAssignableFrom(typeof(ServiceClientSummary)));
+
+        // The exclusion is load-bearing only if something is actually excluded by it, and only if
+        // what remains is still the set the assertions above are meant to police.
+        Assert.Contains(nameof(ServiceClientSummary.SecretRotatedAt),
+            typeof(ServiceClientSummary).GetProperties().Select(p => p.Name));
+        Assert.DoesNotContain(nameof(ServiceClientSummary.SecretRotatedAt), carriers);
+        Assert.Contains(nameof(ServiceClientSummary.ClientId), carriers);
+    }
+
+    /// <summary>
+    /// Whether a member could hold a credential at all: text, bytes, or a sequence of either.
+    /// Anything else — a timestamp, a flag, an id — cannot, whatever it is named.
+    /// </summary>
+    private static bool CanCarryText(Type type)
+    {
+        if (type == typeof(string) || type == typeof(byte[])) return true;
+        if (type == typeof(Guid) || type == typeof(Guid?)) return false;
+        if (!type.IsGenericType) return false;
+        return type.GetGenericArguments().Any(CanCarryText);
+    }
+
+    /// <summary>
+    /// A freshly issued credential has never been rotated, so the field is null rather than
+    /// echoing the creation time. "Rotated at, same as created at" would read as a rotation.
+    /// </summary>
+    [Fact]
+    public async Task A_credential_that_was_never_rotated_reports_no_rotation()
+    {
+        var (svc, _, owner) = Make();
+        await svc.CreateAsync(owner, "connector", ["orders.read"], null, default);
+
+        var listing = Listed(await IdentityEndpointHandlers.ListServiceClientsAsync(owner, svc, default));
+
+        Assert.Null(Assert.Single(listing).SecretRotatedAt);
+    }
+
+    /// <summary>
+    /// Rotating records when it happened, on the framework's clock. Without this an owner cannot
+    /// tell a credential whose holder is presenting the previous secret from one that simply died:
+    /// both stop working, and only one of them has a recent <c>LastUsedAt</c>.
+    /// </summary>
+    [Fact]
+    public async Task Rotating_records_when_the_secret_changed()
+    {
+        var store = new FakeIdentityStore();
+        var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-01-02T03:04:05Z"));
+        var svc = new ServiceClientService(store, store, clock);
+        var owner = store.AddUser("owner", "owner", perms: ["orders.read"]);
+        var created = await svc.CreateAsync(owner, "connector", ["orders.read"], null, default);
+
+        var rotated = await svc.RotateAsync(created.Id, owner, default);
+
+        Assert.True(rotated.Ok);
+        var listing = Listed(await IdentityEndpointHandlers.ListServiceClientsAsync(owner, svc, default));
+        Assert.Equal(clock.GetUtcNow(), Assert.Single(listing).SecretRotatedAt);
+    }
+
+    /// <summary>
+    /// Changing only the permission grant is not a rotation — the holder's secret still works, so
+    /// reporting one would send an owner looking for a redelivery that never needed to happen.
+    /// This is what a single "last modified" stamp could not have expressed.
+    /// </summary>
+    [Fact]
+    public async Task Changing_permissions_is_not_reported_as_a_rotation()
+    {
+        var (svc, store, owner) = Make();
+        var created = await svc.CreateAsync(owner, "connector", ["orders.read"], null, default);
+
+        var updated = await svc.UpdatePermissionsAsync(created.Id, owner, [], default);
+
+        Assert.True(updated.Ok);
+        var listing = Listed(await IdentityEndpointHandlers.ListServiceClientsAsync(owner, svc, default));
+        Assert.Null(Assert.Single(listing).SecretRotatedAt);
     }
 
     /// <summary>

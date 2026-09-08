@@ -10,10 +10,11 @@ public sealed class ServiceClientService
 {
     private readonly IIdentityStore _store;
     private readonly IServiceClientStore _writes;
+    private readonly TimeProvider _clock;
 
-    public ServiceClientService(IIdentityStore store, IServiceClientStore writes)
+    public ServiceClientService(IIdentityStore store, IServiceClientStore writes, TimeProvider clock)
     {
-        _store = store; _writes = writes;
+        _store = store; _writes = writes; _clock = clock;
     }
 
     public async Task<CreateResult> CreateAsync(Guid ownerUserId, string displayName,
@@ -33,7 +34,7 @@ public sealed class ServiceClientService
     public async Task<RotateResult> RotateAsync(Guid id, Guid ownerUserId, CancellationToken ct)
     {
         var (_, secret, hash) = ServiceClientSecrets.Generate();
-        var ok = await _writes.UpdateSecretAsync(id, ownerUserId, hash, ct);
+        var ok = await _writes.UpdateSecretAsync(id, ownerUserId, hash, _clock.GetUtcNow(), ct);
         return ok ? new(true, secret) : new(false, null);
     }
 

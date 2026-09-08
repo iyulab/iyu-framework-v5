@@ -10,7 +10,7 @@ public class ServiceClientServiceTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
-        var svc = new ServiceClientService(store, store);   // FakeIdentityStore also implements IServiceClientStore
+        var svc = new ServiceClientService(store, store, TimeProvider.System);   // FakeIdentityStore also implements IServiceClientStore
 
         var r = await svc.CreateAsync(owner, "tool", ["orders.read", "settlement.write"], null, default);
 
@@ -24,7 +24,7 @@ public class ServiceClientServiceTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read", "orders.write"]);
-        var svc = new ServiceClientService(store, store);
+        var svc = new ServiceClientService(store, store, TimeProvider.System);
 
         var r = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
 
@@ -44,7 +44,7 @@ public class ServiceClientServiceTests
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
         var stranger = store.AddUser("x", "남", perms: []);
-        var svc = new ServiceClientService(store, store);
+        var svc = new ServiceClientService(store, store, TimeProvider.System);
         var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
         var id = created.Id;
 
@@ -57,7 +57,7 @@ public class ServiceClientServiceTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
-        var svc = new ServiceClientService(store, store);
+        var svc = new ServiceClientService(store, store, TimeProvider.System);
         var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
 
         var r = await svc.UpdatePermissionsAsync(created.Id, owner, ["orders.read", "settlement.write"], default);
@@ -71,7 +71,7 @@ public class ServiceClientServiceTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read", "orders.write"]);
-        var svc = new ServiceClientService(store, store);
+        var svc = new ServiceClientService(store, store, TimeProvider.System);
         var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
         var secretHashBefore = (await store.FindServiceClientByClientIdAsync(created.ClientId!, default))!.SecretHash;
 
@@ -90,7 +90,7 @@ public class ServiceClientServiceTests
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
         var stranger = store.AddUser("x", "남", perms: ["orders.read"]);
-        var svc = new ServiceClientService(store, store);
+        var svc = new ServiceClientService(store, store, TimeProvider.System);
         var created = await svc.CreateAsync(owner, "tool", ["orders.read"], null, default);
 
         var r = await svc.UpdatePermissionsAsync(created.Id, stranger, ["orders.read"], default);

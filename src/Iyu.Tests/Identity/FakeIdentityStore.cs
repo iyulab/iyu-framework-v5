@@ -16,7 +16,7 @@ public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
     /// </remarks>
     private sealed record FakeClient(Guid Id, string ClientId, string SecretHash, string DisplayName,
         Guid OwnerUserId, bool IsActive, DateTimeOffset? ExpiresAt, DateTimeOffset? LastUsedAt,
-        DateTimeOffset CreatedAt) : IServiceClient;
+        DateTimeOffset CreatedAt, DateTimeOffset? SecretRotatedAt = null) : IServiceClient;
 
     private readonly List<FakeUser> _users = new();
     private readonly List<FakeClient> _clients = new();
@@ -77,7 +77,7 @@ public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
             .Select(c => new ServiceClientSummary(
                 c.Id, c.ClientId, c.DisplayName,
                 _clientPerms.TryGetValue(c.Id, out var p) ? p : [],
-                c.CreatedAt, c.ExpiresAt, c.LastUsedAt, c.IsActive))
+                c.CreatedAt, c.ExpiresAt, c.LastUsedAt, c.SecretRotatedAt, c.IsActive))
             .ToList());
 
     public Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId,
@@ -99,11 +99,14 @@ public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
         return Task.FromResult(true);
     }
 
-    public Task<bool> UpdateSecretAsync(Guid id, Guid ownerUserId, string newSecretHash, CancellationToken ct)
+    public Task<bool> UpdateSecretAsync(Guid id, Guid ownerUserId, string newSecretHash,
+        DateTimeOffset rotatedAt, CancellationToken ct)
     {
         var idx = _clients.FindIndex(c => c.Id == id && c.OwnerUserId == ownerUserId);
         if (idx < 0) return Task.FromResult(false);
-        _clients[idx] = _clients[idx] with { SecretHash = newSecretHash };
+        // Storing the timestamp is the half a fake most easily drops: nothing else reads it, so a
+        // fake that ignored it would agree with an implementation that never persisted a rotation.
+        _clients[idx] = _clients[idx] with { SecretHash = newSecretHash, SecretRotatedAt = rotatedAt };
         return Task.FromResult(true);
     }
 
