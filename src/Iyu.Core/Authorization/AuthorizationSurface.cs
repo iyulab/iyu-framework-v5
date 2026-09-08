@@ -6,8 +6,15 @@ public enum AuthorizationSurfaceOperation
     /// <summary>Reads — OData GET, GraphQL queries.</summary>
     Read,
 
-    /// <summary>Writes — OData POST/PATCH/DELETE, GraphQL mutations.</summary>
+    /// <summary>Writes — OData POST/PATCH, GraphQL mutations.</summary>
     Write,
+
+    /// <summary>
+    /// Deletes — OData DELETE. Its own operation because a surface may require a different policy
+    /// for "may remove this" than for "may change this"; a surface that does not separate the two
+    /// reports the same policy on both rows rather than omitting one.
+    /// </summary>
+    Delete,
 }
 
 /// <summary>

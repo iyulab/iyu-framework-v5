@@ -33,11 +33,23 @@ public sealed class ODataAuthorizationSurfaceProvider(IyuEntityPairRegistry regi
             // A set that refuses every write verb has no write surface to protect — reporting it
             // as unprotected would be a false positive, and a false positive in a list whose whole
             // job is to be empty is what makes people stop reading the list.
-            var writable = !Enum.GetValues<ODataVerb>().All(pair.ReadOnlyVerbs.Contains);
-            if (writable)
+            // POST/PATCH — withdrawn together only when both are read-only.
+            var mutable = !pair.ReadOnlyVerbs.Contains(ODataVerb.Post)
+                       || !pair.ReadOnlyVerbs.Contains(ODataVerb.Patch);
+            if (mutable)
             {
                 entries.Add(new AuthorizationSurfaceEntry(
                     Surface, pair.SetName, AuthorizationSurfaceOperation.Write, pair.WritePolicy));
+            }
+
+            // DELETE reports the policy that actually runs, not the one that was typed: a set with
+            // no DeletePolicy is governed by WritePolicy, and reporting `null` there would invent
+            // an unprotected row for an app that never asked to separate the two.
+            if (!pair.ReadOnlyVerbs.Contains(ODataVerb.Delete))
+            {
+                entries.Add(new AuthorizationSurfaceEntry(
+                    Surface, pair.SetName, AuthorizationSurfaceOperation.Delete,
+                    pair.DeletePolicy ?? pair.WritePolicy));
             }
         }
 

@@ -242,6 +242,18 @@ the `AuthorizeFilter` automatically — no separate registration step. A distinc
 `Restrict` (verbs, below) to avoid `params` overload ambiguity; both read the registry's live state,
 so `RestrictPolicy` may run before or after `AddEntityPair`, in either order relative to `Restrict`.
 
+When "may edit" and "may delete" are different permissions, name the third one:
+
+```csharp
+options.ODataModel.RestrictPolicy("orders",
+    readPolicy: "orders.read", writePolicy: "orders.write", deletePolicy: "orders.delete");
+```
+
+`deletePolicy` governs DELETE alone; omitting it — the default — leaves DELETE under `writePolicy`,
+so an app that does not separate the two never sees the parameter. This is the same per-verb
+discrimination `Restrict` already offers on the *availability* axis (it can withdraw `Delete` by
+itself), applied to authorization.
+
 **GraphQL** — query fields have no attribute-based equivalent (they are built by a fluent descriptor
 API, not resolved through MVC), so `AddEntityPair`'s third parameter is the counterpart:
 
@@ -296,8 +308,13 @@ var report = app.Services.GetRequiredService<IAuthorizationSurfaceReport>();
 Assert.Empty(report.Unprotected);
 ```
 
-`Entries` is every (surface, entity, read/write) triple with the policy attached to it;
-`Unprotected` is the subset whose policy is `null`. Registered automatically by `AddIyuMainServer`.
+`Entries` is every (surface, entity, operation) triple with the policy attached to it, where the
+operation is read, write, or delete; `Unprotected` is the subset whose policy is `null`. Registered
+automatically by `AddIyuMainServer`.
+
+A delete row reports the policy that actually runs: a set with no `deletePolicy` shows its
+`writePolicy` there, not `null`. The row exists even then, so the report answers "what protects
+deletes on this set" rather than leaving the reader to infer it.
 
 > 🔴 **`null` means "not attached through this framework", not "reachable by anyone."**
 > The report sees what `RestrictPolicy` (OData) and `AddEntityPair`/`Restrict` (GraphQL) attached.
@@ -314,7 +331,8 @@ Assert.Empty(report.Unprotected);
 Two entries are deliberately *not* emitted, because a row that can never be given a policy would
 sit in `Unprotected` forever and make the empty-list assertion unusable:
 
-- a set whose `readOnlyVerbs` refuse every write verb has no write half;
+- a set whose `readOnlyVerbs` refuse every write verb has no write half, and one that withdraws
+  `Delete` alone keeps its write row but has no delete half;
 - GraphQL emits reads only — it records a `mutationPrefix` but generates no mutations yet.
 
 ### Rules on the generic write path
@@ -356,12 +374,48 @@ Notes that matter in practice:
   A lock that should only guard edits must test `IsUpdated` first.
 - **Deletes are not dispatched.** A rule about a field's value has nothing to say about a row on
   its way out.
-- **Rules run in one pass and do not see entries created by other rules**, so no rule can depend on
-  another having run first — ordering never becomes a hidden contract.
+- **Rules run in one pass and do not see entries created by other rules** — a log row one rule adds
+  is not dispatched to the others. ⚠ That guarantee covers *entries*, not *values*: a field another
+  rule **assigned** is read from the live entry, so a rule that runs later does see it as modified.
+  Scanning promises no order, so a pair where one rule assigns a field and another keys off that
+  field being modified is order-dependent and can flip on a recompile. Keep such a pair in one rule,
+  or verify it in both orders — see the boundary section below.
 - A rule on a base type covers derived entities.
 - **Scanning is the point, not a convenience.** A hand-written registration line per rule fails by
   omission, and an omitted rule is indistinguishable at runtime from one whose condition never
   fired: nothing throws, nothing logs, the invariant is simply not enforced.
+
+#### What belongs here, and what does not
+
+A consumer who first meets this primitive tends to count every `SaveChanges` interceptor they own
+and expect all of them to move. Most do; some should not, and the line is worth stating rather than
+letting each app rediscover it.
+
+| The rule touches | Belongs here | Why |
+|---|---|---|
+| **fields of the entity it is declared for** | ✅ | This is the primitive. Lock, permission check, default, derivation, normalization, and the change-log read all live here |
+| **creating another entity** (`ctx.Db.Add(...)`) | ✅ | Supported, and the change-log shape above is exactly this — the new rows are saved by the same `SaveChanges` |
+| **modifying another entity's fields** | ❌ | Recomputing a parent's state from the children in this save is an aggregate concern, not a field rule — it reads entries this rule cannot see and would make the one-pass, order-free guarantee a lie |
+| **anything after the save** — a second `SaveChanges`, work that needs the generated keys | ❌ | `Apply` runs *before* the write. Post-save work is `SavedChanges`/`SavedChangesAsync` on an interceptor, which is also where a second save round belongs |
+
+The two on the right are not gaps to be filled later; they are a different axis, and a plain
+`ISaveChangesInterceptor` remains the right home for them. **Moving every rule is not the goal** —
+moving the ones that are field rules is, and the wiring those shed (the `SavingChanges` /
+`SavingChangesAsync` double override, the `ChangeTracker.Entries<T>()` walk, the null guard, and
+the hand-written registration line) is the same for every one that moves.
+
+> ⚠ **The one and only ordering hazard, stated plainly.** A rule that assigns to a field makes that
+> field `IsModified`, and a rule dispatched **after** it on the same entry sees that — a rule
+> dispatched before does not. So a pair like *"copy this value in"* + *"normalize it if it changed"*
+> produces different results depending on which was registered first, and **assembly scanning does
+> not promise an order**: the pair can flip on a recompile, silently, with nothing thrown and
+> nothing logged.
+>
+> This is narrower than it sounds — it needs two rules on the same entity where one writes a field
+> the other keys off. If you have that pair, the reliable fix is to make it **one rule** (assign,
+> then normalize, in the order you wrote). If you keep it as two, pin it with a test that runs both
+> registration orders rather than reasoning about it. Both directions of this behavior are pinned by
+> a test in this repo, so a change to it will be a deliberate one.
 
 ### Making one property read-only
 

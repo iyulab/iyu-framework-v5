@@ -33,7 +33,8 @@ public sealed class IyuEntityPairRegistry
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
 
-        var pair = new EntityPair(setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties, null, null);
+        var pair = new EntityPair(
+            setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties, null, null, null);
         if (!_bySetName.TryAdd(setName, pair))
             throw new InvalidOperationException($"Entity set '{setName}' is already registered.");
         if (!_byReadType.TryAdd(typeof(TRead), setName))
@@ -106,20 +107,35 @@ public sealed class IyuEntityPairRegistry
     /// <param name="setName">A set already registered via <see cref="Register{TRead,TWrite}"/>.</param>
     /// <param name="readPolicy">Policy required for GET. <c>null</c> leaves reads unrestricted.</param>
     /// <param name="writePolicy">
-    /// Policy required for POST/PATCH/DELETE. <c>null</c> leaves writes unrestricted by this
-    /// mechanism (still subject to <see cref="Restrict"/>'s verb restrictions, if any are set).
+    /// Policy required for POST/PATCH, and for DELETE unless <paramref name="deletePolicy"/> says
+    /// otherwise. <c>null</c> leaves writes unrestricted by this mechanism (still subject to
+    /// <see cref="Restrict"/>'s verb restrictions, if any are set).
+    /// </param>
+    /// <param name="deletePolicy">
+    /// Policy required for DELETE specifically. <c>null</c> — the default — means deletes are
+    /// governed by <paramref name="writePolicy"/>, which is what an app that does not separate the
+    /// two wants and keeps this parameter invisible to it. Supply it when "may edit" and "may
+    /// delete" are different permissions: this registry already discriminates DELETE on the
+    /// availability axis (<see cref="Restrict"/> can withdraw <see cref="ODataVerb.Delete"/> alone),
+    /// and this is the same discrimination on the authorization axis.
     /// </param>
     /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
-    public void RestrictPolicy(string setName, string? readPolicy, string? writePolicy)
+    public void RestrictPolicy(string setName, string? readPolicy, string? writePolicy, string? deletePolicy = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
         if (readPolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(readPolicy);
         if (writePolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(writePolicy);
+        if (deletePolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(deletePolicy);
 
         _bySetName.AddOrUpdate(
             setName,
             _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
-            (_, existing) => existing with { ReadPolicy = readPolicy, WritePolicy = writePolicy });
+            (_, existing) => existing with
+            {
+                ReadPolicy = readPolicy,
+                WritePolicy = writePolicy,
+                DeletePolicy = deletePolicy,
+            });
     }
 
     /// <summary>Looks up a pair by set name; returns <c>null</c> if unknown.</summary>
@@ -140,5 +156,6 @@ public sealed class IyuEntityPairRegistry
         IReadOnlySet<ODataVerb> ReadOnlyVerbs,
         IReadOnlySet<string> WriteExcludedProperties,
         string? ReadPolicy,
-        string? WritePolicy);
+        string? WritePolicy,
+        string? DeletePolicy);
 }

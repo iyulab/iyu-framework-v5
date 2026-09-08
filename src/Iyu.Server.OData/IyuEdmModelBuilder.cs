@@ -85,8 +85,16 @@ public sealed class IyuEdmModelBuilder
     /// <param name="setName">A set already registered via <see cref="AddEntityPair{TRead,TWrite}"/>.</param>
     /// <param name="readPolicy">Policy required for GET (list and by-key). <see langword="null"/> leaves reads unrestricted.</param>
     /// <param name="writePolicy">
-    /// Policy required for POST/PATCH/DELETE. <see langword="null"/> leaves writes unrestricted by
-    /// this mechanism (still subject to <see cref="Restrict"/>'s verb restrictions, if any are set).
+    /// Policy required for POST/PATCH, and for DELETE unless <paramref name="deletePolicy"/> says
+    /// otherwise. <see langword="null"/> leaves writes unrestricted by this mechanism (still
+    /// subject to <see cref="Restrict"/>'s verb restrictions, if any are set).
+    /// </param>
+    /// <param name="deletePolicy">
+    /// Policy required for DELETE specifically. <see langword="null"/> — the default — leaves
+    /// deletes governed by <paramref name="writePolicy"/>. Supply it when "may edit" and "may
+    /// delete" are different permissions: <see cref="Restrict"/> can already withdraw
+    /// <see cref="ODataVerb.Delete"/> on its own, and this is that same per-verb discrimination
+    /// on the authorization axis rather than the availability one.
     /// </param>
     /// <remarks>
     /// <para>
@@ -110,9 +118,10 @@ public sealed class IyuEdmModelBuilder
     /// </para>
     /// </remarks>
     /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
-    public IyuEdmModelBuilder RestrictPolicy(string setName, string? readPolicy = null, string? writePolicy = null)
+    public IyuEdmModelBuilder RestrictPolicy(
+        string setName, string? readPolicy = null, string? writePolicy = null, string? deletePolicy = null)
     {
-        Registry.RestrictPolicy(setName, readPolicy, writePolicy);
+        Registry.RestrictPolicy(setName, readPolicy, writePolicy, deletePolicy);
         return this;
     }
 

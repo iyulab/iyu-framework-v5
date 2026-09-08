@@ -65,6 +65,26 @@ public sealed class QuantityLog : EntityWriteRule<RuleOrder>
     }
 }
 
+/// <summary>Assigns a field, so a later rule in the same pass can be asked whether it sees it.</summary>
+public sealed class AssignsVatType : EntityWriteRule<RuleOrder>
+{
+    protected override void Apply(WriteRuleContext<RuleOrder> ctx)
+    {
+        if (ctx.IsUpdated) ctx.Entity.VatType = "assigned";
+    }
+}
+
+/// <summary>Records whether it observed the field as modified. Deliberately has no other effect.</summary>
+public sealed class ObservesVatType : EntityWriteRule<RuleOrder>
+{
+    public bool? Saw { get; private set; }
+
+    protected override void Apply(WriteRuleContext<RuleOrder> ctx)
+    {
+        if (ctx.IsUpdated) Saw = ctx.IsModified(nameof(RuleOrder.VatType));
+    }
+}
+
 /// <summary>
 /// The acceptance bar for this primitive was the three shapes a consumer reported writing 15
 /// interceptors for — a conditional lock, a derivation that fires on insert, and a change log
@@ -206,5 +226,42 @@ public class WriteRuleTests
         await db.SaveChangesAsync();
 
         Assert.Equal(2026, db.Orders.Single().Season);
+    }
+
+    /// <summary>
+    /// 🔴 The one-pass guarantee covers *entries*, not *values*. A rule never sees a row another
+    /// rule created — that part holds. But a field another rule **assigned** is read from the live
+    /// entry at call time, so whether the second rule sees it depends on which ran first, and
+    /// assembly scanning promises no order at all.
+    /// <para>
+    /// Measured, not reasoned about: registering the assigning rule first makes the field look
+    /// modified; registering it second does not. Pinned in both directions so that a change to the
+    /// dispatcher (snapshotting modified-state up front, say, which would make both `false`) shows
+    /// up here as a deliberate decision rather than silently altering what a consumer's rule pair
+    /// does. The README says as much where it describes the guarantee.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]    // assigning rule first  → the observer sees the assignment
+    [InlineData(false, false)]  // assigning rule second → it does not
+    public void Whether_a_rule_sees_a_field_another_rule_assigned_depends_on_registration_order(
+        bool assignFirst, bool expectedSeen)
+    {
+        var assigns = new AssignsVatType();
+        var observes = new ObservesVatType();
+        using var sp = assignFirst
+            ? BuildProvider(assigns, observes)
+            : BuildProvider(observes, assigns);
+        var db = sp.GetRequiredService<RuleContext>();
+
+        db.Orders.Add(new RuleOrder { VatType = "a", Quantity = 1 });
+        db.SaveChanges();
+
+        var order = db.Orders.Single();
+        order.Quantity = 2;              // a different field — VatType is untouched by the caller
+        db.SaveChanges();
+
+        Assert.True(observes.Saw.HasValue);
+        Assert.Equal(expectedSeen, observes.Saw!.Value);
     }
 }

@@ -31,18 +31,63 @@ public class AuthorizationSurfaceReportTests
     }
 
     [Fact]
-    public void An_odata_set_reports_a_read_and_a_write_entry()
+    public void An_odata_set_reports_a_read_a_write_and_a_delete_entry()
     {
         var provider = new ODataAuthorizationSurfaceProvider(
             RegistryWith(("Widgets", "widgets.read", "widgets.write")));
 
         var entries = provider.Describe();
 
-        Assert.Equal(2, entries.Count);
+        Assert.Equal(3, entries.Count);
         Assert.Contains(entries, e =>
             e is { Surface: "OData", Entity: "Widgets", Operation: AuthorizationSurfaceOperation.Read, Policy: "widgets.read" });
         Assert.Contains(entries, e =>
             e is { Surface: "OData", Entity: "Widgets", Operation: AuthorizationSurfaceOperation.Write, Policy: "widgets.write" });
+        // No delete policy was named, so DELETE runs under the write one — the row reports the
+        // policy that actually applies, not the parameter that happened to be filled in.
+        Assert.Contains(entries, e =>
+            e is { Surface: "OData", Entity: "Widgets", Operation: AuthorizationSurfaceOperation.Delete, Policy: "widgets.write" });
+    }
+
+    /// <summary>
+    /// The delete axis: an app where "may edit" and "may delete" differ gets its own row, which is
+    /// what makes the report usable for it at all. Before this, such an app had to attach policies
+    /// outside the framework and then saw its entire surface reported as unprotected.
+    /// </summary>
+    [Fact]
+    public void A_separate_delete_policy_reports_on_its_own_row()
+    {
+        var registry = new IyuEntityPairRegistry();
+        registry.Register<SurfaceWidgetExt, SurfaceWidget>("Widgets");
+        registry.RestrictPolicy("Widgets", "widgets.read", "widgets.write", "widgets.delete");
+
+        var entries = new ODataAuthorizationSurfaceProvider(registry).Describe();
+
+        Assert.Contains(entries, e =>
+            e is { Operation: AuthorizationSurfaceOperation.Write, Policy: "widgets.write" });
+        Assert.Contains(entries, e =>
+            e is { Operation: AuthorizationSurfaceOperation.Delete, Policy: "widgets.delete" });
+    }
+
+    /// <summary>
+    /// The phantom rule holds per verb, not just for the all-or-nothing case: a set that withdraws
+    /// DELETE alone still has a POST/PATCH surface, so the write row stays and only the delete row
+    /// goes. Reporting a delete row for a set that refuses DELETE would be the same permanently-null
+    /// entry <see cref="A_fully_read_only_set_reports_no_write_entry"/> exists to prevent.
+    /// </summary>
+    [Fact]
+    public void A_set_that_withdraws_delete_alone_reports_a_write_entry_but_no_delete_entry()
+    {
+        var registry = new IyuEntityPairRegistry();
+        registry.Register<SurfaceWidgetExt, SurfaceWidget>(
+            "Widgets", new HashSet<ODataVerb> { ODataVerb.Delete });
+        registry.RestrictPolicy("Widgets", "widgets.read", "widgets.write");
+
+        var entries = new ODataAuthorizationSurfaceProvider(registry).Describe();
+
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.Operation == AuthorizationSurfaceOperation.Write);
+        Assert.DoesNotContain(entries, e => e.Operation == AuthorizationSurfaceOperation.Delete);
     }
 
     [Fact]

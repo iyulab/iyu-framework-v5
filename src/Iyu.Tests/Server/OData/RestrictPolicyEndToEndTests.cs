@@ -76,6 +76,10 @@ public class RestrictPolicyEndToEndTests
 
     private static async Task<WebApplication> StartAsync()
     {
+        // One database per app, shared by every scope. configureDb runs per DbContext
+        // instantiation, so a Guid built inside the lambda would give each scope its own store —
+        // a seeded row would then be invisible to the request that is supposed to find it.
+        var dbName = "policy-" + Guid.NewGuid().ToString("N");
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
 
@@ -91,7 +95,7 @@ public class RestrictPolicyEndToEndTests
         });
 
         builder.Services.AddIyuMainServer<PolicyWidgetContext>(
-            configureDb: db => db.UseInMemoryDatabase("policy-" + Guid.NewGuid().ToString("N")),
+            configureDb: db => db.UseInMemoryDatabase(dbName),
             configure: options =>
             {
                 options.ControllerAssemblies.Add(typeof(PolicyWidgetsController).Assembly);
@@ -274,6 +278,125 @@ public class RestrictPolicyEndToEndTests
                 Assert.Equal(Set, e.Entity);
                 Assert.Equal(Iyu.Core.Authorization.AuthorizationSurfaceOperation.Write, e.Operation);
                 Assert.Equal(WritePolicy, e.Policy);
+            },
+            // The delete row reports the policy that actually runs. This set named no delete
+            // policy, so deletes are governed by the write one — reporting `null` here would
+            // invent an unprotected row for an app that never asked to separate the two, and
+            // `Assert.Empty(report.Unprotected)` above is what would break first.
+            e =>
+            {
+                Assert.Equal(Set, e.Entity);
+                Assert.Equal(Iyu.Core.Authorization.AuthorizationSurfaceOperation.Delete, e.Operation);
+                Assert.Equal(WritePolicy, e.Policy);
             });
+    }
+
+    // ---- delete axis ---------------------------------------------------------------------
+    //
+    // "May edit" and "may delete" are different permissions in apps that separate them. The
+    // registry already discriminates DELETE on the availability axis (Restrict can withdraw
+    // ODataVerb.Delete alone); these pin the same discrimination on the authorization axis.
+
+    private const string DeletePolicy = "widgets.delete";
+
+    private static async Task<WebApplication> StartWithDeletePolicyAsync()
+    {
+        var dbName = "policy-del-" + Guid.NewGuid().ToString("N");   // see StartAsync
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+
+        builder.Services.AddAuthentication("Test")
+            .AddScheme<AuthenticationSchemeOptions, HeaderClaimAuthHandler>("Test", null);
+        builder.Services.AddAuthorization(opts =>
+        {
+            opts.AddPolicy(ReadPolicy, p => p.RequireClaim("perm", ReadPolicy));
+            opts.AddPolicy(WritePolicy, p => p.RequireClaim("perm", WritePolicy));
+            opts.AddPolicy(DeletePolicy, p => p.RequireClaim("perm", DeletePolicy));
+        });
+
+        builder.Services.AddIyuMainServer<PolicyWidgetContext>(
+            configureDb: db => db.UseInMemoryDatabase(dbName),
+            configure: options =>
+            {
+                options.ControllerAssemblies.Add(typeof(PolicyWidgetsController).Assembly);
+                options.ODataModel.AddEntityPair<PolicyWidgetExt, PolicyWidget>(Set);
+                options.ODataModel.RestrictPolicy(
+                    Set, readPolicy: ReadPolicy, writePolicy: WritePolicy, deletePolicy: DeletePolicy);
+            });
+
+        var app = builder.Build();
+        app.UseAuthentication();
+        app.UseIyuMainServer();
+        await app.StartAsync();
+        return app;
+    }
+
+    private static async Task<Guid> SeedAsync(WebApplication app)
+    {
+        var id = Guid.NewGuid();
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PolicyWidgetContext>();
+        db.Widgets.Add(new PolicyWidget { Id = id, Name = "seed" });
+        await db.SaveChangesAsync();
+        return id;
+    }
+
+    /// <summary>
+    /// The point of the axis: the write claim stops being enough to delete. Without this, an app
+    /// that separates the two cannot attach its policies through the framework at all, and then
+    /// <c>IAuthorizationSurfaceReport</c> reports its whole surface as unprotected.
+    /// </summary>
+    [Fact]
+    public async Task Delete_with_only_the_write_claim_is_forbidden_when_a_delete_policy_is_set()
+    {
+        await using var app = await StartWithDeletePolicyAsync();
+        var id = await SeedAsync(app);
+
+        using var resp = await app.GetTestServer().CreateClient()
+            .SendAsync(Request(HttpMethod.Delete, $"/$data/{Set}({id})", perm: WritePolicy));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_with_the_delete_claim_succeeds()
+    {
+        await using var app = await StartWithDeletePolicyAsync();
+        var id = await SeedAsync(app);
+
+        using var resp = await app.GetTestServer().CreateClient()
+            .SendAsync(Request(HttpMethod.Delete, $"/$data/{Set}({id})", perm: DeletePolicy));
+        Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
+    }
+
+    /// <summary>
+    /// The separation runs both ways — holding the delete claim must not confer edit rights, or
+    /// the axis would be a widening rather than a split.
+    /// </summary>
+    [Fact]
+    public async Task Patch_with_only_the_delete_claim_is_forbidden()
+    {
+        await using var app = await StartWithDeletePolicyAsync();
+        var id = await SeedAsync(app);
+
+        var req = Request(HttpMethod.Patch, $"/$data/{Set}({id})", perm: DeletePolicy);
+        req.Content = JsonContent.Create(new { Name = "changed" });
+        using var resp = await app.GetTestServer().CreateClient().SendAsync(req);
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Authorization_surface_report_shows_the_delete_policy_on_its_own_row()
+    {
+        await using var app = await StartWithDeletePolicyAsync();
+        var report = app.Services
+            .GetRequiredService<Iyu.Core.Authorization.IAuthorizationSurfaceReport>();
+
+        Assert.Empty(report.Unprotected);
+        var delete = Assert.Single(
+            report.Entries,
+            e => e.Surface == "OData"
+              && e.Operation == Iyu.Core.Authorization.AuthorizationSurfaceOperation.Delete);
+        Assert.Equal(Set, delete.Entity);
+        Assert.Equal(DeletePolicy, delete.Policy);
     }
 }

@@ -8,7 +8,8 @@ namespace Iyu.MainServer;
 /// <summary>
 /// Attaches an <see cref="AuthorizeFilter"/> to a generated OData controller's actions when its
 /// entity set was registered with <c>IyuEdmModelBuilder.RestrictPolicy</c> (Iyu.Server.OData) —
-/// GET gets <c>ReadPolicy</c>, POST/PATCH/DELETE get <c>WritePolicy</c>. The OData counterpart of
+/// GET gets <c>ReadPolicy</c>, POST/PATCH get <c>WritePolicy</c>, and DELETE gets
+/// <c>DeletePolicy</c> when one was supplied, falling back to <c>WritePolicy</c>. The counterpart of
 /// <c>IyuGraphQLPolicyAuthorizationHandler</c> (Iyu.Server.GraphQL); wired automatically by
 /// <see cref="MainServerExtensions.AddIyuMainServer{TContext}"/> whenever any registered set uses
 /// <c>RestrictPolicy</c>, so there is no separate step for a consumer to remember or forget.
@@ -31,7 +32,8 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
             var policy = action.ActionMethod.Name switch
             {
                 "Get" => pair.ReadPolicy,
-                "Post" or "Patch" or "Delete" => pair.WritePolicy,
+                "Post" or "Patch" => pair.WritePolicy,
+                "Delete" => pair.DeletePolicy ?? pair.WritePolicy,
                 _ => null,
             };
             if (policy is not null)
