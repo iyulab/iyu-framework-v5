@@ -379,23 +379,22 @@ public class IyuODataControllerTests
         Assert.Equal("Assigned Bank", (await ctx.BankAccounts.SingleAsync()).BankName);
     }
 
-    // ---------------------------------------------------------- recorded gaps
+    // ------------------------------------------------- writable-set boundary
     //
-    // Behaviour that is defensible but weak, pinned so that changing it is a
-    // decision somebody makes rather than a side effect of unrelated work. The
-    // reasoning lives on CopySelectedProperties; these assert the state.
+    // Which of the sent properties an update can actually store, and what the
+    // caller is told about the rest. The reasoning lives on
+    // PartitionByWritability; these assert the two sides of it.
 
     /// <summary>
-    /// A property that exists only on the read side has no writable counterpart,
-    /// so an update carrying only such properties changes nothing — and is still
-    /// answered 204. Skipping is what lets a client send back an object it read;
-    /// answering 204 to a request that could not have any effect is the part
-    /// that is weak.
+    /// An update whose every property is read-only could not have stored anything,
+    /// so it is refused and each property is named with the reason it was refused.
+    /// Answering success here is what let a caller read "nothing changed" as a lock
+    /// on the field rather than its absence from the write model.
     /// </summary>
     [Fact]
-    public async Task Patch_of_a_read_only_property_changes_nothing_and_still_reports_success()
+    public async Task Patch_of_only_read_only_properties_is_refused_and_names_them()
     {
-        var (ctx, controller) = CreateSut(nameof(Patch_of_a_read_only_property_changes_nothing_and_still_reports_success));
+        var (ctx, controller) = CreateSut(nameof(Patch_of_only_read_only_properties_is_refused_and_names_them));
         var write = new BankAccount { Id = Guid.NewGuid(), BankName = "Acme Bank", AccountNumber = "999" };
         ctx.BankAccounts.Add(write);
         await ctx.SaveChangesAsync();
@@ -406,7 +405,9 @@ public class IyuODataControllerTests
 
         var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
-        Assert.Equal(StatusCodes.Status204NoContent, Assert.IsType<StatusCodeResult>(result).StatusCode);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var state = Assert.IsType<SerializableError>(bad.Value);
+        Assert.True(state.ContainsKey(nameof(BankAccountExt.BankCountry)));
 
         var reloaded = await ctx.BankAccounts.SingleAsync();
         Assert.Equal("Acme Bank", reloaded.BankName);
@@ -414,9 +415,48 @@ public class IyuODataControllerTests
     }
 
     /// <summary>
-    /// The case the skipping exists for: an object read and sent back whole,
-    /// derived properties included, still applies the field that changed.
-    /// Whatever is decided about the case above must keep this working.
+    /// The server-managed keys are refused on the same grounds rather than being
+    /// skipped in silence, so an update naming only those is not reported as done.
+    /// </summary>
+    [Fact]
+    public async Task Patch_of_only_server_managed_properties_is_refused()
+    {
+        var (ctx, controller) = CreateSut(nameof(Patch_of_only_server_managed_properties_is_refused));
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "Acme Bank", AccountNumber = "999" };
+        ctx.BankAccounts.Add(write);
+        await ctx.SaveChangesAsync();
+
+        var delta = new Delta<BankAccountExt>();
+        delta.TrySetPropertyValue(nameof(BankAccountExt.CreatedAt), DateTimeOffset.UtcNow);
+
+        var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.True(Assert.IsType<SerializableError>(bad.Value).ContainsKey(nameof(BankAccountExt.CreatedAt)));
+    }
+
+    /// <summary>
+    /// An empty body is still a no-op answered 204: nothing was sent, so nothing
+    /// was refused. The refusal above is about a request that named something and
+    /// could still store none of it.
+    /// </summary>
+    [Fact]
+    public async Task Patch_of_nothing_at_all_is_still_a_successful_no_op()
+    {
+        var (ctx, controller) = CreateSut(nameof(Patch_of_nothing_at_all_is_still_a_successful_no_op));
+        var write = new BankAccount { Id = Guid.NewGuid(), BankName = "Acme Bank", AccountNumber = "999" };
+        ctx.BankAccounts.Add(write);
+        await ctx.SaveChangesAsync();
+
+        var result = await controller.Patch(write.Id, new Delta<BankAccountExt>(), EmptyRegistry, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status204NoContent, Assert.IsType<StatusCodeResult>(result).StatusCode);
+    }
+
+    /// <summary>
+    /// The case the skipping exists for, and the reason the refusal above is
+    /// scoped to "every property": an object read and sent back whole, derived
+    /// properties included, still applies the field that changed.
     /// </summary>
     [Fact]
     public async Task Patch_applies_a_writable_property_even_when_read_only_ones_travel_with_it()

@@ -172,7 +172,9 @@ Each logical entity has two CLR types:
 The controller copies overlapping properties from the read body to a fresh
 write entity using reflection; extras are dropped. `CreatedAt`/`UpdatedAt`/`Id`
 are explicitly excluded because they are owned by the interceptor or the
-caller's explicit assignment.
+caller's explicit assignment. On a `PATCH` the drop is not unconditional — an
+update that could store *none* of what it was sent is refused rather than
+reported as done; see [What a `PATCH` can store](#what-a-patch-can-store).
 
 ### Write failure responses
 
@@ -431,16 +433,49 @@ options.ODataModel.ExcludeFromWrite<OrderExt>(x => x.Status);
 
 Unlike `Exclude<T>()`, the property stays in the model — `$select`/`$filter`/`$orderby`
 are unaffected — and instead picks up the standard `Org.OData.Core.V1.Computed` term on
-`$metadata` ("server-supplied, do not send on insert/update"). A `POST`/`PATCH` naming it
-anyway is not rejected: the value is silently dropped from what the generic controller
-copies onto the write entity, the same way `Id`/`CreatedAt`/`UpdatedAt` already are. A
-write straight to the write-side `DbSet` — a dedicated endpoint reached through your own
-controller action, for instance — is unaffected; it never goes through the generic
-controller's copy step at all.
+`$metadata` ("server-supplied, do not send on insert/update"). A `POST` naming it anyway
+is not rejected: the value is silently dropped from what the generic controller copies
+onto the write entity, the same way `Id`/`CreatedAt`/`UpdatedAt` already are. A `PATCH`
+naming it is dropped on the same terms *unless the whole request is unwritable* — see
+[What a `PATCH` can store](#what-a-patch-can-store) below. A write straight to the
+write-side `DbSet` — a dedicated endpoint reached through your own controller action, for
+instance — is unaffected; it never goes through the generic controller's copy step at all.
 
 Same read-type rule as `Exclude<T>()`, for the same reason: request bodies bind to
 `TRead`, so name that side. Also order-independent and callable after the fact from a
 generated registration, exactly like `Exclude<T>()`.
+
+### What a `PATCH` can store
+
+A partial update names properties on `TRead`, and not all of them have somewhere to go:
+a derived column the view computes has no counterpart on `TWrite`, `ExcludeFromWrite`
+marks one deliberately, and `Id`/`CreatedAt`/`UpdatedAt` are the server's.
+
+Those are **dropped in silence whenever the same request also carries something writable**.
+That is what lets a client read an object and send it back whole, derived fields included,
+and still have the one field it edited applied — the ordinary round-trip, and the reason
+the drop exists at all.
+
+When **every** property in the request is unwritable, the update is refused with `400` and
+a body keyed by property:
+
+```json
+{ "error": { "details": [
+  { "target": "ItemCount", "message": "The property is read-only: it is derived and has no stored counterpart." }
+] } }
+```
+
+The distinction the caller gets from this is the one they cannot draw themselves: a value
+refused because it is derived, a value refused because the model locks it, and a value
+refused because the server owns it read the same from outside. Answering `204` to a
+request that could not have stored anything reads as "accepted, and the field is
+protected" — which is a different fact, and callers have acted on it.
+
+Two boundaries are deliberate:
+
+- **An empty body is still `204`.** Nothing was sent, so nothing was refused.
+- **A property the model never declares never reaches this.** Deserialization refuses it
+  first, with OData's own error. Only a property `TRead` declares gets this far.
 
 ### Restricting write verbs
 

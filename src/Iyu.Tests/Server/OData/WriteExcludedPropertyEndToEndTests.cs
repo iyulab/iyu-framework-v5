@@ -129,9 +129,18 @@ public class WriteExcludedPropertyEndToEndTests
         finally { await app.DisposeAsync(); }
     }
 
-    /// <summary>PATCH naming the marked property leaves the stored value untouched, and still answers 204.</summary>
+    /// <summary>
+    /// PATCH naming <i>only</i> the marked property leaves the stored value untouched and is
+    /// refused, because the request could not have stored anything.
+    /// </summary>
+    /// <remarks>
+    /// The asymmetry with <see cref="Posting_the_marked_property_succeeds_but_the_value_is_dropped"/>
+    /// is deliberate and is not about the mark: a create stores the rest of the body, so it had an
+    /// effect and the drop is the OData <c>Computed</c> contract working. An update naming nothing
+    /// else had no effect at all, and reporting success for it is what a caller misreads.
+    /// </remarks>
     [Fact]
-    public async Task Patching_the_marked_property_leaves_the_stored_value_intact()
+    public async Task Patching_only_the_marked_property_is_refused_and_the_stored_value_is_intact()
     {
         var app = await StartAsync(excludeFromWrite: true);
         try
@@ -147,8 +156,39 @@ public class WriteExcludedPropertyEndToEndTests
             using var response = await app.GetTestServer().CreateClient()
                 .PatchAsync($"/$data/{Set}({id})", JsonContent.Create(new { Status = "PLANTED" }));
 
-            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);   // a "successful no-op", same precedent as a computed-only patch
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Contains(nameof(TrackedOrderExt.Status), await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
             Assert.Equal("ORIGINAL", Row(app, id)?.Status);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// The marked property travelling alongside a writable one is dropped in silence and the
+    /// update succeeds — a client that reads an object and sends it back whole must keep working.
+    /// This is the boundary the refusal above is scoped by.
+    /// </summary>
+    [Fact]
+    public async Task Patching_the_marked_property_alongside_a_writable_one_still_succeeds()
+    {
+        var app = await StartAsync(excludeFromWrite: true);
+        try
+        {
+            var id = Guid.NewGuid();
+            using (var scope = app.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<TrackedOrderContext>();
+                db.Orders.Add(new TrackedOrder { Id = id, Name = "a", Status = "ORIGINAL" });
+                await db.SaveChangesAsync();
+            }
+
+            using var response = await app.GetTestServer().CreateClient()
+                .PatchAsync($"/$data/{Set}({id})", JsonContent.Create(new { Status = "PLANTED", Name = "b" }));
+
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            var row = Row(app, id);
+            Assert.Equal("b", row?.Name);              // the writable half applies
+            Assert.Equal("ORIGINAL", row?.Status);     // the marked half is still refused a value
         }
         finally { await app.DisposeAsync(); }
     }

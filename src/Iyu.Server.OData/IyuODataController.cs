@@ -132,10 +132,94 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         if (!ValidateChangedProperties(readProjection, changedNames))
             return BadRequest(SanitizedModelState());
 
-        CopySelectedProperties(readProjection, write, changedNames, registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties);
+        var excludedFromWrite = registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties;
+        var (writable, unwritable) = PartitionByWritability(changedNames, excludedFromWrite);
+
+        // A request whose every property is unwritable cannot change anything. Reporting
+        // success for it is what let a caller conclude the field was locked rather than
+        // absent from the write model.
+        if (writable.Count == 0)
+            return BadRequest(UnwritablePropertiesModelState(unwritable));
+
+        CopySelectedProperties(readProjection, write, writable, excludedFromWrite);
         await Context.SaveChangesAsync(ct);
 
         return StatusCode(StatusCodes.Status204NoContent);
+    }
+
+    /// <summary>
+    /// Splits the sent property names into the ones this update can actually store
+    /// and the ones it cannot, each of the latter with the reason it cannot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the single place that decides writability.</b> The same set is used
+    /// to answer the caller and to drive <see cref="CopySelectedProperties"/>, so the
+    /// two cannot disagree. A second predicate that mirrored the copy's skip rules
+    /// would drift the first time a fourth rule is added.
+    /// </para>
+    /// <para>
+    /// A property the read type declares but the write type does not is the ordinary
+    /// derived column — a view produces it, no table stores it. Sending it back is
+    /// normal and stays harmless: it is dropped whenever anything else in the same
+    /// request is writable, which is what keeps a whole-object round-trip working.
+    /// </para>
+    /// </remarks>
+    private static (ISet<string> Writable, IReadOnlyDictionary<string, string> Unwritable) PartitionByWritability(
+        ISet<string> changedNames, IReadOnlySet<string>? excludedFromWrite)
+    {
+        var targetProps = typeof(TWrite).GetProperties()
+            .Where(p => p.CanWrite && p.GetSetMethod(nonPublic: false) is not null)
+            .ToDictionary(p => p.Name, StringComparer.Ordinal);
+        var sourceProps = typeof(TRead).GetProperties()
+            .ToDictionary(p => p.Name, StringComparer.Ordinal);
+
+        var writable = new HashSet<string>(StringComparer.Ordinal);
+        var unwritable = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var name in changedNames)
+        {
+            if (name is nameof(IyuEntity.Id) or nameof(IyuEntity.CreatedAt) or nameof(IyuEntity.UpdatedAt))
+            {
+                unwritable[name] = "The property is managed by the server and cannot be updated.";
+                continue;
+            }
+            if (excludedFromWrite is not null && excludedFromWrite.Contains(name))
+            {
+                unwritable[name] = "The property is read-only: the model excludes it from writes.";
+                continue;
+            }
+            if (!sourceProps.TryGetValue(name, out var srcProp)
+                || !targetProps.TryGetValue(name, out var tgtProp))
+            {
+                unwritable[name] = "The property is read-only: it is derived and has no stored counterpart.";
+                continue;
+            }
+            if (!tgtProp.PropertyType.IsAssignableFrom(srcProp.PropertyType))
+            {
+                unwritable[name] = "The property cannot be stored: its type has no writable counterpart.";
+                continue;
+            }
+            writable.Add(name);
+        }
+
+        return (writable, unwritable);
+    }
+
+    /// <summary>
+    /// Builds the 400 body for an update that could not have stored anything, keyed by
+    /// property so a caller handles it exactly like a validation failure.
+    /// </summary>
+    /// <remarks>
+    /// Echoing the property names carries nothing the caller did not already write. What
+    /// it adds is the distinction they could not otherwise draw: a value refused because
+    /// it is derived, versus one refused because a policy locked it.
+    /// </remarks>
+    private static ModelStateDictionary UnwritablePropertiesModelState(IReadOnlyDictionary<string, string> unwritable)
+    {
+        var state = new ModelStateDictionary();
+        foreach (var (name, reason) in unwritable) state.AddModelError(name, reason);
+        return state;
     }
 
     /// <summary>
