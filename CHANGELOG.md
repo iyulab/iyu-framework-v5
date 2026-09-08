@@ -18,6 +18,76 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.27.0] - 2026-09-09
+
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+🔴 **Three breaking changes, all of them small and all of them silent if missed.** Take them
+together before upgrading:
+
+1. **`IServiceClientStore.UpdateSecretAsync` receives `DateTimeOffset rotatedAt` before `ct`.**
+   Implementations must persist it.
+2. **`ServiceClientSummary` gains `SecretRotatedAt`, positionally after `LastUsedAt`.** Whatever
+   builds the summary must fill it.
+3. **A `PATCH` whose properties are *all* unwritable now answers `400` where it answered `204`.**
+   A round trip that carries derived properties alongside a writable one is unaffected.
+
+### Fixed
+
+- **A partial update that could not have stored anything reported success.** A `PATCH` names
+  properties on the read type, and not all of them have somewhere to go: a derived column the view
+  computes has no counterpart on the write type, `ExcludeFromWrite` marks one deliberately, and
+  `Id`/`CreatedAt`/`UpdatedAt` belong to the server. All of those were skipped in silence and the
+  request was answered `204` — including when they were the *whole* request. A caller reads that
+  as "accepted, and the field is protected", which is a different fact, and a non-interactive
+  client has no way to notice the difference.
+
+  The refusal is scoped to "every property is unwritable", and the boundary matters. The
+  counter-case is the ordinary round trip — an object read and sent back whole, derived fields
+  included, still applies the field that changed — and that is the reason the silent drop exists
+  at all. Refusing on *any* unwritable property would kill it.
+
+  The `400` is keyed by property and separates derived from excluded from server-managed, so error
+  handling stays uniform with validation. An empty body is still `204`: nothing was sent, so
+  nothing was refused.
+
+  ⚠ **A property the model never declares was already refused**, by deserialization, with a `400`
+  — that path did not change here, and is now pinned by a test rather than assumed. If you built a
+  characterization test on the belief that an unrecognized property name returns `204` and leaves
+  the value untouched, it was measuring something else.
+
+- **`ExcludeFromWrite`'s `PATCH` flips with it**, because its `204` was never an independent
+  decision — the test asserting it said so, "same precedent as a computed-only patch". `POST` keeps
+  dropping the marked value silently, and that asymmetry is deliberate: a create stores the rest of
+  the body, so it had an effect.
+
+### Added
+
+- **`ServiceClientSummary.SecretRotatedAt` — when the credential's secret was last replaced.** An
+  owner reading a listing could not tell a credential whose holder is presenting the *previous*
+  secret from one that never worked at all. Both stop authenticating, both look active, and the
+  token endpoint answers every rejection with one `invalid_client`. Telling them apart meant
+  reading the credential rows directly, which only whoever implements the store can do.
+
+  Read it against `LastUsedAt`: a rotation newer than the last successful use is a stale secret in
+  a holder's hands, and a null `LastUsedAt` on an active client is one that was mis-delivered at
+  issuance.
+
+  It names one event rather than being a general last-modified. Folding rotation, permission
+  changes and revocation into one column puts the owner back to inferring which of them happened,
+  from rows they cannot see.
+
+  `IServiceClientStore.UpdateSecretAsync` receives the rotation timestamp rather than leaving the
+  store to stamp it, the same way `TouchServiceClientAsync` already takes its own. The field's
+  whole purpose is to be compared against `LastUsedAt`, and two clocks make that comparison
+  meaningless.
+
+- **Rejected `client_credentials` requests are logged with the cause** — no such client, revoked,
+  expired, secret mismatch. **The response is unchanged**: one undifferentiated `invalid_client`
+  with equalized timing, which is what stops the endpoint confirming which client ids exist. That
+  defence is aimed at the caller, and had been hitting the operator too — who has the database and
+  was still left with no more information than an attacker. The secret is never logged in any form.
+
 ## [0.26.0] - 2026-09-08
 
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.OData`
