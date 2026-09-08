@@ -38,6 +38,42 @@ public sealed class LedgerContext(DbContextOptions<LedgerContext> options) : Iyu
 public sealed class LedgerEntriesController(LedgerContext ctx)
     : IyuODataController<LedgerEntryExt, LedgerEntry>(ctx);
 
+/// <summary>A complex value, to check what a partial update reports as "changed" for one.</summary>
+public sealed class ShipTo
+{
+    public string City { get; set; } = "";
+    public string Zip { get; set; } = "";
+}
+
+public sealed class Consignment : IyuEntity
+{
+    public string Memo { get; set; } = "";
+    public ShipTo Ship { get; set; } = new();
+}
+
+public sealed class ConsignmentExt : IyuEntity
+{
+    public string Memo { get; set; } = "";
+    public ShipTo Ship { get; set; } = new();
+    public int ItemCount { get; set; }
+}
+
+public sealed class ConsignmentContext(DbContextOptions<ConsignmentContext> options) : IyuDbContext(options)
+{
+    public DbSet<Consignment> Consignments => Set<Consignment>();
+    public DbSet<ConsignmentExt> ConsignmentsExt => Set<ConsignmentExt>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<Consignment>().OwnsOne(x => x.Ship);
+        modelBuilder.Entity<ConsignmentExt>().OwnsOne(x => x.Ship);
+    }
+}
+
+public sealed class ConsignmentsController(ConsignmentContext ctx)
+    : IyuODataController<ConsignmentExt, Consignment>(ctx);
+
 /// <summary>
 /// What the generic write path answers when the properties a caller sent cannot be stored,
 /// measured over HTTP rather than against the controller in isolation.
@@ -153,6 +189,73 @@ public class UnwritablePatchEndToEndTests
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             Assert.Equal("original", Row(app, id)?.Memo);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// A value the caller re-sends unchanged is still stored and still answered 204. The refusal
+    /// is about properties with nowhere to go, never about whether a value differs — a caller for
+    /// which re-sending the current value is simply how it works is a real one.
+    /// </summary>
+    [Fact]
+    public async Task An_update_that_changes_no_value_is_still_accepted()
+    {
+        var (app, id) = await StartWithRowAsync();
+        try
+        {
+            using var response = await app.GetTestServer().CreateClient()
+                .PatchAsJsonAsync($"/$data/{Set}({id})", new { Memo = "original" });
+
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            Assert.Equal("original", Row(app, id)?.Memo);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// A partial update naming only part of a complex value is accepted and stored.
+    /// </summary>
+    /// <remarks>
+    /// Pinned because the writability check works on the names a delta reports as changed, and it
+    /// is not obvious from the type whether those are top-level names or paths into the value. They
+    /// are top-level, so a nested edit resolves to a writable property — but nothing said so, and
+    /// reading it the other way would refuse a perfectly ordinary update as "derived".
+    /// </remarks>
+    [Fact]
+    public async Task An_update_of_part_of_a_complex_value_is_accepted()
+    {
+        var dbName = "consignment-" + Guid.NewGuid().ToString("N");
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddIyuMainServer<ConsignmentContext>(
+            configureDb: db => db.UseInMemoryDatabase(dbName),
+            configure: options =>
+            {
+                options.ControllerAssemblies.Add(typeof(ConsignmentsController).Assembly);
+                options.ODataModel.AddEntityPair<ConsignmentExt, Consignment>("Consignments");
+            });
+        var app = builder.Build();
+        app.UseIyuMainServer();
+        await app.StartAsync();
+        try
+        {
+            var id = Guid.NewGuid();
+            using (var scope = app.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<ConsignmentContext>();
+                db.Consignments.Add(new Consignment { Id = id, Memo = "m", Ship = new ShipTo { City = "Seoul", Zip = "1" } });
+                await db.SaveChangesAsync();
+            }
+
+            using var response = await app.GetTestServer().CreateClient()
+                .PatchAsJsonAsync($"/$data/Consignments({id})", new { Ship = new { City = "Busan" } });
+
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            using var after = app.Services.CreateScope();
+            var stored = after.ServiceProvider.GetRequiredService<ConsignmentContext>()
+                .Consignments.AsNoTracking().First(c => c.Id == id);
+            Assert.Equal("Busan", stored.Ship.City);
         }
         finally { await app.DisposeAsync(); }
     }
