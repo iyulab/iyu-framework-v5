@@ -18,6 +18,68 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+## [0.26.0] - 2026-09-08
+
+**Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.OData`
+
+### Added
+
+- **`RestrictPolicy(..., deletePolicy:)` — "may edit" and "may delete" as separate permissions.**
+
+  ```csharp
+  options.ODataModel.RestrictPolicy("orders",
+      readPolicy: "orders.read", writePolicy: "orders.write", deletePolicy: "orders.delete");
+  ```
+
+  The parameter is optional and defaults to `null`, which leaves DELETE governed by `writePolicy`
+  exactly as before — an app that does not separate the two never sees it.
+
+  `Restrict` could already withdraw `ODataVerb.Delete` on its own, so per-verb discrimination
+  existed on the *availability* axis while the authorization axis collapsed edit and delete into a
+  single policy. An app that needed them apart had to leave `RestrictPolicy` and attach policies
+  through a controller convention instead — at which point `IAuthorizationSurfaceReport` saw
+  nothing attached and reported the whole surface as unprotected. Two features of this library
+  excluded each other; neither asymmetry had a reason recorded for it.
+
+### Changed
+
+- **`AuthorizationSurfaceOperation` gains `Delete`, and the report emits a delete row per set.**
+  The row carries the policy that actually runs: a set with no `deletePolicy` shows its
+  `writePolicy` there, not `null`. That keeps `Assert.Empty(report.Unprotected)` passing for every
+  app that never asked for the separation, while letting the report answer "what protects deletes on
+  this set" rather than leaving it to be inferred. A set that withdraws `Delete` alone keeps its
+  write row and emits no delete row — the same rule that already omits the write half of a set whose
+  `readOnlyVerbs` refuse every write verb.
+
+  `Write` now means POST/PATCH and GraphQL mutations only. Code that enumerates `Entries` or
+  switches over the enum sees one more row per registered set and one more member.
+
+### Fixed
+
+- **The write-rule ordering guarantee was stated more broadly than it holds.** `0.25.0` documented
+  that rules "run in one pass and do not see entries created by other rules, so ordering never
+  becomes a hidden contract." The first half is true; the conclusion drawn from it is not. The
+  dispatcher fixes the *entry* list up front, but `IsModified` reads the live entry — so a field
+  that one rule **assigns** is visible as modified to a rule dispatched after it. Assembly scanning
+  promises no order, so a pair where one rule writes a field another keys off is order-dependent and
+  can flip on a recompile, with nothing thrown and nothing logged.
+
+  The guarantee is restated at its true scope, the hazard is documented with its reliable fix (keep
+  such a pair in one rule, or pin it with a test that runs both registration orders), and both
+  directions are now pinned by tests here so a change to this behavior is a deliberate one.
+  **No behavior changed** — the dispatcher does what it did; the documentation shipped inside
+  `0.25.0` claimed more than it delivered, and an app may have moved rules on the strength of it.
+
+### Documentation
+
+- **What belongs on the generic write path, and what does not.** `EntityWriteRule<T>` invites
+  "move every `SaveChanges` interceptor here", and most do move. Two should not: modifying *another*
+  entity's fields (an aggregate concern that reads entries a rule cannot see, and would make the
+  one-pass guarantee a lie) and anything after the save (`Apply` runs before the write; post-save
+  work and a second save round belong on `SavedChanges`/`SavedChangesAsync`). Those are a different
+  axis rather than gaps to be filled later — a plain `ISaveChangesInterceptor` stays their right
+  home, and moving every rule was never the goal.
+
 ## [0.25.0] - 2026-09-08
 
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`
