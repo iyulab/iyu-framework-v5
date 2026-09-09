@@ -225,6 +225,28 @@ not attempt to distinguish *which* constraint failed — only that the write con
 current state of the data. No opt-in is needed; a consumer that never hits either path pays nothing
 for it.
 
+⚠ **This handling runs inside `UseIyuMainServer`, so it displaces an exception-catching middleware
+placed before it.** `UseIyuMainServer` calls `app.UseExceptionHandler()` as its first step; a
+`try`/`catch` middleware registered ahead of that call sits *outside* it and no longer sees a
+write-path `DbUpdateException` at all. Nothing breaks loudly when this happens — the status stays
+`409` and only the body changes — so a consumer that classified failures itself finds out from its
+own tests, not from a compiler or a stack trace.
+
+**To keep provider-specific classification, register your own `IExceptionHandler` before
+`AddIyuMainServer`.** The exception-handling middleware calls handlers in registration order and
+stops at the first one that returns `true`, so ordering is the whole mechanism:
+
+```csharp
+// Yours is asked first; whatever it declines falls through to the provider-neutral 409 above.
+builder.Services.AddExceptionHandler<SqlStateExceptionHandler>();
+builder.Services.AddIyuMainServer<AppDbContext>(...);
+```
+
+Answer only what you recognise — return `false` for everything else rather than mapping unknown
+failures yourself, and the layering stays clean: your handler owns the cases your provider lets you
+name, this framework owns the rest. Registering it *after* `AddIyuMainServer` reverses the order and
+the neutral `409` wins instead.
+
 A request body a client sends *before* `SaveChangesAsync` is even reached can also fail — a
 malformed EDM literal (e.g. a `DateTimeOffset` string with no UTC offset) fails OData's own body
 binder, not the database. `Post`/`Patch` still answer `400`, but with a generic, sanitized message

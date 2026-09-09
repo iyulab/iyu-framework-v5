@@ -241,6 +241,20 @@ together before upgrading:
   has no direct dependency on Npgsql/SqlClient to classify against, so the response stays
   provider-agnostic by design.
 
+  ⚠ **Added after the fact, because this entry did not say it and the consequence is silent.**
+  Two facts belong with the paragraph above:
+
+  1. **The wiring displaces an exception-catching middleware placed before `UseIyuMainServer`.**
+     That call installs `app.UseExceptionHandler()` as its first step, so a `try`/`catch` middleware
+     registered ahead of it sits outside the handler and a write-path `DbUpdateException` no longer
+     reaches it. An application that classified those failures itself keeps answering `409` and only
+     the response body changes — nothing fails at build time, and nothing appears in a log.
+  2. **To keep that classification, register your own `IExceptionHandler` before
+     `AddIyuMainServer`.** Handlers are called in registration order and the first to return `true`
+     wins, so yours answers what it recognises and returns `false` for the rest, leaving the
+     provider-neutral `409` as the fallback behind it. Registered *after* `AddIyuMainServer`, the
+     neutral handler answers first instead. See "Write failure responses" in the README.
+
 ### Fixed
 
 - **A model-binding failure on POST/PATCH could leak internal EDM type names in the 400

@@ -5,6 +5,8 @@ using Iyu.Data;
 using Iyu.MainServer;
 using Iyu.Server.OData;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -72,10 +74,35 @@ public sealed class BoomWidgetsController(BoomWidgetContext ctx)
     : IyuODataController<BoomWidgetExt, BoomWidget>(ctx);
 
 /// <summary>
-/// docket G-1 (`ROADMAP.md` §2): <see cref="IyuODataController{TRead,TWrite}"/>'s write actions had
-/// no structured error handling around <c>SaveChangesAsync</c> — any EF write failure surfaced as a
-/// bare, unstructured 500. These tests drive real failures through the actual TestServer pipeline
-/// (not a bare DI container) and assert on the wire response, the same depth
+/// Stands in for a consumer that classifies its provider's write failures itself — the reason
+/// <c>AddExceptionHandler</c> ordering is part of this framework's public contract. Handles
+/// only what it recognises and declines everything else, which is what lets the framework's own
+/// provider-neutral 409 stay behind it as the fallback.
+/// </summary>
+public sealed class ClassifyingExceptionHandler : IExceptionHandler
+{
+    /// <summary>Set false to make this handler decline, exercising the fall-through half of the contract.</summary>
+    public static bool Recognises { get; set; } = true;
+
+    public const string Body = """{"error":{"code":"classified-by-the-consumer"}}""";
+
+    public async ValueTask<bool> TryHandleAsync(
+        HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    {
+        if (!Recognises || exception is not DbUpdateException) return false;
+
+        httpContext.Response.StatusCode = StatusCodes.Status409Conflict;
+        httpContext.Response.ContentType = "application/json";
+        await httpContext.Response.WriteAsync(Body, cancellationToken);
+        return true;
+    }
+}
+
+/// <summary>
+/// <see cref="IyuODataController{TRead,TWrite}"/>'s write actions once had no structured error
+/// handling around <c>SaveChangesAsync</c>, so any EF write failure surfaced as a bare, unstructured
+/// 500. These tests drive real failures through the actual TestServer pipeline (not a bare DI
+/// container) and assert on the wire response, the same depth
 /// <see cref="RestrictPolicyEndToEndTests"/> holds authorization to.
 /// </summary>
 public class WriteExceptionHandlingEndToEndTests
@@ -154,5 +181,73 @@ public class WriteExceptionHandlingEndToEndTests
             Assert.DoesNotContain("simulated-unexpected-failure-must-not-leak-to-the-client", body, StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
+    }
+
+    private static async Task<WebApplication> StartConflictAppWithConsumerHandlerAsync()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+
+        // The ordering under test: a consumer handler registered *before* AddIyuMainServer is asked
+        // first, because the exception-handling middleware calls IExceptionHandler implementations
+        // in registration order and stops at the first one that returns true.
+        builder.Services.AddExceptionHandler<ClassifyingExceptionHandler>();
+
+        builder.Services.AddIyuMainServer<ConflictWidgetContext>(
+            configureDb: db => db.UseInMemoryDatabase("conflict-" + Guid.NewGuid().ToString("N")),
+            configure: options =>
+            {
+                options.ControllerAssemblies.Add(typeof(ConflictWidgetsController).Assembly);
+                options.ODataModel.AddEntityPair<ConflictWidgetExt, ConflictWidget>(ConflictSet);
+            });
+
+        var app = builder.Build();
+        app.UseIyuMainServer();
+        await app.StartAsync();
+        return app;
+    }
+
+    [Fact]
+    public async Task A_handler_registered_before_AddIyuMainServer_classifies_the_write_failure_itself()
+    {
+        ClassifyingExceptionHandler.Recognises = true;
+        var app = await StartConflictAppWithConsumerHandlerAsync();
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .PostAsJsonAsync($"/$data/{ConflictSet}", new { Name = "irrelevant" });
+
+            Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+
+            var body = await resp.Content.ReadAsStringAsync();
+            Assert.Equal(ClassifyingExceptionHandler.Body, body);
+            // The framework's provider-neutral wording must not be what the client sees here.
+            Assert.DoesNotContain("conflicts with the current state of the data", body, StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task A_handler_that_declines_leaves_the_provider_neutral_409_to_answer()
+    {
+        ClassifyingExceptionHandler.Recognises = false;
+        try
+        {
+            var app = await StartConflictAppWithConsumerHandlerAsync();
+            try
+            {
+                using var resp = await app.GetTestServer().CreateClient()
+                    .PostAsJsonAsync($"/$data/{ConflictSet}", new { Name = "irrelevant" });
+
+                Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+                Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
+
+                var body = await resp.Content.ReadAsStringAsync();
+                Assert.Contains("conflicts with the current state of the data", body, StringComparison.Ordinal);
+                Assert.DoesNotContain("classified-by-the-consumer", body, StringComparison.Ordinal);
+            }
+            finally { await app.DisposeAsync(); }
+        }
+        finally { ClassifyingExceptionHandler.Recognises = true; }
     }
 }
