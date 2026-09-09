@@ -43,6 +43,13 @@
     <None Include="..\..\README.md" Link="guidance\README.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!--
+      ReleaseNoteMarkingTests reads the changelog for the same reason: the convention it
+      checks is published there, and a copy in test code would be the thing to drift.
+    -->
+    <None Include="..\..\CHANGELOG.md" Link="guidance\CHANGELOG.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

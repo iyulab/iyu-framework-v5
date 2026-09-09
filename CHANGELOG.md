@@ -18,19 +18,36 @@ across it is a version bump and nothing else.
 **Upgrading across more than one release?** Read every entry between your current version
 and the target, not just the newest. Each release states its own breaking changes only.
 
+**Two kinds of change, marked differently.** A signature or a type's shape stops your build the
+moment you upgrade. What a request answers does not — the code still compiles, and the difference
+surfaces wherever the response is consumed, if anyone is looking. Entries below mark the second
+kind, **🔇 no build-time signal**, because that is the kind an upgrade carries past you.
+
+One test decides the mark: *does the compiler refuse the old code?* Nothing wider. A mark that also
+covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
+onward; earlier entries state the same consequence in prose where it applies.
+
 ## [0.27.0] - 2026-09-09
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
 
-🔴 **Three breaking changes, all of them small and all of them silent if missed.** Take them
-together before upgrading:
+🔴 **Three breaking changes, all of them small. Two stop your build; the third does not.** Take
+them together before upgrading:
 
 1. **`IServiceClientStore.UpdateSecretAsync` receives `DateTimeOffset rotatedAt` before `ct`.**
-   Implementations must persist it.
+   Implementations must persist it. The interface changed, so an implementation that has not
+   caught up does not compile.
 2. **`ServiceClientSummary` gains `SecretRotatedAt`, positionally after `LastUsedAt`.** Whatever
-   builds the summary must fill it.
-3. **A `PATCH` whose properties are *all* unwritable now answers `400` where it answered `204`.**
-   A round trip that carries derived properties alongside a writable one is unaffected.
+   builds the summary must fill it. It is a positional record, so every construction site names
+   the new parameter or does not compile.
+3. **🔇 no build-time signal** — **a `PATCH` whose properties are *all* unwritable now answers
+   `400` where it answered `204`.** A round trip that carries derived properties alongside a
+   writable one is unaffected. Nothing here refuses to compile: a caller that treated `204` as
+   "stored" keeps building, keeps running, and stops storing.
+
+<sub>⚠ **The first sentence was amended after publication.** It read "all of them silent if
+missed", which is true of the third and not of the first two — the mark above exists so that
+claim cannot be made loosely again.</sub>
 
 ### Fixed
 
