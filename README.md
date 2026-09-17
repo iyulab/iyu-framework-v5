@@ -26,7 +26,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 |---|---|
 | `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`), identity contracts, and the attachment contracts (`IAttachmentStorage`, `FileAccessToken`, `FileAccessTokenService`) |
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
-| `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder |
+| `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder, `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix, authorizePolicy)` (HotChocolate-based) |
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients) |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |

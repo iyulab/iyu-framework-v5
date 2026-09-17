@@ -105,9 +105,15 @@ public static class MainServerExtensions
                 .AddRouteComponents(
                     options.ODataRoutePrefix,
                     options.ODataModel.GetEdmModel(),
-                    routeServices => routeServices.AddSingleton<
-                        Microsoft.AspNetCore.OData.Query.Expressions.ISearchBinder,
-                        Iyu.Server.OData.IyuStringSearchBinder>()));
+                    routeServices => routeServices
+                        .AddSingleton<
+                            Microsoft.AspNetCore.OData.Query.Expressions.ISearchBinder,
+                            Iyu.Server.OData.IyuStringSearchBinder>()
+                        // $filter's `in` must resolve [EnumMember] wire values the way `eq` does;
+                        // the stock binder does not for collection constants (see IyuFilterBinder).
+                        .AddSingleton<
+                            Microsoft.AspNetCore.OData.Query.Expressions.IFilterBinder,
+                            Iyu.Server.OData.IyuFilterBinder>()));
 
         // The generated OData controllers (concrete IyuODataController<> subclasses)
         // live alongside the entity registrations, not in the entry assembly. MVC's
