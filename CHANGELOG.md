@@ -27,6 +27,17 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [0.27.1] - 2026-09-17
+
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+`$filter` collection constants (`in (...)`) over an enum carrying `[EnumMember(Value = ...)]` now
+resolve the same wire values `eq` already accepted. Previously a value that worked in
+`Kind eq 'wire_value'` threw and returned 500 in `Kind in ('wire_value', ...)`, because the query
+binder resolved a single constant through the model's EDM-to-CLR member map but parsed each item
+of a collection constant against the CLR member name instead. An undeclared value was, and still
+is, rejected with 400 at URI parsing — that part was already correct.
+
 ## [0.27.0] - 2026-09-09
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
