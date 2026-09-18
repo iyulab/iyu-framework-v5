@@ -27,6 +27,26 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [0.28.0] - 2026-09-18
+
+**Packages affected:** `Iyu.Data`
+
+🔴 **One breaking change, 🔇 no build-time signal.** `AddIyuWriteRules` refuses an assembly it
+cannot fully load, where it used to register whichever types did load and drop the rest. A host
+that passes such an assembly now fails at startup instead of starting with some rules missing;
+the exception names the assembly, lists what the loader could not resolve, and gives the two ways
+to resolve it (pass an assembly whose dependencies the host resolves, or deploy the missing
+dependencies alongside it). Nothing in a consumer's source changes, so the compiler has nothing to
+object to — the difference appears the first time the application starts.
+
+Scanning for rules exists so that a rule cannot be missed by omission: an omitted rule is
+indistinguishable at runtime from one whose condition never fired, so an invariant is simply not
+enforced and nothing says so. Tolerating a partial load reopened that hole from the other side, and
+a write rule is an invariant guard. No narrower rule was available —
+`ReflectionTypeLoadException.LoaderExceptions` names the dependency that could not be resolved, not
+the types that needed it, so "tolerate only the dropped types that were not rules" cannot be decided
+at that point.
+
 ## [0.27.1] - 2026-09-17
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
