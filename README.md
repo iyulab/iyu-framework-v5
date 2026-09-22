@@ -350,6 +350,52 @@ synchronously, during service configuration, whether to wire the authorization h
 a `Restrict` call made afterward throws rather than silently registering a policy nothing will
 ever enforce.
 
+### How far a read policy reaches
+
+A read policy protects the **data**, not the one route you declared it on. Both surfaces enforce it
+that way, and both did not always — the paragraphs below describe what the framework does now,
+because the difference is invisible from a successful response.
+
+**OData — every set an `$expand` reaches is checked.** `RestrictPolicy` is enforced by an
+`AuthorizeFilter` on the restricted set's own controller action, and an expand is served by the
+*addressed* set's action without ever entering the other one. So the check runs separately, against
+each set the expand reaches, at any depth:
+
+```http
+GET /$data/Orders?$expand=Customer
+```
+
+If `Customers` carries a `readPolicy` the caller does not satisfy, the request is refused even
+though `Orders` is open — `401` without an identity, `403` with one, the same split `Customers`
+produces on its own route. The check runs before the action, so a refusal costs no query.
+
+It is deliberately **fail-closed** on an `$expand` it cannot interpret: such a request is answered
+`400` rather than passed along, because an expression this check rejects and the query pipeline
+later accepts would be a way around it.
+
+Expand **depth** is not this framework's setting and this release does not change it: nothing here
+sets `MaxExpansionDepth`, so whatever `EnableQueryAttribute` applies is what you get. Authorization
+does not depend on that limit either way — the check walks an expand to the bottom, so a set is
+checked however deep it is reached. If your deployment needs a specific depth ceiling, set it on
+your own `EnableQueryAttribute` configuration rather than inferring one from this framework.
+
+**GraphQL — the policy is on the object type, not only on the root field.** `authorizePolicy`
+attaches to the query field *and* to the read type it returns. A field on some other type that
+returns the protected type reaches the data without the root field's resolver being involved, so a
+selection through such a field is refused at that field's own path rather than answering `null`. A
+caller that holds the policy is unaffected either way.
+
+For the same reason a read type may be exposed **once**. `AddEntityPair` throws if the type already
+backs another query field: two fields are two doors to the same data, each with its own
+`authorizePolicy`, so the door without one would decide what the door with one protects. Expose it
+once and restrict that field — the exception names the field that already holds the type.
+
+> **When this starts to matter.** Both paths open the moment a read type carries a navigation
+> property to another read type, whether you wrote it or a generator emitted it. Until then no
+> selection can traverse between read types and there is nothing for either check to refuse. Set the
+> policies before that property exists rather than after — an expand path is not visible in a
+> response that succeeded.
+
 ### Checking that nothing was left unprotected
 
 Attaching a policy per entity is one thing; knowing you attached it **everywhere** is another, and
@@ -829,7 +875,7 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.28.0**. Unit and integration tests run against every project on each
+Version **0.29.0**. Unit and integration tests run against every project on each
 build, and warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
 scheduled-report modules are all in place and consumed in production.
 

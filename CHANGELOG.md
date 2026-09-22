@@ -27,6 +27,72 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [0.29.0] - 2026-09-22
+
+**Packages affected:** `Iyu.Data`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`
+
+🔴 **Five breaking changes, every one of them 🔇 no build-time signal.** Nothing here alters a
+signature or a type's shape, so no consumer's source stops compiling. All five change what the
+server does at run time or at startup. Three of them close a way past `RestrictPolicy` and
+`authorizePolicy`; read those first if you rely on either.
+
+### A read policy now follows the data, not one route to it
+
+A read policy used to be enforced by a filter on the addressed set's own action. A request that
+reached a protected set some *other* way never entered that action, so the policy never ran — which
+made the declaration a restriction on one route to the data rather than on the data. Measured: an
+anonymous caller that is refused `401` on a protected set received the same rows inline by expanding
+into that set from an open one.
+
+- **OData: an `$expand` is authorized against every set it reaches**, at any depth, before the
+  action runs — so a refusal costs no query. A caller that does not satisfy a reached set's
+  `ReadPolicy` gets `401` without an identity and `403` with one: the same split that set produces
+  on its own route. An `$expand` expression this check cannot interpret is refused with `400`
+  rather than passed along, because an expression the check rejects and the query pipeline later
+  accepts would be the way around it. Expand *depth* is untouched by this release — nothing here
+  sets `MaxExpansionDepth`, and the check does not depend on a depth limit: it walks an expand to
+  the bottom, so a set is authorized however deep it is reached.
+
+- **GraphQL: a query field's `authorizePolicy` is attached to its object type as well**, not only
+  to the root field. A field on some other type that returns the protected type reaches the data
+  without the root field's resolver being involved. With the policy on the type, such a selection is
+  refused at that field's own path instead of answering `null`, and a caller that holds the policy
+  is unaffected on either path.
+
+- **GraphQL: `AddEntityPair` refuses a read type that is already exposed as a query field.** Two
+  fields over one read type are two doors to the same data and each door carries its own
+  `authorizePolicy`, so the one without a policy decides what the one with a policy protects. The
+  second registration used to overwrite the first silently. A host that registers such a pair now
+  fails at startup, and the exception names the field that *already* holds the type, because
+  restricting that field is the fix and the rejected name alone does not lead anyone to it. The
+  OData registry has always refused a duplicate read type; the two surfaces disagreed and this was
+  the lenient one.
+
+> **Whether any of this was reachable against you.** Both gaps open the moment a read type carries a
+> navigation property to another read type — written by hand or produced by a generator. If your
+> read types have no such property, nothing above could have been used against you, and nothing
+> above changes what your server answers.
+
+### The framework's own defaults no longer displace what the host supplied
+
+- **`IyuDbContext` adds its interceptors as defaults rather than unconditionally.** EF Core keeps
+  every registered interceptor and runs application interceptors in the order they were added, so
+  appending in `OnConfiguring` — which runs *after* the options the consumer built — let this
+  library's system-clock `IyuTimestampInterceptor` write last and beat an instance the consumer had
+  supplied on the same options. That closed the seam `IyuTimestampInterceptor`'s own documentation
+  points at (replace the clock by passing a `TimeProvider`) for everyone deriving from
+  `IyuDbContext`, leaving a context that re-registers after `base.OnConfiguring` as the only way
+  through. Supplying an instance of either interceptor type now leaves that instance the only one;
+  supplying neither behaves as before. The default stays in `OnConfiguring` rather than moving to
+  service registration, because `OnConfiguring` runs however the context was built — `AddDbContext`,
+  a passed `DbContextOptions`, or `new` in a test — and a default that arrives through only one of
+  those paths is not a default.
+
+- **`AddIyuFileGateway` and `AddIyuIdentity` register `TimeProvider` with `TryAddSingleton`.** They
+  used `AddSingleton`, and the last registration of a service wins, so a host that had registered
+  its own clock first had it silently replaced — the clock that access-token expiry, JWT expiry and
+  secret-rotation timestamps are read from. A host that registers no clock is unaffected.
+
 ## [0.28.0] - 2026-09-18
 
 **Packages affected:** `Iyu.Data`
