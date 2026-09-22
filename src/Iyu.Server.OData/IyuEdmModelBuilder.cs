@@ -76,6 +76,32 @@ public sealed class IyuEdmModelBuilder
     }
 
     /// <summary>
+    /// Declares that <paramref name="setName"/>'s key is also its reference to a row of
+    /// <paramref name="principalSetName"/> — the shape where one type carries optional extra facts
+    /// about another rather than a collection of them.
+    /// </summary>
+    /// <param name="setName">A set already registered via <see cref="AddEntityPair{TRead,TWrite}"/>.</param>
+    /// <param name="principalSetName">The set whose rows own those keys, likewise already registered.</param>
+    /// <remarks>
+    /// What it changes is the write path only: the generic POST stops inventing a key for this set
+    /// and stops accepting one that names no principal. Reads are untouched — the pair is already
+    /// expressible in the EDM and addressable through <c>$expand</c> without this. Same
+    /// registration-order independence as <see cref="Restrict"/>: both sets need only be
+    /// registered by the time this call runs. See
+    /// <see cref="IyuEntityPairRegistry.DeclareSharedKey"/> for why the declaration is needed at
+    /// all rather than inferred.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// Either set is unregistered, the two are the same, or the principal already shares its own
+    /// key with a third set.
+    /// </exception>
+    public IyuEdmModelBuilder DeclareSharedKey(string setName, string principalSetName)
+    {
+        Registry.DeclareSharedKey(setName, principalSetName);
+        return this;
+    }
+
+    /// <summary>
     /// Requires an ASP.NET Core authorization policy to touch an already-registered set — the
     /// OData counterpart of <c>IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)</c>
     /// (Iyu.Server.GraphQL): both close the same asymmetry against

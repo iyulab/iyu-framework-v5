@@ -34,7 +34,7 @@ public sealed class IyuEntityPairRegistry
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
 
         var pair = new EntityPair(
-            setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties, null, null, null);
+            setName, typeof(TRead), typeof(TWrite), readOnlyVerbs ?? NoRestrictions, NoProperties, null, null, null, null);
         if (!_bySetName.TryAdd(setName, pair))
             throw new InvalidOperationException($"Entity set '{setName}' is already registered.");
         if (!_byReadType.TryAdd(typeof(TRead), setName))
@@ -138,6 +138,53 @@ public sealed class IyuEntityPairRegistry
             });
     }
 
+    /// <summary>
+    /// Declares that <paramref name="setName"/>'s key is not its own: every row's key is also its
+    /// reference to a row of <paramref name="principalSetName"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without this, the runtime cannot tell such a set apart from an ordinary one, and the
+    /// difference matters on exactly one axis — who chooses the key. For an ordinary set the
+    /// server may invent one, which is why <c>IyuODataController{TRead,TWrite}.Post</c> does; for
+    /// this shape inventing one produces a row that refers to nothing and can never be reached
+    /// through the navigation it was meant to fill. Declaring the relationship is what lets the
+    /// generic write path refuse that instead of writing it.
+    /// </para>
+    /// <para>
+    /// Follows <see cref="Restrict"/>'s shape for the reason documented there: a consumer whose
+    /// registration is code-generated has one call site and no per-call control, so the
+    /// refinement has to be expressible after the fact.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// Either set is not registered, the two are the same set, or the principal is itself a
+    /// shared-key set — a chain of them has no unambiguous owner of the key, so it is refused at
+    /// configuration time rather than producing rows whose meaning depends on insertion order.
+    /// </exception>
+    public void DeclareSharedKey(string setName, string principalSetName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(setName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(principalSetName);
+
+        if (string.Equals(setName, principalSetName, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Entity set '{setName}' cannot share its key with itself.");
+
+        var principal = Find(principalSetName)
+            ?? throw new InvalidOperationException($"Entity set '{principalSetName}' is not registered.");
+
+        if (principal.SharedKeyPrincipalSet is { } grandparent)
+            throw new InvalidOperationException(
+                $"Entity set '{principalSetName}' already shares its key with '{grandparent}', "
+                + $"so '{setName}' cannot share its key with it in turn.");
+
+        _bySetName.AddOrUpdate(
+            setName,
+            _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
+            (_, existing) => existing with { SharedKeyPrincipalSet = principalSetName });
+    }
+
     /// <summary>Looks up a pair by set name; returns <c>null</c> if unknown.</summary>
     public EntityPair? Find(string setName)
         => _bySetName.TryGetValue(setName, out var pair) ? pair : null;
@@ -157,5 +204,6 @@ public sealed class IyuEntityPairRegistry
         IReadOnlySet<string> WriteExcludedProperties,
         string? ReadPolicy,
         string? WritePolicy,
-        string? DeletePolicy);
+        string? DeletePolicy,
+        string? SharedKeyPrincipalSet);
 }

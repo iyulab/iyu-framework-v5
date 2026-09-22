@@ -82,10 +82,15 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         if (!ModelState.IsValid) return BadRequest(SanitizedModelState());
         if (body is null) return BadRequest();
 
+        var pair = registry.FindByReadType(typeof(TRead));
+        if (pair?.SharedKeyPrincipalSet is not null
+            && await SharedKeyRejectionAsync(registry, pair, body.Id, ct) is { } refused)
+            return refused;
+
         var write = new TWrite();
         if (body.Id == Guid.Empty) body.Id = Guid.NewGuid();
         write.Id = body.Id;
-        CopyCommonProperties(body, write, registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties);
+        CopyCommonProperties(body, write, pair?.WriteExcludedProperties);
 
         WriteSet.Add(write);
         await Context.SaveChangesAsync(ct);
@@ -295,6 +300,70 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         WriteSet.Remove(write);
         await Context.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    /// <summary>
+    /// The three ways a POST to a shared-key set can fail before anything is written, or
+    /// <see langword="null"/> when none of them applies.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only reached for a set declared through
+    /// <see cref="IyuEntityPairRegistry.DeclareSharedKey"/>. An ordinary set keeps the behaviour
+    /// it has always had, including a server-invented key — that behaviour is correct wherever
+    /// the key is the row's own.
+    /// </para>
+    /// <para>
+    /// The principal is looked up on its <em>write</em> type. The key is a reference to the
+    /// principal's stored row, and the read side may be a view that filters, projects, or lags
+    /// behind it; answering "does the principal exist" from a view would make the answer depend on
+    /// what that view chooses to show.
+    /// </para>
+    /// <para>
+    /// This is a check, not a constraint. Under a relational provider the foreign key enforces the
+    /// same relationship at <c>SaveChanges</c> time and would refuse the write regardless; what
+    /// this adds is a stated status and reason in place of whatever a constraint violation would
+    /// surface as. Both layers are wanted — a check alone races, and a constraint alone explains
+    /// nothing.
+    /// </para>
+    /// </remarks>
+    private async Task<IActionResult?> SharedKeyRejectionAsync(
+        IyuEntityPairRegistry registry,
+        IyuEntityPairRegistry.EntityPair pair,
+        Guid key,
+        CancellationToken ct)
+    {
+        var principalSet = pair.SharedKeyPrincipalSet!;
+
+        if (key == Guid.Empty)
+        {
+            var state = new ModelStateDictionary();
+            state.AddModelError(
+                nameof(IyuEntity.Id),
+                $"The key is required: entity set '{pair.SetName}' shares its key with "
+                + $"'{principalSet}', so the key identifies which row of '{principalSet}' this "
+                + "belongs to and cannot be assigned by the server.");
+            return BadRequest(state);
+        }
+
+        if (registry.Find(principalSet) is not { } principal)
+            throw new InvalidOperationException(
+                $"Entity set '{pair.SetName}' is declared to share its key with '{principalSet}', "
+                + "which is not registered.");
+
+        var owner = await Context.FindAsync(principal.WriteType, [key], ct);
+        if (owner is not null) Context.Entry(owner).State = EntityState.Detached;
+        if (owner is null)
+            return Conflict(
+                $"No row of entity set '{principalSet}' has key {key}, so there is nothing for "
+                + $"this '{pair.SetName}' row to belong to.");
+
+        var existing = await WriteSet.AsNoTracking().FirstOrDefaultAsync(e => e.Id == key, ct);
+        return existing is null
+            ? null
+            : Conflict(
+                $"Entity set '{pair.SetName}' already has the row with key {key}: a set that "
+                + $"shares its key with '{principalSet}' holds at most one row per principal.");
     }
 
     /// <summary>
