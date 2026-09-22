@@ -473,4 +473,42 @@ public class IyuGraphQLSchemaBuilderTests
         var error = Assert.Throws<InvalidOperationException>(() => graphql.Restrict("widgets", "widgets.read"));
         Assert.Contains("ApplyTo", error.Message, StringComparison.Ordinal);
     }
+    /// <summary>
+    /// One read type, one query field. Two fields over the same type would be two doors to the same
+    /// data with independent <c>authorizePolicy</c> values, so the less restricted one decides what
+    /// the other protects — and the schema would say nothing about it, because the second
+    /// registration used to overwrite the first in the exposed-type map without a word.
+    /// </summary>
+    [Fact]
+    public void Exposing_one_read_type_under_two_query_fields_is_refused()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            graphql.AddEntityPair<Widget, Widget>("openWidgets", "openWidget"));
+
+        // The message has to name both fields: the one already there is what the author has to
+        // restrict instead, and knowing only the rejected name does not lead them to it.
+        Assert.Contains("widgets", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("openWidgets", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Cross-surface parity, pinned so the asymmetry cannot come back: the OData registry has always
+    /// refused a duplicate read type, and this is what it took the GraphQL builder a while to agree
+    /// with. A later change that loosens either one fails here rather than in a consumer's schema.
+    /// </summary>
+    [Fact]
+    public void Both_surfaces_refuse_the_same_read_type_twice()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget");
+        Assert.Throws<InvalidOperationException>(() =>
+            graphql.AddEntityPair<Widget, Widget>("again", "again"));
+
+        var odata = new Iyu.Server.OData.IyuEntityPairRegistry();
+        odata.Register<Widget, Widget>("Widgets");
+        Assert.Throws<InvalidOperationException>(() => odata.Register<Widget, Widget>("Again"));
+    }
 }

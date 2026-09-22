@@ -77,6 +77,18 @@ public sealed class IyuGraphQLSchemaBuilder
         if (authorizePolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(authorizePolicy);
         if (!_queryNames.Add(queryName))
             throw new InvalidOperationException($"GraphQL query field '{queryName}' is already registered.");
+        // Two query fields over one read type would be two doors to the same data, and each door
+        // carries its own authorizePolicy -- so the one without a policy decides what the one with a
+        // policy protects. Nothing in the schema would say so: the second registration used to
+        // overwrite the first silently in _exposedTypes. IyuEntityPairRegistry.Register
+        // (Iyu.Server.OData) has always refused a duplicate read type; the two surfaces disagreed,
+        // and this is the one that was lenient.
+        if (_exposedTypes.TryGetValue(typeof(TRead), out var existingQueryName))
+            throw new InvalidOperationException(
+                $"Read type '{typeof(TRead).FullName}' is already exposed as GraphQL query field "
+                + $"'{existingQueryName}'. Exposing it again as '{queryName}' would give the same "
+                + "data two query fields with independent authorization, so the less restricted one "
+                + "would decide what the other protects. Expose it once and restrict that field.");
         _mutationPrefixes[queryName] = mutationPrefix;
         _exposedTypes[typeof(TRead)] = queryName;
         _authorizePolicies[queryName] = authorizePolicy;
