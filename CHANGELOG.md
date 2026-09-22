@@ -57,6 +57,11 @@ navigation it was meant to fill.
   with itself, either set must already be registered, and a principal that already shares *its* key
   with a third set is rejected — a chain has no unambiguous owner of the key.
 
+The README's *A set whose key is not its own* section documents the write contract and, next to it,
+the question that decides which shape a pair should have — whose key it is. That choice is a schema
+migration to undo, so it is written where it is made rather than left to be inferred from the
+refusals.
+
 **Nothing changes for a set that does not declare this.** Its key is still invented when the body
 omits one, and any key the caller supplies is still accepted. Nothing here is a breaking change, so
 no entry above carries a mark: the method is additive and the refusals reach only sets that opt in.
