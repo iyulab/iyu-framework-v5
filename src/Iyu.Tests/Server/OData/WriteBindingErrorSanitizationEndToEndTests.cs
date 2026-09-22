@@ -43,7 +43,7 @@ public sealed class BindingWidgetsController(BindingWidgetContext ctx)
     : IyuODataController<BindingWidgetExt, BindingWidget>(ctx);
 
 /// <summary>
-/// docket G-2 (`ROADMAP.md` §2), redirected: a malformed EDM literal (e.g. a
+/// A malformed EDM literal (e.g. a
 /// <c>DateTimeOffset</c> string with no offset) makes OData's own body binder fail the whole
 /// <c>[FromBody]</c> parameter, not just that one property — `IyuODataController.Post`/`Patch`
 /// checked <c>body is null</c>/<c>delta is null</c> before ever looking at <c>ModelState</c>, so the

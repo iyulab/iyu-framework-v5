@@ -328,7 +328,7 @@ public class IyuEdmModelBuilderTests
             () => builder.AddEntityPair<CustomerExt, Customer>("BankAccounts"));
     }
 
-    /// <summary>docket #179 — the OData counterpart of <c>IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)</c>.</summary>
+    /// <summary>The OData counterpart of <c>IyuGraphQLSchemaBuilder.Restrict(queryName, authorizePolicy)</c>.</summary>
     [Fact]
     public void RestrictPolicy_stores_the_policies_on_the_registered_pair()
     {

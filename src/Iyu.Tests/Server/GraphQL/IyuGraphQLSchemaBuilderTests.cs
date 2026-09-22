@@ -251,9 +251,9 @@ public class IyuGraphQLSchemaBuilderTests
     }
 
     /// <summary>
-    /// docket #139: a query field registered with <c>authorizePolicy</c> must reject a caller
-    /// who lacks the required claim — this is the exact gap the issue reported (GraphQL had no
-    /// per-entity authorization while OData already did for the same data).
+    /// A query field registered with <c>authorizePolicy</c> must reject a caller who lacks the
+    /// required claim. This closes a reported asymmetry: GraphQL had no per-entity authorization
+    /// while OData already did for the same data.
     /// </summary>
     [Fact]
     public async Task Field_with_authorize_policy_rejects_a_caller_without_the_claim()

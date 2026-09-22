@@ -45,8 +45,8 @@ public sealed class TrackedOrdersController(TrackedOrderContext ctx)
 /// <see cref="ExcludedPropertyEndToEndTests"/> for why that distinction matters here.
 /// </summary>
 /// <remarks>
-/// The defect this guards against is the one HD-55 (yesung, 2026-08-27) found in a consumer:
-/// a domain state field (there, <c>Order.ProductionState</c>) legitimately needs to be
+/// The defect this guards against was measured in an application built on this framework:
+/// a domain state field (there, an order's production state) legitimately needs to be
 /// writable — by a dedicated transition endpoint that also logs the change — but the generic
 /// OData PATCH surface let any client overwrite it directly, bypassing that log entirely.
 /// <see cref="IyuEdmModelBuilder.Exclude{T}"/> cannot express "writable by someone, just not

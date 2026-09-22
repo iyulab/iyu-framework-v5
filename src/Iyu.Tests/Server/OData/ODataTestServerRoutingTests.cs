@@ -197,7 +197,7 @@ public class ODataTestServerRoutingTests
     }
 
     /// <summary>
-    /// The scenario docket item #42's follow-up actually hit: a code-generated registration
+    /// The scenario a reported case actually hit: a code-generated registration
     /// file calls <c>AddEntityPair(setName)</c> with no per-call-site <c>readOnlyVerbs</c>, and
     /// the restriction is applied afterward, from a call site the consumer does own, via
     /// <see cref="IyuEdmModelBuilder.Restrict"/>. Through the real pipeline — not just the

@@ -15,8 +15,8 @@ namespace Iyu.Tests.Server.OData;
 /// <summary>
 /// Controller-level smoke tests for <see cref="IyuODataController{TRead,TWrite}"/>.
 /// These bypass OData URL routing and exercise the action methods directly to
-/// cover the CRUD + Read↔Write copy logic introduced in C8. Full HTTP-level
-/// OData routing is covered by the Yesung E2E test (C13).
+/// cover the CRUD + Read↔Write copy logic. Full HTTP-level OData routing is
+/// covered by <see cref="ODataTestServerRoutingTests"/>.
 /// </summary>
 public class IyuODataControllerTests
 {

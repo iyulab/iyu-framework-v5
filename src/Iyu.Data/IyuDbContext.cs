@@ -8,8 +8,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Iyu.Data;
 
 /// <summary>
-/// Base <see cref="DbContext"/> that all generated consumer DbContexts
-/// (e.g. <c>YesungDbContext</c>) derive from. Automatically registers the
+/// Base <see cref="DbContext"/> that a generated application DbContext derives
+/// from. Automatically registers the
 /// <see cref="IyuTimestampInterceptor"/> so that every save operation maintains
 /// <c>CreatedAt</c>/<c>UpdatedAt</c> invariants, and the
 /// <see cref="IyuDateTimeOffsetNormalizationInterceptor"/> so that every

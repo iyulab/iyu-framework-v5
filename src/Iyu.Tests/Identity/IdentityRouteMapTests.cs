@@ -130,7 +130,7 @@ public class IdentityRouteMapTests
 
             // Simple name, unqualified: the type was renamed to IyuIdentityServiceCollectionExtensions
             // specifically so it no longer collides with ASP.NET Core Identity's own extensions class
-            // when a consumer has both usings in scope (cycle-05 CS0433). This assertion is the
+            // when a consumer has both usings in scope (the collision was a CS0433). This assertion is the
             // regression check for that fix — it fails to compile again if the old collision returns.
             Assert.Contains(authorize,
                 a => a.Policy == IyuIdentityServiceCollectionExtensions.CookiePolicyName);

@@ -63,7 +63,7 @@ internal sealed class HeaderClaimAuthHandler(
 }
 
 /// <summary>
-/// docket #179 end-to-end: through the real TestServer pipeline — not a bare DI container — a
+/// End-to-end: through the real TestServer pipeline — not a bare DI container — a
 /// GET/POST on a set registered with <c>IyuEdmModelBuilder.RestrictPolicy</c> is actually gated by
 /// ASP.NET Core's <see cref="Microsoft.AspNetCore.Authorization.IAuthorizationService"/>, the same
 /// depth <see cref="ODataTestServerRoutingTests"/> already holds <c>Restrict</c>(verbs) to.
