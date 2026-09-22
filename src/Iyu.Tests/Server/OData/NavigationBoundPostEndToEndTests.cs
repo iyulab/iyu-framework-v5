@@ -177,20 +177,30 @@ public class NavigationBoundPostEndToEndTests
     /// No route template on this host binds a POST underneath an entity key — which is the reason
     /// for the 404 above, stated where a reader can check it rather than inferred from a status.
     /// </summary>
+    /// <remarks>
+    /// Key-bound templates do exist, for the methods that address a single entity. Asserting that
+    /// first is what stops the second assertion from passing vacuously: "no POST is bound beneath a
+    /// key" and "this enumeration never sees a key-bound template at all" would otherwise look the
+    /// same from here, and only the first of them says anything.
+    /// </remarks>
     [Fact]
     public async Task No_endpoint_binds_a_post_beneath_an_entity_key()
     {
         await using var app = await StartAsync();
 
-        var posts = app.Services.GetRequiredService<EndpointDataSource>().Endpoints
+        var templates = app.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
-            .Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
-                .Contains(HttpMethods.Post) == true)
-            .Select(e => e.RoutePattern.RawText ?? "")
+            .Select(e => (
+                Methods: e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
+                Pattern: e.RoutePattern.RawText ?? ""))
             .ToList();
 
-        Assert.NotEmpty(posts);
-        Assert.DoesNotContain(posts, p => p.Contains("{key}", StringComparison.Ordinal));
+        var keyBound = templates
+            .Where(t => t.Pattern.Contains("{key}", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(keyBound);
+        Assert.DoesNotContain(keyBound, t => t.Methods.Contains(HttpMethods.Post));
     }
 
     /// <summary>
