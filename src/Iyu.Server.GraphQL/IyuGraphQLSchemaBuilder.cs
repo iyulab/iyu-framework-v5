@@ -45,6 +45,7 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly Dictionary<string, string?> _authorizePolicies = new(StringComparer.Ordinal);
     private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
     private readonly Dictionary<Type, string> _exposedTypes = new();
+    private readonly List<Action<IRequestExecutorBuilder>> _typeAuthorizers = new();
     private bool _usesAuthorization;
     private bool _applied;
 
@@ -92,6 +93,19 @@ public sealed class IyuGraphQLSchemaBuilder
                 .Type<ListType<ObjectType<TRead>>>()
                 .Resolve(ResolveQueryable<TRead>);
             if (_authorizePolicies[queryName] is { } policy) field.Authorize(policy);
+        });
+
+        // And on the object type, not only on the root field. A policy protects the data, and a
+        // field on some other type that returns this one reaches it without the root field's
+        // resolver being involved -- the same structural gap that let an OData $expand walk past a
+        // set's read policy (IyuExpandAuthorizationFilter, Iyu.MainServer). Nothing resolves such a
+        // field today, because the resolver hands over a bare IQueryable with no projection
+        // middleware, so this is a guard placed ahead of the change that would make it reachable
+        // rather than after it.
+        _typeAuthorizers.Add(executorBuilder =>
+        {
+            if (_authorizePolicies[queryName] is { } policy)
+                executorBuilder.AddObjectType<TRead>(d => d.Authorize(policy));
         });
 
         ApplyPropertyDescriptions<TRead>();
@@ -255,6 +269,7 @@ public sealed class IyuGraphQLSchemaBuilder
             descriptor.Name("Query");
             foreach (var build in fieldBuilders) build(descriptor);
         });
+        foreach (var authorize in _typeAuthorizers.ToArray()) authorize(executorBuilder);
         foreach (var (type, customize) in _typeCustomizations.ToArray())
         {
             EnsureExposed(type);
