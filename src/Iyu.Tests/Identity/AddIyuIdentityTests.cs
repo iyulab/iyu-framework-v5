@@ -59,4 +59,31 @@ public class AddIyuIdentityTests
                 new IdentityTokenOptions { SigningKey = "short", Issuer = "iyu", Audience = "iyu-api" },
                 permissionCatalog: ["orders.read", "orders.write"]));
     }
+
+    private sealed class FakeClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(2026, 9, 22, 9, 0, 0, TimeSpan.Zero);
+    }
+
+    /// <summary>
+    /// 호스트가 자기 시계를 먼저 등록해 뒀으면 그것이 남는다. 이 모듈은 토큰 만료·시크릿 회전
+    /// 시각을 <see cref="TimeProvider"/>에서 읽으므로 «어떤» 시계가 이기는지가 실제 동작을 가른다 —
+    /// 마지막 등록이 이기는 DI 규칙 때문에 평범한 <c>AddSingleton</c>이면 호스트 것이 조용히 밀린다.
+    /// </summary>
+    [Fact]
+    public void A_host_registered_TimeProvider_survives_AddIyuIdentity()
+    {
+        var clock = new FakeClock();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(clock);
+        services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
+        services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
+        services.AddIyuIdentity(
+            new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", Issuer = "iyu", Audience = "iyu-api" },
+            permissionCatalog: ["orders.read"]);
+
+        using var sp = services.BuildServiceProvider();
+        Assert.Same(clock, sp.GetRequiredService<TimeProvider>());
+    }
 }

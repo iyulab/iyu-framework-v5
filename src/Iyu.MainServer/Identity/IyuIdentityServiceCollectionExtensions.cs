@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Iyu.MainServer.Identity;
@@ -34,7 +35,10 @@ public static class IyuIdentityServiceCollectionExtensions
 
         tokenOptions.PermissionClaimType = permissionClaimType;
         services.AddSingleton(tokenOptions);
-        services.AddSingleton(TimeProvider.System);
+        // TryAdd, not Add — see the same call in Iyu.FileServer's gateway registration: a host that
+        // registered its own TimeProvider first would otherwise have it silently replaced here,
+        // which is what token expiry and secret-rotation timestamps are read from.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IdentityTokenService>();
         services.AddScoped<ServiceClientService>();
 

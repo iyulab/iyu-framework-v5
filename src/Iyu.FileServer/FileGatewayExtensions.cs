@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace Iyu.FileServer;
@@ -54,7 +55,10 @@ public static partial class FileGatewayExtensions
             throw new ArgumentException("FileGatewayOptions.SigningKey must be at least 32 bytes (256 bits) for HMAC-SHA256.", nameof(configureGateway));
 
         services.AddSingleton(gw);
-        services.AddSingleton(TimeProvider.System);
+        // TryAdd, not Add: the last registration of a service wins, so plain Add would let this
+        // system clock beat a TimeProvider the host had already registered — the same way an
+        // unconditional interceptor append used to beat a consumer's clock in IyuDbContext.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<FileAccessTokenService>();
     }
 

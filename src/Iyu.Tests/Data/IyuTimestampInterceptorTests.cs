@@ -12,17 +12,13 @@ public class IyuTimestampInterceptorTests
         public string Name { get; set; } = "";
     }
 
-    private sealed class TestContext(DbContextOptions<TestContext> options, TimeProvider clock)
-        : IyuDbContext(options)
+    // No OnConfiguring override, on purpose. The clock arrives on the options the same way a
+    // consumer would supply it, and base.OnConfiguring has to leave it alone — which is the whole
+    // point of the supplied-wins check in IyuDbContext. This class used to skip the base call to
+    // get a test clock at all, and that workaround was itself the evidence the seam was closed.
+    private sealed class TestContext(DbContextOptions<TestContext> options) : IyuDbContext(options)
     {
         public DbSet<Widget> Widgets => Set<Widget>();
-        public TimeProvider Clock { get; } = clock;
-
-        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        {
-            // Skip base OnConfiguring to inject the fake clock; we add our own interceptor.
-            optionsBuilder.AddInterceptors(new IyuTimestampInterceptor(Clock));
-        }
     }
 
     private sealed class FakeClock(DateTimeOffset now) : TimeProvider
@@ -35,8 +31,9 @@ public class IyuTimestampInterceptorTests
     {
         var options = new DbContextOptionsBuilder<TestContext>()
             .UseInMemoryDatabase(name)
+            .AddInterceptors(new IyuTimestampInterceptor(clock))
             .Options;
-        return new TestContext(options, clock);
+        return new TestContext(options);
     }
 
     [Fact]

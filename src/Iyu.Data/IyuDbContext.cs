@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using Iyu.Data.ValueConverters;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Iyu.Data;
@@ -18,16 +19,38 @@ namespace Iyu.Data;
 /// Consumers pass <see cref="DbContextOptions"/> through the standard EF Core
 /// DI pipeline. Additional interceptors supplied via <see cref="DbContextOptionsBuilder"/>
 /// are preserved — this class only ensures its own interceptors are present.
+/// <para>
+/// Supplying an instance of either interceptor type on those same options <em>replaces</em> the
+/// default: pass <c>new IyuTimestampInterceptor(clock)</c> to put a test clock or an injected
+/// <see cref="TimeProvider"/> behind the audit timestamps, and this class will not add a
+/// system-clock instance on top of it.
+/// </para>
 /// </remarks>
 public abstract class IyuDbContext(DbContextOptions options) : DbContext(options)
 {
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
-        // Idempotent registration — harmless if consumer already added one.
-        optionsBuilder.AddInterceptors(
-            new IyuTimestampInterceptor(),
-            new IyuDateTimeOffsetNormalizationInterceptor());
+
+        // These two are defaults, not overrides. EF keeps every registered interceptor and runs
+        // application interceptors in the order they were added, so appending unconditionally did
+        // not "do no harm when one is already there" — it let this system-clock instance write
+        // last and silently beat an instance the consumer had supplied on the same options. That
+        // closed the seam IyuTimestampInterceptor's own documentation points at (replace the clock
+        // by passing a TimeProvider) for everyone using a IyuDbContext, and left a derived context
+        // that re-registers after base.OnConfiguring as the only way through.
+        //
+        // The default stays here rather than moving to composition, because OnConfiguring runs
+        // however the context was built — AddDbContext, a passed DbContextOptions, or `new` in a
+        // test — and a default that only arrives through one of those paths is no default at all.
+        var supplied = (optionsBuilder.Options.FindExtension<CoreOptionsExtension>()?.Interceptors
+                        ?? []).ToList();
+
+        if (!supplied.OfType<IyuTimestampInterceptor>().Any())
+            optionsBuilder.AddInterceptors(new IyuTimestampInterceptor());
+
+        if (!supplied.OfType<IyuDateTimeOffsetNormalizationInterceptor>().Any())
+            optionsBuilder.AddInterceptors(new IyuDateTimeOffsetNormalizationInterceptor());
     }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
