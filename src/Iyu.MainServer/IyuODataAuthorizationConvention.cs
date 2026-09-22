@@ -38,6 +38,14 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
             };
             if (policy is not null)
                 action.Filters.Add(new AuthorizeFilter(policy));
+
+            // Every GET, including one on a set with no policy of its own. A policy applies to the
+            // data, and $expand reaches another set's data through this action without entering
+            // that set's own action — so the set that needs protecting is never the one that can
+            // perform the check. Attaching only to restricted sets would leave exactly the path
+            // the measurement found open.
+            if (action.ActionMethod.Name == "Get")
+                action.Filters.Add(new IyuExpandAuthorizationFilter(pair.SetName));
         }
     }
 
