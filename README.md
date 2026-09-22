@@ -373,11 +373,14 @@ It is deliberately **fail-closed** on an `$expand` it cannot interpret: such a r
 `400` rather than passed along, because an expression this check rejects and the query pipeline
 later accepts would be a way around it.
 
-Expand **depth** is not this framework's setting and this release does not change it: nothing here
-sets `MaxExpansionDepth`, so whatever `EnableQueryAttribute` applies is what you get. Authorization
-does not depend on that limit either way — the check walks an expand to the bottom, so a set is
-checked however deep it is reached. If your deployment needs a specific depth ceiling, set it on
-your own `EnableQueryAttribute` configuration rather than inferring one from this framework.
+Expand **depth** is not this framework's setting: nothing here sets `MaxExpansionDepth`, so the
+ceiling is the one `EnableQueryAttribute` applies. Measured against it, that ceiling is **2** — a
+third hop is refused with `400` and a message naming the limit. Raise it on your own
+`EnableQueryAttribute` or `ODataValidationSettings` if your app needs more.
+
+Authorization does not rest on that number either way: the check walks an expand to the bottom, so
+a set is authorized however deep it is reached, and raising the ceiling does not widen what a
+caller can see without the policy.
 
 **GraphQL — the policy is on the object type, not only on the root field.** `authorizePolicy`
 attaches to the query field *and* to the read type it returns. A field on some other type that

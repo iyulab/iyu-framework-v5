@@ -50,8 +50,9 @@ into that set from an open one.
   on its own route. An `$expand` expression this check cannot interpret is refused with `400`
   rather than passed along, because an expression the check rejects and the query pipeline later
   accepts would be the way around it. Expand *depth* is untouched by this release — nothing here
-  sets `MaxExpansionDepth`, and the check does not depend on a depth limit: it walks an expand to
-  the bottom, so a set is authorized however deep it is reached.
+  sets `MaxExpansionDepth`, so `EnableQueryAttribute`'s ceiling still applies (measured: **2**), and
+  the check does not rest on it: it walks an expand to the bottom, so a set is authorized however
+  deep it is reached.
 
 - **GraphQL: a query field's `authorizePolicy` is attached to its object type as well**, not only
   to the root field. A field on some other type that returns the protected type reaches the data
