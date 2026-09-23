@@ -605,6 +605,29 @@ Two boundaries are deliberate:
 - **A property the model never declares never reaches this.** Deserialization refuses it
   first, with OData's own error. Only a property `TRead` declares gets this far.
 
+### How many rows a response carries
+
+A read of an entity set returns at most **1000 rows per response**, and a `$top` above **1000** is
+refused with `400`. A result larger than a page is cut there, and the response carries
+`@odata.nextLink` — the URL of the next page — so a client that wants the whole set follows links
+until none is returned. `$count=true` still reports the full total. Nothing is lost, only split;
+what the limit prevents is one request occupying the database, the server's memory and the
+response with an entire table that grows without bound.
+
+Both numbers are defaults on the model builder, and a set can replace them with its own:
+
+```csharp
+options.ODataModel.DefaultMaxTop   = 5000;   // null: no $top ceiling
+options.ODataModel.DefaultPageSize = 500;    // null: one response holds every row
+
+options.ODataModel.Page("Readings", maxTop: 200, pageSize: 200);   // a history table, narrower
+options.ODataModel.Page("Units",    maxTop: null, pageSize: null); // a small list, always whole
+```
+
+The limits are carried on each set's read type as OData model-bound query settings, which is what
+the query layer reads — so a set's page size also applies where its type is returned as a
+collection inside another set's `$expand`.
+
 ### Restricting write verbs
 
 A set backed entirely by a read-only view, or an audit-trail entity only the system itself

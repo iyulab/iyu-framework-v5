@@ -76,6 +76,52 @@ public sealed class IyuEdmModelBuilder
     }
 
     /// <summary>
+    /// The largest <c>$top</c> a request may ask of a set that sets no limit of its own through
+    /// <see cref="Page"/>. A larger value is refused with <c>400</c>. <see langword="null"/> means
+    /// no limit. Defaults to 1000.
+    /// </summary>
+    public int? DefaultMaxTop { get; set; } = 1000;
+
+    /// <summary>
+    /// The most rows one response carries for a set that sets no page size of its own through
+    /// <see cref="Page"/>. A result larger than this is cut there and the response carries an
+    /// <c>@odata.nextLink</c> to the rest — so a client that reads the whole set follows the
+    /// link rather than receiving it in one response. <see langword="null"/> means one response
+    /// holds every row. Defaults to 1000.
+    /// </summary>
+    public int? DefaultPageSize { get; set; } = 1000;
+
+    private readonly Dictionary<string, (int? MaxTop, int? PageSize)> _pages = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Gives <paramref name="setName"/> its own <c>$top</c> limit and page size in place of
+    /// <see cref="DefaultMaxTop"/> and <see cref="DefaultPageSize"/> — e.g. a narrower page for a
+    /// history table that grows without bound, or <see langword="null"/> for a small reference
+    /// table a client always loads whole.
+    /// </summary>
+    /// <param name="setName">A set already registered via <see cref="AddEntityPair{TRead,TWrite}"/>.</param>
+    /// <param name="maxTop">The largest <c>$top</c> accepted, or <see langword="null"/> for no limit.</param>
+    /// <param name="pageSize">The most rows per response, or <see langword="null"/> for no paging.</param>
+    /// <remarks>
+    /// The limit is carried on the set's read type as OData model-bound query settings — the
+    /// mechanism the query layer already reads — so it applies wherever that type is returned as
+    /// a collection, including inside a <c>$expand</c> from another set. Same registration-order
+    /// independence as <see cref="Restrict"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A value is zero or negative.</exception>
+    public IyuEdmModelBuilder Page(string setName, int? maxTop, int? pageSize)
+    {
+        if (Registry.Find(setName) is null)
+            throw new InvalidOperationException(
+                $"Cannot set paging for entity set '{setName}': it is not registered.");
+        if (maxTop <= 0) throw new ArgumentOutOfRangeException(nameof(maxTop), maxTop, "Must be positive, or null for no limit.");
+        if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize), pageSize, "Must be positive, or null for no paging.");
+        _pages[setName] = (maxTop, pageSize);
+        return this;
+    }
+
+    /// <summary>
     /// Declares that <paramref name="setName"/>'s key is also its reference to a row of
     /// <paramref name="principalSetName"/> — the shape where one type carries optional extra facts
     /// about another rather than a collection of them.
@@ -275,6 +321,7 @@ public sealed class IyuEdmModelBuilder
             Registry.RestrictProperties(pair.SetName, names);
         }
 
+        ApplyPaging();
         ApplyEnumMemberNames();
         var edmModel = _modelBuilder.GetEdmModel();
 
@@ -483,6 +530,26 @@ public sealed class IyuEdmModelBuilder
     /// names the type to pass instead, because passing the wrong one is the whole
     /// failure mode.
     /// </remarks>
+    /// <summary>
+    /// Writes each registered read type's <c>$top</c> limit and page size as model-bound query
+    /// settings: its set's <see cref="Page"/> values if it has them, the defaults otherwise.
+    /// </summary>
+    private void ApplyPaging()
+    {
+        if (DefaultMaxTop <= 0) throw new InvalidOperationException($"{nameof(DefaultMaxTop)} must be positive, or null for no limit.");
+        if (DefaultPageSize <= 0) throw new InvalidOperationException($"{nameof(DefaultPageSize)} must be positive, or null for no paging.");
+
+        foreach (var pair in Registry.All)
+        {
+            var (maxTop, pageSize) = _pages.TryGetValue(pair.SetName, out var own)
+                ? own
+                : (DefaultMaxTop, DefaultPageSize);
+            var query = _modelBuilder.AddEntityType(pair.ReadType).QueryConfiguration;
+            query.SetMaxTop(maxTop);
+            query.SetPageSize(pageSize);
+        }
+    }
+
     private void EnsureExposed(Type type)
     {
         var pairs = Registry.All;

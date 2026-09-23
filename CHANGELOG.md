@@ -31,7 +31,29 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
 
-🔴 **One breaking change, 🔇 no build-time signal** — the first section below. The rest is additive.
+🔴 **Two breaking changes, both 🔇 no build-time signal** — the first two sections below. The rest is
+additive.
+
+### A read returns at most one page, and `$top` has a ceiling
+
+A read of an entity set with no `$top` used to return every row in one response, and no `$top` was
+too large — the query layer was configured with no ceiling, and there was no setting to add one.
+For a table that grows without bound, one request occupied the database, the server's memory and
+the response.
+
+- 🔇 **A read now returns at most 1000 rows per response.** A larger result is cut there and the
+  response carries `@odata.nextLink` to the next page; `$count=true` still reports the full total.
+- 🔇 **A `$top` above 1000 is refused with `400`**, naming the limit.
+- **`IyuEdmModelBuilder.DefaultMaxTop` / `DefaultPageSize`** (both `int?`, default `1000`; `null`
+  removes the limit) set the defaults, and **`Page(setName, maxTop, pageSize)`** gives one set its
+  own. The values are written as OData model-bound query settings on the set's read type, so a
+  set's page size also applies where that type is returned as a collection inside an `$expand`.
+
+Who notices: a client that reads a set of more than 1000 rows without following
+`@odata.nextLink` now receives the first 1000 and nothing tells it more exist unless it looks for
+the link; a client that asks for `$top` above 1000 is refused. Follow the link, or lift the limit
+for the sets that need it with `Page` — `DefaultMaxTop = null` and `DefaultPageSize = null` restore
+the previous behaviour everywhere.
 
 ### A query error no longer carries a stack trace outside Development
 

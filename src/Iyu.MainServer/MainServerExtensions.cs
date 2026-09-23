@@ -99,6 +99,8 @@ public static class MainServerExtensions
             })
             .AddOData(odata => odata
                 .Select().Filter().OrderBy().Expand().Count().SetMaxTop(null)
+                // No global $top ceiling: each registered set carries its own limit and page size as
+                // model-bound query settings (IyuEdmModelBuilder.DefaultMaxTop / DefaultPageSize / Page).
                 // $search is registered per route component (the OData query pipeline resolves
                 // ISearchBinder from the per-route sub-container, not the global DI container).
                 // Without a binder, $search is silently ignored and returns the full set.
