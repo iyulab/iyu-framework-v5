@@ -27,6 +27,45 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`
+
+### An entity set can declare that its key is not its own
+
+Some types carry optional extra facts about another type rather than a collection of them, and the
+natural key for such a row is the other row's key. Until now the runtime could not tell such a set
+apart from an ordinary one, and the difference matters on exactly one axis: who chooses the key.
+For an ordinary set the server may invent one, which is why the generic `POST` does. For this
+shape an invented key produces a row that refers to nothing and can never be reached through the
+navigation it was meant to fill.
+
+- **`IyuEdmModelBuilder.DeclareSharedKey(setName, principalSetName)`** (and
+  `IyuEntityPairRegistry.DeclareSharedKey`) says that every row of `setName` is keyed by a row of
+  `principalSetName`. It follows `Restrict`'s shape — both sets need only be registered by the time
+  the call runs — so a consumer whose registration is code-generated can state it from a file it
+  owns.
+
+- **The generic `POST` then refuses three bodies it would otherwise write**, each with the status
+  that describes it: no key at all is `400` (the server must not choose it), a key naming no
+  principal row is `409`, and a key whose row already exists is `409` (such a set holds at most one
+  row per principal). This is a check, not a constraint — a relational provider's foreign key
+  enforces the same relationship at save time regardless; what the check adds is a stated status
+  and reason in place of whatever a constraint violation would otherwise surface as.
+
+- **A declaration that cannot be true is refused where it is written**: a set cannot share its key
+  with itself, either set must already be registered, and a principal that already shares *its* key
+  with a third set is rejected — a chain has no unambiguous owner of the key.
+
+The README's *A set whose key is not its own* section documents the write contract and, next to it,
+the question that decides which shape a pair should have — whose key it is. That choice is a schema
+migration to undo, so it is written where it is made rather than left to be inferred from the
+refusals.
+
+**Nothing changes for a set that does not declare this.** Its key is still invented when the body
+omits one, and any key the caller supplies is still accepted. Nothing here is a breaking change, so
+no entry above carries a mark: the method is additive and the refusals reach only sets that opt in.
+
 ## [0.29.0] - 2026-09-23
 
 **Packages affected:** `Iyu.Data`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`

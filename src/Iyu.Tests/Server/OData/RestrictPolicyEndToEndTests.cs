@@ -219,7 +219,7 @@ public class RestrictPolicyEndToEndTests
     /// <c>AuthorizeFilter</c> throws an <see cref="InvalidOperationException"/> for it, identical to
     /// what a hand-written <c>[Authorize(Policy = "typo")]</c> would throw anywhere else in the same
     /// app. Since <c>AddIyuMainServer</c> now wires a global <c>IExceptionHandler</c>/
-    /// <c>AddProblemDetails()</c> pair (G-1, <c>ROADMAP.md</c> §2) so that no unhandled exception —
+    /// <c>AddProblemDetails()</c> pair so that no unhandled exception —
     /// not just a write-path <see cref="Microsoft.EntityFrameworkCore.DbUpdateException"/> — reaches
     /// a client raw, that same exception no longer escapes the TestServer call: it is caught and
     /// turned into a structured 500 <c>ProblemDetails</c> like every other unhandled exception this

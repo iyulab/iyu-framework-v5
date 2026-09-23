@@ -614,6 +614,60 @@ options.ODataModel.Restrict("DemoDataProvenances", ODataVerb.Post, ODataVerb.Pat
 `AddEntityPair` time, since both read the registry's live state rather than a value captured
 at registration.
 
+### A set whose key is not its own
+
+Some types hold optional extra facts about *one* row of another type rather than a collection of
+them: a maintenance profile for an asset, a verification record for a document. The natural key
+for such a row is the other row's key, and declaring that changes exactly one thing — who chooses
+it.
+
+```csharp
+options.ODataModel.AddEntityPair<AssetExt, Asset>("Assets");
+options.ODataModel.AddEntityPair<MaintenanceProfileExt, MaintenanceProfile>("MaintenanceProfiles");
+
+options.ODataModel.DeclareSharedKey("MaintenanceProfiles", "Assets");
+```
+
+Reads are untouched — the pair is already expressible and `$expand` already reaches it. What the
+declaration changes is the generic `POST`:
+
+| Request | Without the declaration | With it |
+|---|---|---|
+| No key in the body | `201`, key invented by the server | **`400`** — the key is not the server's to choose |
+| A key naming no `Assets` row | `201`, a row belonging to nothing | **`409`** |
+| A key whose row already exists | whatever a key collision surfaces as | **`409`** — at most one row per principal |
+| Everything else | unchanged | unchanged |
+
+Three declarations are refused where they are written, because no request could make them true: a
+set cannot share its key with itself, both sets must already be registered, and a principal that
+already shares *its* key with a third set is rejected — a chain has no unambiguous owner of the key.
+
+**This is a check, not a constraint.** Under a relational provider the foreign key enforces the
+same relationship at save time regardless; what the check adds is a stated status and reason in
+place of whatever a constraint violation would otherwise surface as. Both layers are wanted — a
+check alone races, and a constraint alone explains nothing.
+
+#### Choosing between this and an ordinary one-to-one
+
+Both shapes give one row at most per target, so the question is not "how many" but **whose key it
+is**:
+
+| Ask | Shared key | Ordinary one-to-one |
+|---|---|---|
+| Can the row exist before the other one does? | No — it *is* that row's extra facts | Yes, if the foreign key is nullable |
+| What happens when the other row is deleted? | It goes too | Whatever the foreign key says |
+| Does the row have an identity callers quote? | No — quoting the principal's key names it | Yes, its own |
+| Can it later point at a different target? | No — that would not be an edit, it would be a different row | Yes, by updating the key |
+
+Getting this wrong is not a code change to undo: the key *is* the row's identity, so moving between
+the two shapes afterwards is a schema migration. When both readings fit, the ordinary one-to-one is
+the weaker claim and the safer default — a shared key can always be adopted later, while giving one
+up means rekeying rows that already exist.
+
+> A generator may produce such a pair from a model declaration rather than hand-written
+> registration. That does not change anything above: what reaches this framework is the pair and
+> the declaration, and the write contract is the same either way.
+
 ### Field descriptions
 
 A read type property carrying `[Display(Description = "...")]` — the standard
