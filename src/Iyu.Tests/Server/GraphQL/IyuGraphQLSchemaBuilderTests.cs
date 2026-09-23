@@ -96,7 +96,7 @@ public class IyuGraphQLSchemaBuilderTests
         var executor = await sp
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("alpha", json);
@@ -135,12 +135,12 @@ public class IyuGraphQLSchemaBuilderTests
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
         // The remaining field still works...
-        var kept = (await executor.ExecuteAsync("{ secretives { name } }")).ToJson();
+        var kept = (await executor.ExecuteAsync("{ secretives { nodes { name } } }")).ToJson();
         Assert.Contains("alpha", kept);
         Assert.DoesNotContain("MUST-NOT-LEAK", kept);
 
         // ...and asking for the excluded one is a schema error, not an empty value.
-        var probed = (await executor.ExecuteAsync("{ secretives { secretHash } }")).ToJson();
+        var probed = (await executor.ExecuteAsync("{ secretives { nodes { secretHash } } }")).ToJson();
         Assert.Contains("\"errors\"", probed);
         Assert.DoesNotContain("MUST-NOT-LEAK", probed);
     }
@@ -188,7 +188,7 @@ public class IyuGraphQLSchemaBuilderTests
         var executor = await sp
             .GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
-        var probed = (await executor.ExecuteAsync("{ secretives { secretHash } }")).ToJson();
+        var probed = (await executor.ExecuteAsync("{ secretives { nodes { secretHash } } }")).ToJson();
         Assert.Contains("\"errors\"", probed);
     }
 
@@ -274,7 +274,7 @@ public class IyuGraphQLSchemaBuilderTests
         SetCurrentUser(sp);
 
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("\"errors\"", json);
@@ -300,7 +300,7 @@ public class IyuGraphQLSchemaBuilderTests
         SetCurrentUser(sp, ("perm", "widgets.read"));
 
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("alpha", json);
@@ -336,7 +336,7 @@ public class IyuGraphQLSchemaBuilderTests
         SetCurrentUser(sp, ("perm", "widgets.read"));
 
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("\"errors\"", json);
@@ -365,7 +365,7 @@ public class IyuGraphQLSchemaBuilderTests
         }
 
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("alpha", json);
@@ -398,7 +398,7 @@ public class IyuGraphQLSchemaBuilderTests
         SetCurrentUser(sp); // no claim
 
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("\"errors\"", json);
@@ -425,7 +425,7 @@ public class IyuGraphQLSchemaBuilderTests
         SetCurrentUser(sp, ("perm", "widgets.read"));
 
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
-        var result = await executor.ExecuteAsync("{ widgets { name } }");
+        var result = await executor.ExecuteAsync("{ widgets { nodes { name } } }");
         var json = result.ToJson();
 
         Assert.Contains("alpha", json);

@@ -78,7 +78,7 @@ app.Run();
 Resulting endpoints:
 - `GET /$data/$metadata` — OData EDM document
 - `GET /$data/Orders?$filter=Status eq 'confirmed'` — OData query
-- `POST /graphql` with `{ orders { ... } }` — GraphQL query
+- `POST /graphql` with `{ orders(first: 50) { nodes { ... } pageInfo { hasNextPage endCursor } } }` — GraphQL query (a cursor connection, at most `options.GraphQL.MaxPageSize` rows per request)
 
 ## Identity
 

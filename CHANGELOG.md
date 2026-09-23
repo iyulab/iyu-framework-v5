@@ -27,6 +27,32 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.GraphQL`
+
+🔴 **One breaking change** — the schema shape of every query field. A client that queries a field
+as a list stops validating against the new schema, so it fails loudly rather than silently.
+
+### A GraphQL query field returns one page, not the whole table
+
+A query field returned every row of its set in one response, and a client had no argument to ask
+for fewer — the GraphQL counterpart of the OData read that `0.30.0` bounded. Each field is now a
+cursor connection:
+
+- **Breaking:** `{ orders { id name } }` becomes `{ orders { nodes { id name } } }` (or `edges { node
+  { … } cursor }`), with `pageInfo { hasNextPage endCursor }` and the `first`/`after`/`last`/`before`
+  arguments. The connection type is named after the field (`OrdersConnection`).
+- A request that names no page size gets `IyuGraphQLSchemaBuilder.DefaultPageSize` rows (100); one
+  asking for more than `MaxPageSize` (1000, the same bound as OData's `$top`) is refused. Both are
+  settable on `options.GraphQL`; a default larger than the maximum is rejected when the schema is
+  built.
+- Pages are slices of the key order, so walking them with `after` returns every row exactly once.
+  A keyless read type is paged in the order the database returns it.
+- HotChocolate's cost analysis still applies on top: a large page of a wide selection can exceed the
+  executor's maximum type cost (1000 by default) and be refused — raise it with
+  `ModifyCostOptions` if you raise `MaxPageSize` for such queries.
+
 ## [0.30.0] - 2026-09-23
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`

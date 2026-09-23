@@ -138,11 +138,11 @@ public class GraphQLProjectionAuthorizationTests
         SetCurrentUser(sp, ("perm", SecretPolicy));
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
-        var json = (await executor.ExecuteAsync("{ projOrders { name secret { code } } }")).ToJson();
+        var json = (await executor.ExecuteAsync("{ projOrders { nodes { name secret { code } } } }")).ToJson();
 
         // The contrast that validates the harness itself: this caller really is authorized, so an
         // absent value below is about the navigation, not about the caller.
-        var rootJson = (await executor.ExecuteAsync("{ projSecrets { code } }")).ToJson();
+        var rootJson = (await executor.ExecuteAsync("{ projSecrets { nodes { code } } }")).ToJson();
         Assert.Contains(SecretCode, rootJson, StringComparison.Ordinal);
         // Whether the value is there is the measurement. Asserted as null, because that is what the
         // resolver's bare IQueryable produces with no projection or include configured: nothing
@@ -168,7 +168,7 @@ public class GraphQLProjectionAuthorizationTests
         SetCurrentUser(sp);   // anonymous
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
-        var json = (await executor.ExecuteAsync("{ projOrders { name secret { code } } }")).ToJson();
+        var json = (await executor.ExecuteAsync("{ projOrders { nodes { name secret { code } } } }")).ToJson();
         // No escape sequences written through a generating script here, on purpose: that is how a
         // raw control character ends up inside a string literal. Dropping every whitespace
         // character is also what this comparison actually wants.
@@ -177,7 +177,7 @@ public class GraphQLProjectionAuthorizationTests
         Assert.DoesNotContain(SecretCode, json, StringComparison.Ordinal);
         // The refusal is raised for the `secret` field, not for the query as a whole.
         Assert.Contains("\"AUTH_NOT_AUTHORIZED\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"projOrders\",0,\"secret\"", dense, StringComparison.Ordinal);
+        Assert.Contains("\"projOrders\",\"nodes\",0,\"secret\"", dense, StringComparison.Ordinal);
         // And the open field the caller is entitled to still answers — the guard narrows to the
         // protected type instead of failing the whole selection.
         Assert.Contains("\"name\":\"anorder\"", dense, StringComparison.Ordinal);
@@ -191,7 +191,7 @@ public class GraphQLProjectionAuthorizationTests
         SetCurrentUser(sp);   // anonymous
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
-        var json = (await executor.ExecuteAsync("{ projSecrets { code } }")).ToJson();
+        var json = (await executor.ExecuteAsync("{ projSecrets { nodes { code } } }")).ToJson();
 
         Assert.Contains("\"errors\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain(SecretCode, json, StringComparison.Ordinal);

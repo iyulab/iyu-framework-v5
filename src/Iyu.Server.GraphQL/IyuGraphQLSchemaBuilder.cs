@@ -4,6 +4,7 @@ using System.Reflection;
 using HotChocolate.Execution.Configuration;
 using HotChocolate.Resolvers;
 using HotChocolate.Types;
+using HotChocolate.Types.Pagination;
 using Iyu.Core.Entities;
 using Iyu.Data;
 using Microsoft.EntityFrameworkCore;
@@ -14,9 +15,10 @@ namespace Iyu.Server.GraphQL;
 /// <summary>
 /// Builds the HotChocolate schema for the Iyu runtime by accumulating
 /// read/write entity pair registrations and then applying them as a single
-/// root <c>Query</c> type. Each registered pair becomes one query field
-/// returning <c>IQueryable&lt;TRead&gt;</c>, resolved against the current
-/// <see cref="IyuDbContext"/>.
+/// root <c>Query</c> type. Each registered pair becomes one query field — a
+/// cursor connection (<c>first</c>/<c>after</c>/<c>last</c>/<c>before</c>, <c>nodes</c>,
+/// <c>edges</c>, <c>pageInfo</c>) over <c>TRead</c>, resolved against the current
+/// <see cref="IyuDbContext"/> and bounded by <see cref="MaxPageSize"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -48,6 +50,26 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly List<Action<IRequestExecutorBuilder>> _typeAuthorizers = new();
     private bool _usesAuthorization;
     private bool _applied;
+
+    /// <summary>
+    /// The most rows one query field returns per request. A larger <c>first</c>/<c>last</c> is
+    /// refused. Defaults to 1000 — the same bound the OData surface puts on <c>$top</c>
+    /// (<c>IyuEdmModelBuilder.DefaultMaxTop</c>), so neither surface hands out a whole table.
+    /// </summary>
+    /// <remarks>
+    /// HotChocolate's cost analysis bounds a request as well: a page's cost grows with its size
+    /// and with what each row selects, and a request over the executor's maximum type cost
+    /// (1000 by default) is refused before it runs. A page near this bound therefore needs a
+    /// raised cost limit (<c>ModifyCostOptions</c>) as well.
+    /// </remarks>
+    public int MaxPageSize { get; set; } = 1000;
+
+    /// <summary>
+    /// The rows returned when a request names no <c>first</c>/<c>last</c>. Defaults to 100 —
+    /// small enough that a default request fits HotChocolate's default cost limit (see
+    /// <see cref="MaxPageSize"/>). Must not exceed <see cref="MaxPageSize"/>.
+    /// </summary>
+    public int DefaultPageSize { get; set; } = 100;
 
     /// <summary>
     /// Registers a query field named <paramref name="queryName"/> that returns
@@ -101,8 +123,13 @@ public sealed class IyuGraphQLSchemaBuilder
         // IyuEntityPairRegistry.Restrict gives the OData surface (Iyu.Server.OData).
         _fieldBuilders.Add(descriptor =>
         {
+            // Read at schema build, like the policy below, so a bound set after this call applies.
             var field = descriptor.Field(queryName)
-                .Type<ListType<ObjectType<TRead>>>()
+                .UsePaging<ObjectType<TRead>>(options: new PagingOptions
+                {
+                    MaxPageSize = MaxPageSize,
+                    DefaultPageSize = DefaultPageSize,
+                })
                 .Resolve(ResolveQueryable<TRead>);
             if (_authorizePolicies[queryName] is { } policy) field.Authorize(policy);
         });
@@ -274,6 +301,9 @@ public sealed class IyuGraphQLSchemaBuilder
     public void ApplyTo(IRequestExecutorBuilder executorBuilder)
     {
         ArgumentNullException.ThrowIfNull(executorBuilder);
+        if (MaxPageSize <= 0) throw new InvalidOperationException($"{nameof(MaxPageSize)} must be positive.");
+        if (DefaultPageSize <= 0 || DefaultPageSize > MaxPageSize)
+            throw new InvalidOperationException($"{nameof(DefaultPageSize)} must be positive and not exceed {nameof(MaxPageSize)}.");
         _applied = true;
         var fieldBuilders = _fieldBuilders.ToArray(); // capture snapshot
         executorBuilder.AddQueryType(descriptor =>
@@ -314,10 +344,27 @@ public sealed class IyuGraphQLSchemaBuilder
             ? policy
             : null;
 
+    /// <summary>
+    /// The set, ordered by its key. A page is a slice of an ordering, and without one the database
+    /// may return the rows of consecutive pages in different orders — a row seen twice, another
+    /// never. A type with no key (a keyless view) is paged in the order the database returns.
+    /// </summary>
     private static IQueryable<T> ResolveQueryable<T>(IResolverContext ctx)
         where T : class
     {
         var db = ctx.Service<IyuDbContext>();
-        return db.Set<T>().AsNoTracking();
+        IQueryable<T> query = db.Set<T>().AsNoTracking();
+        var key = db.Model.FindEntityType(typeof(T))?.FindPrimaryKey();
+        if (key is null) return query;
+
+        IOrderedQueryable<T>? ordered = null;
+        foreach (var property in key.Properties)
+        {
+            var name = property.Name;
+            ordered = ordered is null
+                ? query.OrderBy(e => EF.Property<object>(e, name))
+                : ordered.ThenBy(e => EF.Property<object>(e, name));
+        }
+        return ordered ?? query;
     }
 }
