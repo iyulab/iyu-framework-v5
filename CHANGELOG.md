@@ -27,7 +27,7 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
-## [0.29.0] - 2026-09-22
+## [0.29.0] - 2026-09-23
 
 **Packages affected:** `Iyu.Data`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`
 
