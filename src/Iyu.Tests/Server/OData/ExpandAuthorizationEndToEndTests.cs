@@ -86,6 +86,7 @@ public class ExpandAuthorizationEndToEndTests
 
     private static readonly Guid SecretId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private const string SecretCode = "the-code-behind-the-policy";
+    private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     private static async Task<WebApplication> StartAsync()
     {
@@ -124,7 +125,7 @@ public class ExpandAuthorizationEndToEndTests
             ctx.SecretsExt.Add(new NavSecretExt { Id = SecretId, Code = SecretCode });
             ctx.OrdersExt.Add(new NavOrderExt
             {
-                Id = Guid.NewGuid(), Name = "an order", SecretId = SecretId,
+                Id = OrderId, Name = "an order", SecretId = SecretId,
             });
             await ctx.SaveChangesAsync();
         }
@@ -240,6 +241,35 @@ public class ExpandAuthorizationEndToEndTests
             var body = await resp.Content.ReadAsStringAsync();
 
             Assert.DoesNotContain(SecretCode, body, StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// The same two questions on the key route. An order addressed by key expands its secret for a
+    /// caller that holds the read policy — the key route composes the expand into the query — and
+    /// the same expand from an anonymous caller carries none of it. Before the key route composed
+    /// the expand, the navigation came back unloaded for everyone: safe by accident, and wrong for
+    /// the caller who was entitled to it. Pinning both halves here is what keeps the fix from
+    /// turning into the leak.
+    /// </summary>
+    [Fact]
+    public async Task The_key_route_expands_for_a_permitted_caller_and_carries_nothing_otherwise()
+    {
+        var app = await StartAsync();
+        try
+        {
+            var client = app.GetTestServer().CreateClient();
+            using var permitted = await client.SendAsync(
+                Request($"/$data/{OrdersSet}({OrderId})?$expand=Secret", perm: SecretReadPolicy));
+            var permittedBody = await permitted.Content.ReadAsStringAsync();
+            using var anonymous = await client.GetAsync($"/$data/{OrdersSet}({OrderId})?$expand=Secret");
+            var anonymousBody = await anonymous.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, permitted.StatusCode);
+            Assert.Contains(SecretCode, permittedBody, StringComparison.Ordinal);
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+            Assert.DoesNotContain(SecretCode, anonymousBody, StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
     }

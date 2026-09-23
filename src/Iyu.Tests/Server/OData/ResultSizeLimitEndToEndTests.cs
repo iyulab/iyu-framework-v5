@@ -17,7 +17,12 @@ namespace Iyu.Tests.Server.OData;
 // is not IsPublic and MVC's ControllerFeatureProvider skips it.
 
 public sealed class SizeReading : IyuEntity { public int Seq { get; set; } public Guid? UnitId { get; set; } }
-public sealed class SizeReadingExt : IyuEntity { public int Seq { get; set; } public Guid? UnitId { get; set; } }
+public sealed class SizeReadingExt : IyuEntity
+{
+    public int Seq { get; set; }
+    public Guid? UnitId { get; set; }
+    public SizeUnitExt? Unit { get; set; }
+}
 public sealed class SizeUnit : IyuEntity { public int Seq { get; set; } }
 public sealed class SizeUnitExt : IyuEntity
 {

@@ -151,12 +151,14 @@ public class IyuODataControllerTests
         Assert.NotNull(created.Value);
     }
 
+    // The 404 itself is [EnableQuery]'s answer to an empty single result, so it is pinned where
+    // that filter runs — KeyedExpandEndToEndTests. Here: the action hands it an empty one.
     [Fact]
-    public async Task Get_by_key_returns_404_when_missing()
+    public void Get_by_key_yields_an_empty_single_result_when_missing()
     {
-        var (_, controller) = CreateSut(nameof(Get_by_key_returns_404_when_missing));
-        var result = await controller.Get(Guid.NewGuid(), CancellationToken.None);
-        Assert.IsType<NotFoundResult>(result);
+        var (_, controller) = CreateSut(nameof(Get_by_key_yields_an_empty_single_result_when_missing));
+        var result = controller.Get(Guid.NewGuid());
+        Assert.Empty(result.Queryable);
     }
 
     [Fact]

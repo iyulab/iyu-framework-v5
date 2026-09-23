@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.OData.Deltas;
 using Microsoft.AspNetCore.OData.Query;
+using Microsoft.AspNetCore.OData.Results;
 using Microsoft.AspNetCore.OData.Routing.Controllers;
 using Microsoft.EntityFrameworkCore;
 
@@ -57,13 +58,18 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     [EnableQuery]
     public virtual IQueryable<TRead> Get() => ReadSet.AsNoTracking();
 
-    /// <summary>GET by key — returns a single entity or 404.</summary>
+    /// <summary>GET by key — returns a single entity, or 404 when no row has the key.</summary>
+    /// <remarks>
+    /// Returned as a <see cref="SingleResult{T}"/> over the query rather than a materialized
+    /// entity, so <c>[EnableQuery]</c> composes <c>$expand</c> and <c>$select</c> into the
+    /// database query the same way it does for the collection <see cref="Get()"/>. A materialized
+    /// entity has no navigation loaded, and expanding it answers a collection as empty and a
+    /// reference as absent — a valid-looking response that is simply wrong. The 404 for a missing
+    /// key comes from <c>[EnableQuery]</c> itself, which answers an empty single result that way.
+    /// </remarks>
     [EnableQuery]
-    public virtual async Task<IActionResult> Get(Guid key, CancellationToken ct)
-    {
-        var entity = await ReadSet.AsNoTracking().FirstOrDefaultAsync(e => e.Id == key, ct);
-        return entity is null ? NotFound() : Ok(entity);
-    }
+    public virtual SingleResult<TRead> Get(Guid key)
+        => SingleResult.Create(ReadSet.AsNoTracking().Where(e => e.Id == key));
 
     /// <summary>
     /// POST — creates a new write entity. The request body is bound as

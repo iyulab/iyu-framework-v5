@@ -31,8 +31,26 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
 
-🔴 **Two breaking changes, both 🔇 no build-time signal** — the first two sections below. The rest is
-additive.
+🔴 **Three breaking changes** — the first three sections below. Two are 🔇 no build-time signal; the
+third changes a virtual method's signature, so a subclass that overrides it stops compiling. The rest
+is additive.
+
+### An entity addressed by key now answers `$expand`
+
+`GET /$data/Orders(<key>)?$expand=Lines` answered `200` with `Lines` empty, and a reference
+navigation came back absent — whatever rows existed. The by-key action materialized the entity
+before the query layer saw it, so the expand ran against an object with nothing loaded. The
+collection route was unaffected, which is why the same expand behind a `$filter` on the key returned
+the rows.
+
+- The by-key action now returns the query rather than the entity, so `$expand` and `$select` are
+  composed into it exactly as on the collection route. A missing key is still `404`.
+- **Breaking — the compiler reports it:** `IyuODataController<TRead,TWrite>.Get(Guid key,
+  CancellationToken ct)` returning `Task<IActionResult>` is now `Get(Guid key)` returning
+  `SingleResult<TRead>`. A controller that overrides it must follow the new signature; one that
+  does not override it needs no change.
+- A set's read policy still decides what an expand may carry, on this route as on the collection
+  route — now that the key route loads the navigation, that is pinned for it as well.
 
 ### A read returns at most one page, and `$top` has a ceiling
 
