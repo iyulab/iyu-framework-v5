@@ -25,6 +25,18 @@ public sealed class IyuMainServerOptions
     public string ODataRoutePrefix { get; set; } = "$data";
 
     /// <summary>
+    /// Whether OData error responses carry <c>innererror</c> — the exception type and stack trace
+    /// behind the error. <see langword="null"/> (the default) includes it only when the host
+    /// environment is Development; <see langword="true"/> or <see langword="false"/> overrides that.
+    /// </summary>
+    /// <remarks>
+    /// The top-level <c>message</c> is always written: it says what is wrong with the request (an
+    /// unknown property, a malformed literal), which a caller needs to correct it. What this
+    /// setting withholds is the part that only describes the server's internals.
+    /// </remarks>
+    public bool? IncludeODataErrorDetails { get; set; }
+
+    /// <summary>
     /// Extra assemblies whose controllers must be registered as MVC application
     /// parts. <c>AddIyuMainServer</c> already auto-registers the assemblies of the
     /// <c>TContext</c> and of the registration callback's declaring type — which

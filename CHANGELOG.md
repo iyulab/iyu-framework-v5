@@ -29,7 +29,27 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.OData`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+🔴 **One breaking change, 🔇 no build-time signal** — the first section below. The rest is additive.
+
+### A query error no longer carries a stack trace outside Development
+
+An invalid query option on `/$data` — an unknown property in `$select` or `$filter`, a malformed
+literal, a limit exceeded — is refused by the OData query layer with `400`, and that layer builds
+the body from the exception itself: an `innererror` holding the exception type and the full stack
+trace, in every environment. The `message` above it is what a caller needs to correct the query;
+the `innererror` only describes the server.
+
+- 🔇 **`innererror` is now written only when the host environment is Development.** Everywhere else
+  the error keeps `code`, `message` and `details` and loses `innererror`. The change is in the
+  route's error serializer, so it covers every OData error on the route, not only query options.
+- **`IyuMainServerOptions.IncludeODataErrorDetails`** (`bool?`, default `null`) overrides the
+  environment either way: `true` writes the details everywhere, `false` nowhere.
+
+Who notices: a client or log pipeline that read `innererror` from a deployed server. Nothing there
+was meant for a caller, so the usual response is to stop reading it; set the option to `true` to
+keep the old output.
 
 ### An entity set can declare that its key is not its own
 
@@ -63,8 +83,8 @@ migration to undo, so it is written where it is made rather than left to be infe
 refusals.
 
 **Nothing changes for a set that does not declare this.** Its key is still invented when the body
-omits one, and any key the caller supplies is still accepted. Nothing here is a breaking change, so
-no entry above carries a mark: the method is additive and the refusals reach only sets that opt in.
+omits one, and any key the caller supplies is still accepted. Nothing in this section is a breaking
+change: the method is additive and the refusals reach only sets that opt in.
 
 ## [0.29.0] - 2026-09-23
 

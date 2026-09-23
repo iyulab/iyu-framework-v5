@@ -113,7 +113,12 @@ public static class MainServerExtensions
                         // the stock binder does not for collection constants (see IyuFilterBinder).
                         .AddSingleton<
                             Microsoft.AspNetCore.OData.Query.Expressions.IFilterBinder,
-                            Iyu.Server.OData.IyuFilterBinder>()));
+                            Iyu.Server.OData.IyuFilterBinder>()
+                        // Query-option failures are answered with the exception's stack trace
+                        // unless the error serializer withholds it (see IyuODataErrorSerializer).
+                        .AddSingleton<Microsoft.AspNetCore.OData.Formatter.Serialization.IODataSerializerProvider>(
+                            sp => new Iyu.Server.OData.IyuODataSerializerProvider(
+                                sp, options.IncludeODataErrorDetails))));
 
         // The generated OData controllers (concrete IyuODataController<> subclasses)
         // live alongside the entity registrations, not in the entry assembly. MVC's

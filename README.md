@@ -255,6 +255,27 @@ underlying exception's type never reaches the response. An ordinary `[Required]`
 validation failure is unaffected — it never carried that vocabulary to begin with, and is returned
 exactly as authored.
 
+### Query failure responses
+
+An invalid query option — an unknown property in `$select` or `$filter`, a malformed literal — is
+answered `400` with an OData error whose `message` says what is wrong with the request. Outside the
+Development environment that is all it carries: the `innererror` the OData query layer would add
+(the exception type and its stack trace) is withheld, because it describes the server rather than
+the request. In Development it is written, so the cause is one response away while building.
+
+To decide independently of the environment, set `IncludeODataErrorDetails` — `true` always writes
+the details, `false` never does:
+
+```csharp
+builder.Services.AddIyuMainServer<AppDbContext>(db => ..., options =>
+{
+    options.IncludeODataErrorDetails = false;   // e.g. a Development host exposed to testers
+});
+```
+
+The `message` keeps naming the type the query was bound against. That is the EDM type name,
+which `$metadata` already publishes to the same caller.
+
 ### Keeping a stored value off the API surface
 
 Every public property of a read type is reachable through `$data` and GraphQL. For a
