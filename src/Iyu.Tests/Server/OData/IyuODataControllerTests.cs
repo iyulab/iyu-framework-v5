@@ -213,7 +213,7 @@ public class IyuODataControllerTests
     {
         var (_, controller) = CreateSut(nameof(Delete_returns_404_when_missing));
         var result = await controller.Delete(Guid.NewGuid(), EmptyRegistry, CancellationToken.None);
-        Assert.IsType<NotFoundResult>(result);
+        AssertKeyNotFound(result);
     }
 
     /// <summary>
@@ -350,7 +350,7 @@ public class IyuODataControllerTests
 
         var result = await controller.Patch(Guid.NewGuid(), delta, EmptyRegistry, CancellationToken.None);
 
-        Assert.IsType<NotFoundResult>(result);
+        AssertKeyNotFound(result);
     }
 
     /// <summary>
@@ -593,6 +593,13 @@ public class IyuODataControllerTests
     /// carries is pinned in <see cref="ErrorResponseShapeTests"/>; these tests are about which
     /// properties were named.
     /// </summary>
+    private static void AssertKeyNotFound(IActionResult result)
+    {
+        var refused = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status404NotFound, refused.StatusCode);
+        Assert.Equal(ODataErrorCodes.KeyNotFound, Assert.IsType<Microsoft.OData.ODataError>(refused.Value).Code);
+    }
+
     private static IReadOnlyDictionary<string, string[]> Refused(IActionResult result)
     {
         var refused = Assert.IsType<ObjectResult>(result);

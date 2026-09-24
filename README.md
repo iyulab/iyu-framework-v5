@@ -612,15 +612,19 @@ code from `ODataErrorCodes` — branch on the code, not on the message text:
 
 | Status | `error.code` | When |
 |---|---|---|
-| `400` | `InvalidBody` | the body could not be read, or a value fails the model's rules — `details[]` name each property in `target` |
+| `400` | `InvalidBody` | the body is missing or could not be read, or a value fails the model's rules — `details[]` name each property in `target` |
 | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
+| `400` | `InvalidQuery` | a query option cannot be applied — an unknown property, a malformed literal, a limit exceeded, an `$expand` this server cannot interpret |
 | `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |
+| `404` | `KeyNotFound` | `GET`, `PATCH` or `DELETE` by a key that names no row |
 | `405` | `ReadOnlySet` | the set is registered read-only for this verb |
 | `409` | `SharedKeyPrincipalMissing` | a shared-key row names a principal that does not exist |
 | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row |
 
-Two answers are not in this table yet: a query option the OData layer rejects (`400`, empty
-`error.code`) and a key that names no row (`404`, no body).
+The two query-layer answers come from `IyuEnableQueryAttribute`, which the generic `Get` actions carry
+in place of `[EnableQuery]`; a controller that overrides `Get` puts `[IyuEnableQuery]` on the override
+to keep them. Authorization refusals (`401`/`403`) and the database errors `IyuWriteExceptionHandler`
+answers are outside this table.
 
 ### The namespace the model is published under
 

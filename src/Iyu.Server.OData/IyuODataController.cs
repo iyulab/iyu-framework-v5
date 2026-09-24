@@ -55,21 +55,21 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// <summary>
     /// GET — returns the full queryable set. OData query options
     /// (<c>$filter</c>, <c>$orderby</c>, <c>$select</c>, <c>$expand</c>, paging)
-    /// are applied by the <c>[EnableQuery]</c> attribute.
+    /// are applied by <see cref="IyuEnableQueryAttribute"/>.
     /// </summary>
-    [EnableQuery]
+    [IyuEnableQuery]
     public virtual IQueryable<TRead> Get() => ReadSet.AsNoTracking();
 
     /// <summary>GET by key — returns a single entity, or 404 when no row has the key.</summary>
     /// <remarks>
     /// Returned as a <see cref="SingleResult{T}"/> over the query rather than a materialized
-    /// entity, so <c>[EnableQuery]</c> composes <c>$expand</c> and <c>$select</c> into the
+    /// entity, so the query attribute composes <c>$expand</c> and <c>$select</c> into the
     /// database query the same way it does for the collection <see cref="Get()"/>. A materialized
     /// entity has no navigation loaded, and expanding it answers a collection as empty and a
     /// reference as absent — a valid-looking response that is simply wrong. The 404 for a missing
-    /// key comes from <c>[EnableQuery]</c> itself, which answers an empty single result that way.
+    /// key comes from <see cref="IyuEnableQueryAttribute"/>, which answers an empty single result that way.
     /// </remarks>
-    [EnableQuery]
+    [IyuEnableQuery]
     public virtual SingleResult<TRead> Get(Guid key)
         => SingleResult.Create(ReadSet.AsNoTracking().Where(e => e.Id == key));
 
@@ -88,7 +88,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // clue why, unless the binder's own ModelState entry is looked at first. See
         // SanitizedModelState's remarks for why that entry needs sanitizing before it goes out.
         if (!ModelState.IsValid) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
-        if (body is null) return BadRequest();
+        if (body is null) return MissingBody();
 
         var pair = registry.FindByReadType(typeof(TRead));
         if (pair?.SharedKeyPrincipalSet is not null
@@ -128,10 +128,10 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // NotFound is even checked, and the binder's own ModelState entry needs sanitizing — see
         // SanitizedModelState's remarks.
         if (!ModelState.IsValid) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
-        if (delta is null) return BadRequest();
+        if (delta is null) return MissingBody();
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
-        if (write is null) return NotFound();
+        if (write is null) return IyuEnableQueryAttribute.KeyNotFound();
 
         // Apply ONLY the properties the client actually set. Copying the full
         // TRead placeholder would overwrite untouched fields with defaults.
@@ -303,7 +303,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         if (ReadOnlyRejection(registry, ODataVerb.Delete) is { } rejected) return rejected;
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
-        if (write is null) return NotFound();
+        if (write is null) return IyuEnableQueryAttribute.KeyNotFound();
 
         WriteSet.Remove(write);
         await Context.SaveChangesAsync(ct);
@@ -381,6 +381,10 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// </summary>
     private static ObjectResult Refusal(int status, string code, string message)
         => new(new ODataError { Code = code, Message = message }) { StatusCode = status };
+
+    /// <summary>A <c>400</c> for a request that carried no body to bind.</summary>
+    private static ObjectResult MissingBody()
+        => Refusal(StatusCodes.Status400BadRequest, ODataErrorCodes.InvalidBody, "The request has no body.");
 
     /// <summary>
     /// A <c>400</c> carrying the per-property messages of <paramref name="state"/> as the error's

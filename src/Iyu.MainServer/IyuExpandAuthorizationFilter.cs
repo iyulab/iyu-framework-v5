@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Iyu.Server.OData;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.OData.Extensions;
@@ -70,10 +71,14 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
         }
         catch (ODataException)
         {
-            context.Result = new BadRequestObjectResult(
-                "The $expand expression could not be interpreted and was refused. " +
-                "Expand each navigation property by name, without a nested option this server " +
-                "does not accept.");
+            context.Result = new ObjectResult(new ODataError
+            {
+                Code = ODataErrorCodes.InvalidQuery,
+                Message = "The $expand expression could not be interpreted and was refused. " +
+                          "Expand each navigation property by name, without a nested option this server " +
+                          "does not accept.",
+            })
+            { StatusCode = StatusCodes.Status400BadRequest };
             return;
         }
 

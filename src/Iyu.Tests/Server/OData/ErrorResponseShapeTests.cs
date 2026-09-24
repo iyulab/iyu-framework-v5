@@ -81,9 +81,8 @@ public static class NamespaceClashB
 /// <remarks>
 /// <para>
 /// Every refusal the generic controller makes is an OData error object whose <c>error.code</c> is one
-/// of <see cref="ODataErrorCodes"/>. Two points are not there yet, and are pinned as they are: a query
-/// option the OData layer rejects answers with an empty code, and a key that names no row answers
-/// <c>404</c> with no body.
+/// of <see cref="ODataErrorCodes"/> — including the two <see cref="IyuEnableQueryAttribute"/> makes:
+/// a query option it cannot apply, and a key that names no row.
 /// </para>
 /// <para>
 /// Each point is one line — status, media type, body kind, code — so a change to any of them is a
@@ -176,7 +175,48 @@ public class ErrorResponseShapeTests
 
         using var response = await client.GetAsync($"/$data/{Ledgers}?$filter=Nope eq 1");
 
-        Assert.Equal("400 application/json odata-error code=''", await ShapeOf(response));
+        Assert.Equal("400 application/json odata-error code='InvalidQuery'", await ShapeOf(response));
+    }
+
+    [Fact]
+    public async Task A_query_option_over_its_limit()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync($"/$data/{Ledgers}?$top=100000");
+
+        Assert.Equal("400 application/json odata-error code='InvalidQuery'", await ShapeOf(response));
+    }
+
+    [Fact]
+    public async Task A_query_option_error_on_a_single_entity()
+    {
+        await using var app = await StartAsync();
+        var key = await SeedBookAsync(app);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync($"/$data/{Ledgers}({key})?$select=Nope");
+
+        Assert.Equal("400 application/json odata-error code='InvalidQuery'", await ShapeOf(response));
+    }
+
+    /// <summary>
+    /// Relabelling keeps the attribute's own message, and outside Development still carries no
+    /// <c>innererror</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_query_option_error_keeps_its_message_and_no_diagnostics()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync($"/$data/{Ledgers}?$filter=Nope eq 1");
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var error = doc.RootElement.GetProperty("error");
+        Assert.Contains("Nope", error.GetProperty("message").GetString());
+        Assert.False(error.TryGetProperty("innererror", out _));
     }
 
     [Fact]
@@ -326,6 +366,32 @@ public class ErrorResponseShapeTests
 
         using var response = await client.GetAsync($"/$data/{Ledgers}({Guid.NewGuid()})");
 
-        Assert.Equal("404 (none) empty", await ShapeOf(response));
+        Assert.Equal("404 application/json odata-error code='KeyNotFound'", await ShapeOf(response));
+    }
+
+    [Fact]
+    public async Task A_patch_to_a_key_that_names_no_row()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var patch = new HttpRequestMessage(HttpMethod.Patch, $"/$data/{Ledgers}({Guid.NewGuid()})")
+        {
+            Content = JsonContent.Create(new { Title = "x" }),
+        };
+        using var response = await client.SendAsync(patch);
+
+        Assert.Equal("404 application/json odata-error code='KeyNotFound'", await ShapeOf(response));
+    }
+
+    [Fact]
+    public async Task A_delete_of_a_key_that_names_no_row()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.DeleteAsync($"/$data/{Ledgers}({Guid.NewGuid()})");
+
+        Assert.Equal("404 application/json odata-error code='KeyNotFound'", await ShapeOf(response));
     }
 }

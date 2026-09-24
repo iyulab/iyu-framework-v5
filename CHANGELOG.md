@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.OData`
+**Packages affected:** `Iyu.Server.OData`, `Iyu.MainServer`
 
 🔴 **Two breaking changes**, both 🔇 no build-time signal — the body of every refusal the generic OData
 controller makes, and the namespace the OData model is published under.
@@ -37,9 +37,10 @@ controller makes, and the namespace the OData model is published under.
 ### Every refusal of the generic OData controller carries a named code
 
 A caller handling `/$data` errors had to parse several shapes: an OData error with an empty
-`error.code` for most refusals, the same with `"409"` as the code for a shared-key conflict, and an
+`error.code` for most refusals, the same with `"409"` as the code for a shared-key conflict, an
 OData primitive value (`{"@odata.context":"…#Edm.String","value":"…"}`) for a verb the set does not
-accept.
+accept, a bare string for an `$expand` it could not interpret, and no body at all for a key that
+names no row or a request without a body.
 
 - **Breaking — 🔇 no build-time signal:** each of these now answers
   `{"error":{"code":"<code>","message":"…"}}`, and `code` is one of `ODataErrorCodes`:
@@ -48,15 +49,20 @@ accept.
   |---|---|---|
   | `400` | `InvalidBody` | the body could not be read, or a value fails the model's rules (`details[]` name each property in `target`) |
   | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
+  | `400` | `InvalidBody` | the request has no body (was `400` with no body) |
+  | `400` | `InvalidQuery` | a query option cannot be applied — an unknown property, a malformed literal, a limit exceeded (code was empty), or an `$expand` this server cannot interpret (was a string) |
   | `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |
+  | `404` | `KeyNotFound` | `GET`, `PATCH` or `DELETE` by a key that names no row (was `404` with no body) |
   | `405` | `ReadOnlySet` | the set is registered read-only for this verb (was a primitive value) |
   | `409` | `SharedKeyPrincipalMissing` | a shared-key row names a principal that does not exist (code was `"409"`) |
   | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row (code was `"409"`) |
 
-- Not covered yet: a query option the OData layer rejects (`400`, empty code) and a key that names no
-  row (`404`, no body).
-- A subclass test that expected `BadRequestObjectResult` with a `SerializableError` from `Post`/`Patch`
-  now receives an `ObjectResult` whose value is an `ODataError`.
+- The two query-layer answers come from `IyuEnableQueryAttribute`, which the generic `Get` actions now
+  carry in place of `[EnableQuery]` — every option of the stock attribute applies unchanged. A
+  controller that overrides `Get` with `[EnableQuery]` of its own keeps the stock answers; put
+  `[IyuEnableQuery]` on the override to keep these.
+- A subclass test that expected `BadRequestObjectResult` with a `SerializableError` from `Post`/`Patch`,
+  or `NotFoundResult` from `Patch`/`Delete`, now receives an `ObjectResult` whose value is an `ODataError`.
 
 ### The OData model no longer publishes your CLR namespace
 
