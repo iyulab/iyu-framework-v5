@@ -603,7 +603,8 @@ Two boundaries are deliberate:
 
 - **An empty body is still `204`.** Nothing was sent, so nothing was refused.
 - **A property the model never declares never reaches this.** Deserialization refuses it
-  first, with OData's own error. Only a property `TRead` declares gets this far.
+  first, and the answer is `UnknownProperty` naming it (below). Only a property `TRead` declares
+  gets this far.
 
 ### Error responses
 
@@ -613,6 +614,7 @@ code from `ODataErrorCodes` — branch on the code, not on the message text:
 | Status | `error.code` | When |
 |---|---|---|
 | `400` | `InvalidBody` | the body is missing or could not be read, or a value fails the model's rules — `details[]` name each property in `target` |
+| `400` | `UnknownProperty` | the body names a property the set's type does not declare — `details[]` name each one in `target`, nested ones by path (`Survey.Grde`) |
 | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
 | `400` | `InvalidQuery` | a query option cannot be applied — an unknown property, a malformed literal, a limit exceeded, an `$expand` this server cannot interpret |
 | `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |

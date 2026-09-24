@@ -48,6 +48,7 @@ names no row or a request without a body.
   | Status | `error.code` | When |
   |---|---|---|
   | `400` | `InvalidBody` | the body could not be read, or a value fails the model's rules (`details[]` name each property in `target`) |
+  | `400` | `UnknownProperty` | the body names a property the set's type does not declare — `details[]` name each one in `target` (was `InvalidBody`-shaped with a generic message and no name) |
   | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
   | `400` | `InvalidBody` | the request has no body (was `400` with no body) |
   | `400` | `InvalidQuery` | a query option cannot be applied — an unknown property, a malformed literal, a limit exceeded (code was empty), or an `$expand` this server cannot interpret (was a string) |
@@ -63,6 +64,16 @@ names no row or a request without a body.
   `[IyuEnableQuery]` on the override to keep these.
 - A subclass test that expected `BadRequestObjectResult` with a `SerializableError` from `Post`/`Patch`,
   or `NotFoundResult` from `Patch`/`Delete`, now receives an `ObjectResult` whose value is an `ODataError`.
+- **An undeclared property is named.** A body carrying a name the set's type does not declare was
+  refused with *"The value could not be converted to its expected type."* and nothing else, so a caller
+  found the offending name by removing fields one at a time. It is now `UnknownProperty` with one
+  `details[]` entry per undeclared name — every one in the body, including inside a nested value
+  (`Survey.Grde`), not only the first the reader stopped at. Names are matched without regard to case,
+  as the reader binds them; the EDM type's name is still not disclosed.
+- **A body that did not bind is one error, not two.** The failed bind leaves the body parameter null,
+  and MVC's implicit `[Required]` for it added *"The body field is required."* (`delta` for `PATCH`)
+  beside the real error — for a request that did carry a body. It is no longer reported when another
+  error explains the failure. A check that matched either message loses its anchor; branch on `code`.
 
 ### The OData model no longer publishes your CLR namespace
 

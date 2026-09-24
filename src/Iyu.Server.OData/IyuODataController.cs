@@ -33,6 +33,7 @@ namespace Iyu.Server.OData;
 /// name. Custom per-entity behavior is added by overriding the virtuals.
 /// </para>
 /// </remarks>
+[IyuBufferWriteBody]
 public abstract class IyuODataController<TRead, TWrite> : ODataController
     where TRead : IyuEntity
     where TWrite : IyuEntity, new()
@@ -87,7 +88,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // string with no offset) fails the whole [FromBody] bind — body comes back null with no
         // clue why, unless the binder's own ModelState entry is looked at first. See
         // SanitizedModelState's remarks for why that entry needs sanitizing before it goes out.
-        if (!ModelState.IsValid) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
+        if (!ModelState.IsValid) return await BindingFailureAsync(ct);
         if (body is null) return MissingBody();
 
         var pair = registry.FindByReadType(typeof(TRead));
@@ -127,7 +128,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // Same reasoning as Post: a malformed EDM literal fails the whole Delta<TRead> bind before
         // NotFound is even checked, and the binder's own ModelState entry needs sanitizing — see
         // SanitizedModelState's remarks.
-        if (!ModelState.IsValid) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
+        if (!ModelState.IsValid) return await BindingFailureAsync(ct);
         if (delta is null) return MissingBody();
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
@@ -423,6 +424,33 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     }
 
     /// <summary>
+    /// The <c>400</c> for a body that did not bind: the undeclared property names it carries when
+    /// there are any (<see cref="ODataErrorCodes.UnknownProperty"/>), otherwise the sanitized binder
+    /// errors (<see cref="ODataErrorCodes.InvalidBody"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An undeclared name is reported as the name alone. It is what the caller wrote, so echoing it
+    /// discloses nothing; the reader's own message is not used because it also names the EDM type.
+    /// </para>
+    /// <para>
+    /// The reader stops at the first thing it cannot read, so a body with both an undeclared name
+    /// and a malformed value surfaces the names first and the value once they are gone. Every
+    /// undeclared name is reported together, which the reader alone would not do.
+    /// </para>
+    /// </remarks>
+    private async Task<IActionResult> BindingFailureAsync(CancellationToken ct)
+    {
+        var undeclared = HttpContext is null ? [] : await UndeclaredBodyProperties.FindAsync(Request, ct);
+        if (undeclared.Count == 0) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
+
+        var state = new ModelStateDictionary();
+        foreach (var name in undeclared)
+            state.AddModelError(name, $"The property '{name}' is not declared by this entity set's type.");
+        return Invalid(state, ODataErrorCodes.UnknownProperty);
+    }
+
+    /// <summary>
     /// Rebuilds <c>ModelState</c> with every binder/deserialization-originated error
     /// message replaced by a generic one, before it is returned to the client.
     /// </summary>
@@ -436,13 +464,28 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// <c>TryValidateModel</c>'s own DataAnnotations messages. That is the distinction this method
     /// relies on, not string-matching the message text: it survives a future OData/EF package
     /// upgrade changing exactly what that text says, which is not something a regex could promise.
+    /// <para>
+    /// When the body failed to bind, the body parameter is left null and MVC's implicit
+    /// <c>[Required]</c> for a non-nullable parameter adds a second error under the parameter's name
+    /// — <i>"The body field is required."</i> for a body that was sent. It restates the first error
+    /// and points the wrong way, so it is dropped whenever another error explains the failure. The
+    /// parameter names come from the action descriptor, not from this class, so an override that
+    /// renames the parameter is covered too.
+    /// </para>
     /// </remarks>
     private ModelStateDictionary SanitizedModelState()
     {
+        var bodyParameters = (ControllerContext.ActionDescriptor?.Parameters ?? [])
+            .Where(p => p.BindingInfo?.BindingSource == BindingSource.Body)
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var otherErrors = ModelState.Any(e => !bodyParameters.Contains(e.Key) && e.Value is { Errors.Count: > 0 });
+
         var sanitized = new ModelStateDictionary();
         foreach (var (key, entry) in ModelState)
         {
             if (entry is null) continue;
+            if (otherErrors && bodyParameters.Contains(key)) continue;
             foreach (var error in entry.Errors)
             {
                 sanitized.AddModelError(key, error.Exception is not null

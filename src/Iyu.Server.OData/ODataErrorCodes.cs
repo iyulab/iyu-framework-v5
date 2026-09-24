@@ -15,6 +15,12 @@ public static class ODataErrorCodes
     /// </summary>
     public const string InvalidQuery = "InvalidQuery";
 
+    /// <summary>
+    /// <c>400</c> — the body names a property the entity set's type does not declare. Each name is a
+    /// <c>details</c> entry's <c>target</c>.
+    /// </summary>
+    public const string UnknownProperty = "UnknownProperty";
+
     /// <summary><c>400</c> — every property a <c>PATCH</c> sent is one the write side does not accept.</summary>
     public const string UnwritableProperty = "UnwritableProperty";
 
