@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.GraphQL`
+**Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`
 
 🔴 **One breaking change** — the schema shape of every query field. A client that queries a field
 as a list stops validating against the new schema, so it fails loudly rather than silently.
@@ -52,6 +52,20 @@ cursor connection:
 - HotChocolate's cost analysis still applies on top: a large page of a wide selection can exceed the
   executor's maximum type cost (1000 by default) and be refused — raise it with
   `ModifyCostOptions` if you raise `MaxPageSize` for such queries.
+
+### A read type with a required navigation can be created again
+
+POST binds the body as the read type, and ASP.NET Core treats a non-nullable reference property as
+an implicitly required input. A read type that declares a required relationship the way EF Core
+recommends — `Parent Parent { get; set; } = null!;` — therefore refused every create with `400`
+naming the navigation, although the write path copies only scalars and never reads it.
+
+- Navigation properties of a registered read type (an `IyuEntity`, or a collection of one) are no
+  longer validated as input. A body that sends one is not rejected for it; the value is ignored, as
+  it always was.
+- Every other property is validated exactly as before. Types not registered as the read half of an
+  entity pair — your own MVC models — are unaffected.
+- If you added a validation-metadata provider or `[ValidateNever]` to get past this, it can go.
 
 ## [0.30.0] - 2026-09-23
 

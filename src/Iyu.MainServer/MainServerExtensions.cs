@@ -122,6 +122,11 @@ public static class MainServerExtensions
                             sp => new Iyu.Server.OData.IyuODataSerializerProvider(
                                 sp, options.IncludeODataErrorDetails))));
 
+        // POST/PATCH bind the body as the read type, whose navigations are read shape, not input —
+        // see IyuNavigationValidationProvider for why a required one would otherwise refuse every create.
+        mvc.AddMvcOptions(o => o.ModelMetadataDetailsProviders.Add(
+            new IyuNavigationValidationProvider(options.ODataModel.Registry)));
+
         // The generated OData controllers (concrete IyuODataController<> subclasses)
         // live alongside the entity registrations, not in the entry assembly. MVC's
         // default part discovery only walks the entry assembly's closure, so under a
