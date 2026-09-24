@@ -71,6 +71,46 @@ public sealed class IyuGraphQLSchemaBuilder
     /// </summary>
     public int DefaultPageSize { get; set; } = 100;
 
+    private readonly Dictionary<string, (int MaxPageSize, int DefaultPageSize)> _pages = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Gives <paramref name="queryName"/> its own page bounds in place of <see cref="MaxPageSize"/>
+    /// and <see cref="DefaultPageSize"/> — e.g. a narrower page for a history table that grows
+    /// without bound, or a wider one for a small reference list a client loads in one request.
+    /// The GraphQL counterpart of <c>IyuEdmModelBuilder.Page</c> (Iyu.Server.OData).
+    /// </summary>
+    /// <param name="queryName">A field already registered via <see cref="AddEntityPair{TRead,TWrite}"/>.</param>
+    /// <param name="maxPageSize">The most rows this field returns per request.</param>
+    /// <param name="defaultPageSize">The rows returned when a request names no <c>first</c>/<c>last</c>.</param>
+    /// <remarks>
+    /// Unlike the OData setting, neither value can be <see langword="null"/>: a query field is a
+    /// cursor connection, and a connection always has a page. A small list is served whole by a
+    /// page at least as large as the list. Same registration-order independence as
+    /// <see cref="Restrict"/> — the bounds are read when the schema is built — and, like it, must
+    /// be called before <see cref="ApplyTo"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="queryName"/> is not registered, or this is called after <see cref="ApplyTo"/>.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A value is zero or negative, or <paramref name="defaultPageSize"/> exceeds <paramref name="maxPageSize"/>.
+    /// </exception>
+    public IyuGraphQLSchemaBuilder Page(string queryName, int maxPageSize, int defaultPageSize)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
+        if (_applied)
+            throw new InvalidOperationException(
+                $"Cannot set paging for GraphQL query field '{queryName}': ApplyTo has already run.");
+        if (!_queryNames.Contains(queryName))
+            throw new InvalidOperationException(
+                $"Cannot set paging for GraphQL query field '{queryName}': it was never registered via AddEntityPair.");
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPageSize);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(defaultPageSize);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(defaultPageSize, maxPageSize);
+        _pages[queryName] = (maxPageSize, defaultPageSize);
+        return this;
+    }
+
     /// <summary>
     /// Registers a query field named <paramref name="queryName"/> that returns
     /// <c>IQueryable&lt;TRead&gt;</c> resolved from the current
@@ -124,11 +164,14 @@ public sealed class IyuGraphQLSchemaBuilder
         _fieldBuilders.Add(descriptor =>
         {
             // Read at schema build, like the policy below, so a bound set after this call applies.
+            var (maxPageSize, defaultPageSize) = _pages.TryGetValue(queryName, out var own)
+                ? own
+                : (MaxPageSize, DefaultPageSize);
             var field = descriptor.Field(queryName)
                 .UsePaging<ObjectType<TRead>>(options: new PagingOptions
                 {
-                    MaxPageSize = MaxPageSize,
-                    DefaultPageSize = DefaultPageSize,
+                    MaxPageSize = maxPageSize,
+                    DefaultPageSize = defaultPageSize,
                 })
                 .Resolve(ResolveQueryable<TRead>);
             if (_authorizePolicies[queryName] is { } policy) field.Authorize(policy);

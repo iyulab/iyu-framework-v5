@@ -47,6 +47,9 @@ cursor connection:
   asking for more than `MaxPageSize` (1000, the same bound as OData's `$top`) is refused. Both are
   settable on `options.GraphQL`; a default larger than the maximum is rejected when the schema is
   built.
+- A field can have its own bounds: `options.GraphQL.Page(queryName, maxPageSize, defaultPageSize)`,
+  the counterpart of `options.ODataModel.Page(setName, …)`. The two are separate settings — a set's
+  OData page does not carry over to its GraphQL field.
 - Pages are slices of the key order, so walking them with `after` returns every row exactly once.
   A keyless read type is paged in the order the database returns it.
 - HotChocolate's cost analysis still applies on top: a large page of a wide selection can exceed the

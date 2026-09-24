@@ -628,6 +628,24 @@ The limits are carried on each set's read type as OData model-bound query settin
 the query layer reads — so a set's page size also applies where its type is returned as a
 collection inside another set's `$expand`.
 
+**GraphQL query fields carry their own bounds.** Each field is a cursor connection: a request that
+names no `first`/`last` gets **100** rows, and one asking for more than **1000** is refused. The two
+surfaces name a collection differently — a set on one, a query field on the other — so each is
+configured on its own builder, and setting a set's OData page does not change its GraphQL field:
+
+```csharp
+options.GraphQL.MaxPageSize     = 2000;
+options.GraphQL.DefaultPageSize = 200;    // must not exceed MaxPageSize
+
+options.GraphQL.Page("readings", maxPageSize: 200, defaultPageSize: 50);
+options.GraphQL.Page("units",    maxPageSize: 500, defaultPageSize: 500); // a small list read whole
+```
+
+A connection always has a page, so neither value can be `null`; a small list is served whole by a
+page at least as large as the list. HotChocolate's cost analysis applies on top of these bounds — a
+large page of a wide selection can exceed the executor's maximum cost (1000 by default) and be
+refused, so a field with a large page may also need `ModifyCostOptions`.
+
 ### Restricting write verbs
 
 A set backed entirely by a read-only view, or an audit-trail entity only the system itself

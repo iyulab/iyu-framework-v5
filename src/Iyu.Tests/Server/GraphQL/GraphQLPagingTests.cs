@@ -21,18 +21,27 @@ public class GraphQLPagingTests
         public string Name { get; set; } = "";
     }
 
+    public sealed class Note : IyuEntity
+    {
+        public string Text { get; set; } = "";
+    }
+
     public sealed class PagingContext(DbContextOptions<PagingContext> options) : IyuDbContext(options)
     {
         public DbSet<Item> Items => Set<Item>();
+        public DbSet<Note> Notes => Set<Note>();
     }
 
     private const int RowCount = 5;
 
     private static async Task<IRequestExecutor> BuildAsync(
-        string dbName, int maxPageSize, int defaultPageSize, Func<int, Guid>? idOf = null)
+        string dbName, int maxPageSize, int defaultPageSize, Func<int, Guid>? idOf = null,
+        Action<IyuGraphQLSchemaBuilder>? configure = null)
     {
         var graphql = new IyuGraphQLSchemaBuilder { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize };
         graphql.AddEntityPair<Item, Item>("items", "item");
+        graphql.AddEntityPair<Note, Note>("notes", "note");
+        configure?.Invoke(graphql);
 
         var services = new ServiceCollection();
         services.AddDbContext<PagingContext>(o => o.UseInMemoryDatabase(dbName));
@@ -44,7 +53,10 @@ public class GraphQLPagingTests
         {
             var ctx = scope.ServiceProvider.GetRequiredService<PagingContext>();
             for (var i = 0; i < RowCount; i++)
+            {
                 ctx.Items.Add(new Item { Id = idOf?.Invoke(i) ?? Guid.NewGuid(), Name = $"item-{i}" });
+                ctx.Notes.Add(new Note { Text = $"note-{i}" });
+            }
             await ctx.SaveChangesAsync();
         }
         return await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
@@ -118,6 +130,92 @@ public class GraphQLPagingTests
         var names = Data(json, "items").GetProperty("nodes").EnumerateArray()
             .Select(n => n.GetProperty("name").GetString()).ToArray();
         Assert.Equal(new[] { $"item-{RowCount - 1}", $"item-{RowCount - 2}" }, names);
+    }
+
+    /// <summary>
+    /// A field given its own bounds uses them; a field without keeps the builder-wide ones.
+    /// </summary>
+    [Fact]
+    public async Task A_field_with_its_own_page_uses_it_and_the_others_keep_the_default()
+    {
+        var executor = await BuildAsync(
+            nameof(A_field_with_its_own_page_uses_it_and_the_others_keep_the_default), 3, 2,
+            configure: g => g.Page("notes", maxPageSize: 5, defaultPageSize: 4));
+
+        var json = (await executor.ExecuteAsync("{ items { nodes { name } } notes { nodes { text } } }")).ToJson();
+
+        Assert.Equal(2, Data(json, "items").GetProperty("nodes").GetArrayLength());
+        Assert.Equal(4, Data(json, "notes").GetProperty("nodes").GetArrayLength());
+    }
+
+    /// <summary>
+    /// A field's own maximum is the one enforced, in both directions: above the builder-wide one is
+    /// allowed for it, and above its own is refused.
+    /// </summary>
+    [Fact]
+    public async Task A_field_with_its_own_maximum_is_bounded_by_it()
+    {
+        var executor = await BuildAsync(
+            nameof(A_field_with_its_own_maximum_is_bounded_by_it), 3, 2,
+            configure: g => g.Page("notes", maxPageSize: 5, defaultPageSize: 4));
+
+        var wider = (await executor.ExecuteAsync("{ notes(first: 5) { nodes { text } } }")).ToJson();
+        var beyond = (await executor.ExecuteAsync("{ notes(first: 6) { nodes { text } } }")).ToJson();
+
+        Assert.Equal(5, Data(wider, "notes").GetProperty("nodes").GetArrayLength());
+        Assert.Contains("\"errors\"", beyond, StringComparison.Ordinal);
+        Assert.DoesNotContain("note-", beyond, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Builder-wide bounds changed after <see cref="IyuGraphQLSchemaBuilder.Page"/> do not reach
+    /// the field that has its own.
+    /// </summary>
+    [Fact]
+    public async Task A_fields_own_page_survives_a_later_change_to_the_default()
+    {
+        var executor = await BuildAsync(
+            nameof(A_fields_own_page_survives_a_later_change_to_the_default), 3, 2,
+            configure: g =>
+            {
+                g.Page("notes", maxPageSize: 5, defaultPageSize: 4);
+                g.DefaultPageSize = 1;
+            });
+
+        var json = (await executor.ExecuteAsync("{ items { nodes { name } } notes { nodes { text } } }")).ToJson();
+
+        Assert.Equal(1, Data(json, "items").GetProperty("nodes").GetArrayLength());
+        Assert.Equal(4, Data(json, "notes").GetProperty("nodes").GetArrayLength());
+    }
+
+    [Fact]
+    public void Paging_a_field_that_was_never_registered_is_refused()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+
+        Assert.Throws<InvalidOperationException>(() => graphql.Page("items", 10, 5));
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(10, 0)]
+    [InlineData(5, 6)]
+    public void A_field_page_that_is_not_positive_or_whose_default_exceeds_its_maximum_is_refused(int max, int dflt)
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Item, Item>("items", "item");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => graphql.Page("items", max, dflt));
+    }
+
+    [Fact]
+    public void Paging_a_field_after_the_schema_is_applied_is_refused()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Item, Item>("items", "item");
+        graphql.ApplyTo(new ServiceCollection().AddGraphQLServer());
+
+        Assert.Throws<InvalidOperationException>(() => graphql.Page("items", 10, 5));
     }
 
     [Fact]
