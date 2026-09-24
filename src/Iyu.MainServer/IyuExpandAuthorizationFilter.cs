@@ -67,7 +67,7 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
         IReadOnlyCollection<string> expanded;
         try
         {
-            expanded = ExpandedSetNames(model, setName, raw);
+            expanded = ExpandedSetNames(model, setName, raw, context.HttpContext.Request.GetRouteServices());
         }
         catch (ODataException)
         {
@@ -106,18 +106,25 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
     /// it reaches, at any depth. The parsed clause names its target navigation source directly, so
     /// no mapping from property name to set has to be reinvented here.
     /// </summary>
+    /// <remarks>
+    /// The parser is built from the route's own services, so it resolves names with the resolver and
+    /// settings the query pipeline uses. A parser with its own defaults disagrees with the pipeline
+    /// wherever those differ — measured: the route resolves <c>$expand=secret</c> to the navigation
+    /// <c>Secret</c> without regard to case, a default parser does not, and a caller holding the
+    /// target's policy was refused a request the pipeline accepts. The fail-closed branch above is
+    /// for disagreements that remain; this keeps it from firing on ordinary input.
+    /// </remarks>
     private static IReadOnlyCollection<string> ExpandedSetNames(
-        Microsoft.OData.Edm.IEdmModel model, string setName, string rawExpand)
+        Microsoft.OData.Edm.IEdmModel model, string setName, string rawExpand, IServiceProvider? routeServices)
     {
         var entitySet = model.EntityContainer?.FindEntitySet(setName);
         if (entitySet is null)
             throw new ODataException($"Entity set '{setName}' is not in the model.");
 
-        var parser = new ODataQueryOptionParser(
-            model,
-            entitySet.EntityType,
-            entitySet,
-            new Dictionary<string, string>(StringComparer.Ordinal) { ["$expand"] = rawExpand });
+        var options = new Dictionary<string, string>(StringComparer.Ordinal) { ["$expand"] = rawExpand };
+        var parser = routeServices is null
+            ? new ODataQueryOptionParser(model, entitySet.EntityType, entitySet, options)
+            : new ODataQueryOptionParser(model, entitySet.EntityType, entitySet, options, routeServices);
 
         var names = new HashSet<string>(StringComparer.Ordinal);
         Walk(parser.ParseSelectAndExpand(), names);

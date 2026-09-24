@@ -169,6 +169,34 @@ public class ExpandAuthorizationEndToEndTests
     }
 
     /// <summary>
+    /// The route resolves a navigation name without regard to case, so the guard has to as well —
+    /// in both directions. A caller holding the target's policy gets the rows for <c>secret</c>
+    /// exactly as for <c>Secret</c>, and a caller without it is told to authenticate, not that the
+    /// expression could not be read. Measured before the guard parsed with the route's services: the
+    /// first was refused with 400 and the second answered 400 where the declared name answers 401.
+    /// </summary>
+    [Theory]
+    [InlineData("secret")]
+    [InlineData("SECRET")]
+    public async Task A_navigation_named_in_another_case_is_authorized_like_its_declared_name(string name)
+    {
+        var app = await StartAsync();
+        try
+        {
+            var client = app.GetTestServer().CreateClient();
+            using var permitted = await client.SendAsync(
+                Request($"/$data/{OrdersSet}?$expand={name}", perm: SecretReadPolicy));
+            using var anonymous = await client.SendAsync(Request($"/$data/{OrdersSet}?$expand={name}"));
+
+            Assert.Equal(HttpStatusCode.OK, permitted.StatusCode);
+            Assert.Contains(SecretCode, await permitted.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+            Assert.DoesNotContain(SecretCode, await anonymous.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
     /// An expand that touches nothing restricted is untouched — the guard costs an unprotected
     /// model nothing but the parse.
     /// </summary>

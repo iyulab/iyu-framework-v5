@@ -75,6 +75,15 @@ names no row or a request without a body.
   beside the real error — for a request that did carry a body. It is no longer reported when another
   error explains the failure. A check that matched either message loses its anchor; branch on `code`.
 
+### An `$expand` in another case is authorized, not refused
+
+On a model where some set carries a read policy, the guard that applies that policy to `$expand`
+parsed the expression with its own defaults, which match navigation names case-sensitively — the
+route does not. `$expand=secret` for a navigation declared `Secret` was answered `400` even for a
+caller holding the target's policy, and `400` rather than `401` for one without it. The guard now
+parses with the route's own resolver and settings, so it reads every expression the way the query
+does. Nothing that was refused for lack of a policy is let through: the policy check is unchanged.
+
 ### The OData model no longer publishes your CLR namespace
 
 Every type in `$metadata` was named under its CLR namespace — `<App>.Entities.OrderExt` — because the
