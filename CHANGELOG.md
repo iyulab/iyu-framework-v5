@@ -27,6 +27,54 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`
+
+🔴 **Two breaking changes**, both 🔇 no build-time signal — the body of every refusal the generic OData
+controller makes, and the namespace the OData model is published under.
+
+### Every refusal of the generic OData controller carries a named code
+
+A caller handling `/$data` errors had to parse several shapes: an OData error with an empty
+`error.code` for most refusals, the same with `"409"` as the code for a shared-key conflict, and an
+OData primitive value (`{"@odata.context":"…#Edm.String","value":"…"}`) for a verb the set does not
+accept.
+
+- **Breaking — 🔇 no build-time signal:** each of these now answers
+  `{"error":{"code":"<code>","message":"…"}}`, and `code` is one of `ODataErrorCodes`:
+
+  | Status | `error.code` | When |
+  |---|---|---|
+  | `400` | `InvalidBody` | the body could not be read, or a value fails the model's rules (`details[]` name each property in `target`) |
+  | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
+  | `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |
+  | `405` | `ReadOnlySet` | the set is registered read-only for this verb (was a primitive value) |
+  | `409` | `SharedKeyPrincipalMissing` | a shared-key row names a principal that does not exist (code was `"409"`) |
+  | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row (code was `"409"`) |
+
+- Not covered yet: a query option the OData layer rejects (`400`, empty code) and a key that names no
+  row (`404`, no body).
+- A subclass test that expected `BadRequestObjectResult` with a `SerializableError` from `Post`/`Patch`
+  now receives an `ObjectResult` whose value is an `ODataError`.
+
+### The OData model no longer publishes your CLR namespace
+
+Every type in `$metadata` was named under its CLR namespace — `<App>.Entities.OrderExt` — because the
+model builder uses that unless told otherwise. So the service published how the application
+organises its code to every caller, and a query error that named a property quoted the same full
+name.
+
+- **Breaking — 🔇 no build-time signal:** the model is now published under the namespace `Default`
+  (the name the model builder already gives the entity container). A payload's `@odata.type` becomes
+  `#Default.OrderExt`, a type-cast segment `…/Default.OrderExt`, and `$metadata` declares
+  `Namespace="Default"`. A client generated from the old `$metadata`, or one matching `@odata.type`
+  strings, sees different names. Entity set names, property names and URLs without a cast are
+  unchanged.
+- `options.ODataModel.Namespace` sets another name; `null` restores the CLR namespaces.
+- Two exposed types with the same name in different CLR namespaces cannot share one namespace — the
+  model now refuses to build and names them, instead of letting one shadow the other.
+
 ## [0.31.0] - 2026-09-24
 
 **Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`

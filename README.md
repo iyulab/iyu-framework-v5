@@ -605,6 +605,37 @@ Two boundaries are deliberate:
 - **A property the model never declares never reaches this.** Deserialization refuses it
   first, with OData's own error. Only a property `TRead` declares gets this far.
 
+### Error responses
+
+Every refusal the generic controller makes is an OData error, `{"error":{"code","message"}}`, with a
+code from `ODataErrorCodes` — branch on the code, not on the message text:
+
+| Status | `error.code` | When |
+|---|---|---|
+| `400` | `InvalidBody` | the body could not be read, or a value fails the model's rules — `details[]` name each property in `target` |
+| `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
+| `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |
+| `405` | `ReadOnlySet` | the set is registered read-only for this verb |
+| `409` | `SharedKeyPrincipalMissing` | a shared-key row names a principal that does not exist |
+| `409` | `SharedKeyRowExists` | the principal already has its one shared-key row |
+
+Two answers are not in this table yet: a query option the OData layer rejects (`400`, empty
+`error.code`) and a key that names no row (`404`, no body).
+
+### The namespace the model is published under
+
+`$metadata`, each payload's `@odata.type` and any type-cast segment name types under one EDM
+namespace, `Default` — not the CLR namespace the types are declared in, which would publish how the
+application organises its code to every caller.
+
+```csharp
+options.ODataModel.Namespace = "Shop";   // another name
+options.ODataModel.Namespace = null;     // each type's CLR namespace (the behaviour before this setting existed)
+```
+
+Two exposed types with the same name cannot share a namespace; the model refuses to build and names
+them.
+
 ### How many rows a response carries
 
 A read of an entity set returns at most **1000 rows per response**, and a `$top` above **1000** is
