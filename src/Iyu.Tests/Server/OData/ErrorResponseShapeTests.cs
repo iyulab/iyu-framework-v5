@@ -178,6 +178,22 @@ public class ErrorResponseShapeTests
         Assert.Equal("400 application/json odata-error code='InvalidQuery'", await ShapeOf(response));
     }
 
+    /// <summary>
+    /// An unknown navigation is refused by the query layer. The authorization filter's own refusal of
+    /// an <c>$expand</c> it cannot parse carries the same code; no request is known that reaches it
+    /// before the query layer does, so it is not pinned here.
+    /// </summary>
+    [Fact]
+    public async Task An_expand_naming_no_navigation()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync($"/$data/{Ledgers}?$expand=Nope");
+
+        Assert.Equal("400 application/json odata-error code='InvalidQuery'", await ShapeOf(response));
+    }
+
     [Fact]
     public async Task A_query_option_over_its_limit()
     {
