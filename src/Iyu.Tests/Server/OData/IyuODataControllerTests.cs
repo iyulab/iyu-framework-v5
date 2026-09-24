@@ -228,8 +228,7 @@ public class IyuODataControllerTests
 
         var result = await PostAsBoundAsync(controller, new BankAccountExt { BankName = "", AccountNumber = "1" });
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        var state = Assert.IsType<SerializableError>(bad.Value);
+        var state = Refused(result);
         Assert.True(state.ContainsKey(nameof(BankAccountExt.BankName)));
         Assert.Empty(await ctx.BankAccounts.ToListAsync());
     }
@@ -254,8 +253,7 @@ public class IyuODataControllerTests
 
         var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        var state = Assert.IsType<SerializableError>(bad.Value);
+        var state = Refused(result);
         Assert.True(state.ContainsKey(nameof(BankAccountExt.BankName)));
 
         // The stored value is untouched — a rejected request writes nothing.
@@ -309,9 +307,8 @@ public class IyuODataControllerTests
 
     private static string[] ErrorsFor(IActionResult result, string key)
     {
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        var state = Assert.IsType<SerializableError>(bad.Value);
-        return (string[])state[key];
+        var state = Refused(result);
+        return state[key];
     }
 
     /// <summary>
@@ -407,8 +404,7 @@ public class IyuODataControllerTests
 
         var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        var state = Assert.IsType<SerializableError>(bad.Value);
+        var state = Refused(result);
         Assert.True(state.ContainsKey(nameof(BankAccountExt.BankCountry)));
 
         var reloaded = await ctx.BankAccounts.SingleAsync();
@@ -433,8 +429,7 @@ public class IyuODataControllerTests
 
         var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.True(Assert.IsType<SerializableError>(bad.Value).ContainsKey(nameof(BankAccountExt.CreatedAt)));
+        Assert.True(Refused(result).ContainsKey(nameof(BankAccountExt.CreatedAt)));
     }
 
     /// <summary>
@@ -496,8 +491,7 @@ public class IyuODataControllerTests
 
         var result = await controller.Patch(write.Id, delta, EmptyRegistry, CancellationToken.None);
 
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.True(Assert.IsType<SerializableError>(bad.Value).ContainsKey(nameof(BankAccountExt.BankCountry)));
+        Assert.True(Refused(result).ContainsKey(nameof(BankAccountExt.BankCountry)));
     }
 
     [Fact]
@@ -592,5 +586,21 @@ public class IyuODataControllerTests
         Assert.IsType<StatusCodeResult>(result);
         var reloaded = await ctx.BankAccounts.SingleAsync();
         Assert.Equal("555-000", reloaded.AccountNumber);
+    }
+
+    /// <summary>
+    /// A <c>400</c> in the OData error shape, as target → messages. The <c>error.code</c> each refusal
+    /// carries is pinned in <see cref="ErrorResponseShapeTests"/>; these tests are about which
+    /// properties were named.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string[]> Refused(IActionResult result)
+    {
+        var refused = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, refused.StatusCode);
+        var error = Assert.IsType<Microsoft.OData.ODataError>(refused.Value);
+        return error.Details
+            .Where(d => d.Target is not null)
+            .GroupBy(d => d.Target!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(d => d.Message).ToArray(), StringComparer.Ordinal);
     }
 }

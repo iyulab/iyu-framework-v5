@@ -31,9 +31,10 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Server.OData`
 
-🔴 **Two breaking changes** — the schema shape of every GraphQL query field, and the namespace the
-OData model is published under. The first fails loudly: a client that queries a field as a list
-stops validating against the new schema. The second is 🔇 no build-time signal.
+🔴 **Three breaking changes** — the schema shape of every GraphQL query field, the namespace the
+OData model is published under, and the body of every refusal the generic OData controller makes.
+The first fails loudly: a client that queries a field as a list stops validating against the new
+schema. The other two are 🔇 no build-time signal.
 
 ### A GraphQL query field returns one page, not the whole table
 
@@ -56,6 +57,30 @@ cursor connection:
 - HotChocolate's cost analysis still applies on top: a large page of a wide selection can exceed the
   executor's maximum type cost (1000 by default) and be refused — raise it with
   `ModifyCostOptions` if you raise `MaxPageSize` for such queries.
+
+### Every refusal of the generic OData controller carries a named code
+
+A caller handling `/$data` errors had to parse several shapes: an OData error with an empty
+`error.code` for most refusals, the same with `"409"` as the code for a shared-key conflict, and an
+OData primitive value (`{"@odata.context":"…#Edm.String","value":"…"}`) for a verb the set does not
+accept.
+
+- **Breaking — 🔇 no build-time signal:** each of these now answers
+  `{"error":{"code":"<code>","message":"…"}}`, and `code` is one of `ODataErrorCodes`:
+
+  | Status | `error.code` | When |
+  |---|---|---|
+  | `400` | `InvalidBody` | the body could not be read, or a value fails the model's rules (`details[]` name each property in `target`) |
+  | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
+  | `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |
+  | `405` | `ReadOnlySet` | the set is registered read-only for this verb (was a primitive value) |
+  | `409` | `SharedKeyPrincipalMissing` | a shared-key row names a principal that does not exist (code was `"409"`) |
+  | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row (code was `"409"`) |
+
+- Not covered yet: a query option the OData layer rejects (`400`, empty code) and a key that names no
+  row (`404`, no body).
+- A subclass test that expected `BadRequestObjectResult` with a `SerializableError` from `Post`/`Patch`
+  now receives an `ObjectResult` whose value is an `ODataError`.
 
 ### The OData model no longer publishes your CLR namespace
 

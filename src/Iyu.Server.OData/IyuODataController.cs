@@ -4,10 +4,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.OData.Deltas;
+using Microsoft.AspNetCore.OData.Extensions;
 using Microsoft.AspNetCore.OData.Query;
 using Microsoft.AspNetCore.OData.Results;
 using Microsoft.AspNetCore.OData.Routing.Controllers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OData;
 
 namespace Iyu.Server.OData;
 
@@ -85,7 +87,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // string with no offset) fails the whole [FromBody] bind — body comes back null with no
         // clue why, unless the binder's own ModelState entry is looked at first. See
         // SanitizedModelState's remarks for why that entry needs sanitizing before it goes out.
-        if (!ModelState.IsValid) return BadRequest(SanitizedModelState());
+        if (!ModelState.IsValid) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
         if (body is null) return BadRequest();
 
         var pair = registry.FindByReadType(typeof(TRead));
@@ -125,7 +127,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // Same reasoning as Post: a malformed EDM literal fails the whole Delta<TRead> bind before
         // NotFound is even checked, and the binder's own ModelState entry needs sanitizing — see
         // SanitizedModelState's remarks.
-        if (!ModelState.IsValid) return BadRequest(SanitizedModelState());
+        if (!ModelState.IsValid) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
         if (delta is null) return BadRequest();
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
@@ -141,7 +143,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         delta.Patch(readProjection);
 
         if (!ValidateChangedProperties(readProjection, changedNames))
-            return BadRequest(SanitizedModelState());
+            return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
 
         var excludedFromWrite = registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties;
         var (writable, unwritable) = PartitionByWritability(changedNames, excludedFromWrite);
@@ -150,7 +152,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // success for it is what let a caller conclude the field was locked rather than
         // absent from the write model.
         if (writable.Count == 0)
-            return BadRequest(UnwritablePropertiesModelState(unwritable));
+            return Invalid(UnwritablePropertiesModelState(unwritable), ODataErrorCodes.UnwritableProperty);
 
         CopySelectedProperties(readProjection, write, writable, excludedFromWrite);
         await Context.SaveChangesAsync(ct);
@@ -349,7 +351,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
                 $"The key is required: entity set '{pair.SetName}' shares its key with "
                 + $"'{principalSet}', so the key identifies which row of '{principalSet}' this "
                 + "belongs to and cannot be assigned by the server.");
-            return BadRequest(state);
+            return Invalid(state, ODataErrorCodes.SharedKeyRequired);
         }
 
         if (registry.Find(principalSet) is not { } principal)
@@ -360,16 +362,36 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         var owner = await Context.FindAsync(principal.WriteType, [key], ct);
         if (owner is not null) Context.Entry(owner).State = EntityState.Detached;
         if (owner is null)
-            return Conflict(
+            return Refusal(StatusCodes.Status409Conflict, ODataErrorCodes.SharedKeyPrincipalMissing,
                 $"No row of entity set '{principalSet}' has key {key}, so there is nothing for "
                 + $"this '{pair.SetName}' row to belong to.");
 
         var existing = await WriteSet.AsNoTracking().FirstOrDefaultAsync(e => e.Id == key, ct);
         return existing is null
             ? null
-            : Conflict(
+            : Refusal(StatusCodes.Status409Conflict, ODataErrorCodes.SharedKeyRowExists,
                 $"Entity set '{pair.SetName}' already has the row with key {key}: a set that "
                 + $"shares its key with '{principalSet}' holds at most one row per principal.");
+    }
+
+    /// <summary>
+    /// A refusal in the OData error shape — <c>{"error":{"code","message"}}</c> — with a code from
+    /// <see cref="ODataErrorCodes"/>. Every refusal this controller makes goes through here or
+    /// <see cref="Invalid"/>, so a caller parses one shape and branches on one field.
+    /// </summary>
+    private static ObjectResult Refusal(int status, string code, string message)
+        => new(new ODataError { Code = code, Message = message }) { StatusCode = status };
+
+    /// <summary>
+    /// A <c>400</c> carrying the per-property messages of <paramref name="state"/> as the error's
+    /// <c>details</c>, each with its <c>target</c> — the shape OData gives a model-state
+    /// <c>400</c> already, with <paramref name="code"/> in place of the empty code it leaves.
+    /// </summary>
+    private static ObjectResult Invalid(ModelStateDictionary state, string code)
+    {
+        var error = new SerializableError(state).CreateODataError();
+        error.Code = code;
+        return new ObjectResult(error) { StatusCode = StatusCodes.Status400BadRequest };
     }
 
     /// <summary>
@@ -392,7 +414,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         var pair = registry.FindByReadType(typeof(TRead));
         if (pair is null || !pair.ReadOnlyVerbs.Contains(verb)) return null;
 
-        return StatusCode(StatusCodes.Status405MethodNotAllowed,
+        return Refusal(StatusCodes.Status405MethodNotAllowed, ODataErrorCodes.ReadOnlySet,
             $"Entity set '{pair.SetName}' is registered read-only for {verb} and does not accept this request.");
     }
 

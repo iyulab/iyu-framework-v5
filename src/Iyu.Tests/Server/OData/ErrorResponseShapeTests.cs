@@ -76,21 +76,18 @@ public static class NamespaceClashB
 }
 
 /// <summary>
-/// The body each error point of one <c>/$data</c> route answers with today — pinned as it is, not
-/// as it should be.
+/// The body each error point of one <c>/$data</c> route answers with.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A caller handling errors from this surface has to parse several shapes: an OData error object for
-/// most refusals — with an empty <c>error.code</c>, except the shared-key conflict, which carries the
-/// status as its code — an OData primitive value for a verb the set does not accept, and no body at
-/// all for a missing key. Making them one shape with a closed set of codes is a breaking change to
-/// every one of these points, and it can only be designed against what they actually return, which
-/// nothing had measured.
+/// Every refusal the generic controller makes is an OData error object whose <c>error.code</c> is one
+/// of <see cref="ODataErrorCodes"/>. Two points are not there yet, and are pinned as they are: a query
+/// option the OData layer rejects answers with an empty code, and a key that names no row answers
+/// <c>404</c> with no body.
 /// </para>
 /// <para>
-/// So these assertions describe the current contract, deliberately. When the shapes are unified,
-/// this file is what changes, and its diff is the list of what a consumer has to handle differently.
+/// Each point is one line — status, media type, body kind, code — so a change to any of them is a
+/// one-line diff here, which is the list of what a consumer has to handle differently.
 /// </para>
 /// </remarks>
 public class ErrorResponseShapeTests
@@ -190,7 +187,7 @@ public class ErrorResponseShapeTests
 
         using var response = await client.PostAsJsonAsync($"/$data/{Ledgers}", new { Title = 42 });
 
-        Assert.Equal("400 application/json odata-error code=''", await ShapeOf(response));
+        Assert.Equal("400 application/json odata-error code='InvalidBody'", await ShapeOf(response));
     }
 
     [Fact]
@@ -206,7 +203,7 @@ public class ErrorResponseShapeTests
         };
         using var response = await client.SendAsync(patch);
 
-        Assert.Equal("400 application/json odata-error code=''", await ShapeOf(response));
+        Assert.Equal("400 application/json odata-error code='UnwritableProperty'", await ShapeOf(response));
     }
 
     [Fact]
@@ -217,7 +214,7 @@ public class ErrorResponseShapeTests
 
         using var response = await client.PostAsJsonAsync($"/$data/{Summaries}", new { Total = 1 });
 
-        Assert.Equal("405 application/json odata-value Edm.String", await ShapeOf(response));
+        Assert.Equal("405 application/json odata-error code='ReadOnlySet'", await ShapeOf(response));
     }
 
     [Fact]
@@ -231,7 +228,7 @@ public class ErrorResponseShapeTests
             Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         using var response = await client.PostAsJsonAsync($"/$data/{Notes}", new { Id = key, Text = "b" });
 
-        Assert.Equal("409 application/json odata-error code='409'", await ShapeOf(response));
+        Assert.Equal("409 application/json odata-error code='SharedKeyRowExists'", await ShapeOf(response));
     }
 
     /// <summary>
@@ -297,6 +294,28 @@ public class ErrorResponseShapeTests
 
         var refused = Assert.Throws<InvalidOperationException>(() => model.GetEdmModel());
         Assert.Contains("'Twin'", refused.Message);
+    }
+
+    [Fact]
+    public async Task A_shared_key_post_without_a_key()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.PostAsJsonAsync($"/$data/{Notes}", new { Text = "a" });
+
+        Assert.Equal("400 application/json odata-error code='SharedKeyRequired'", await ShapeOf(response));
+    }
+
+    [Fact]
+    public async Task A_shared_key_naming_no_principal()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.PostAsJsonAsync($"/$data/{Notes}", new { Id = Guid.NewGuid(), Text = "a" });
+
+        Assert.Equal("409 application/json odata-error code='SharedKeyPrincipalMissing'", await ShapeOf(response));
     }
 
     [Fact]
