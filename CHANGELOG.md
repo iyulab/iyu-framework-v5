@@ -27,7 +27,7 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
-## [Unreleased]
+## [0.32.0] - 2026-09-25
 
 **Packages affected:** `Iyu.Server.OData`, `Iyu.MainServer`
 
