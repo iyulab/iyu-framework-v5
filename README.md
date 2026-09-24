@@ -392,7 +392,9 @@ produces on its own route. The check runs before the action, so a refusal costs 
 
 It is deliberately **fail-closed** on an `$expand` it cannot interpret: such a request is answered
 `400` rather than passed along, because an expression this check rejects and the query pipeline
-later accepts would be a way around it.
+later accepts would be a way around it. It parses with the route's own resolver and settings, so it reads an
+expression the way the query does — a navigation named in another case (`$expand=customer`) is
+checked like `Customer`, not refused.
 
 Expand **depth** is not this framework's setting: nothing here sets `MaxExpansionDepth`, so the
 ceiling is the one `EnableQueryAttribute` applies. Measured against it, that ceiling is **2** — a
