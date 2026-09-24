@@ -29,10 +29,11 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`
+**Packages affected:** `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Server.OData`
 
-🔴 **One breaking change** — the schema shape of every query field. A client that queries a field
-as a list stops validating against the new schema, so it fails loudly rather than silently.
+🔴 **Two breaking changes** — the schema shape of every GraphQL query field, and the namespace the
+OData model is published under. The first fails loudly: a client that queries a field as a list
+stops validating against the new schema. The second is 🔇 no build-time signal.
 
 ### A GraphQL query field returns one page, not the whole table
 
@@ -55,6 +56,23 @@ cursor connection:
 - HotChocolate's cost analysis still applies on top: a large page of a wide selection can exceed the
   executor's maximum type cost (1000 by default) and be refused — raise it with
   `ModifyCostOptions` if you raise `MaxPageSize` for such queries.
+
+### The OData model no longer publishes your CLR namespace
+
+Every type in `$metadata` was named under its CLR namespace — `<App>.Entities.OrderExt` — because the
+model builder uses that unless told otherwise. So the service published how the application
+organises its code to every caller, and a query error that named a property quoted the same full
+name.
+
+- **Breaking — 🔇 no build-time signal:** the model is now published under the namespace `Default`
+  (the name the model builder already gives the entity container). A payload's `@odata.type` becomes
+  `#Default.OrderExt`, a type-cast segment `…/Default.OrderExt`, and `$metadata` declares
+  `Namespace="Default"`. A client generated from the old `$metadata`, or one matching `@odata.type`
+  strings, sees different names. Entity set names, property names and URLs without a cast are
+  unchanged.
+- `options.ODataModel.Namespace` sets another name; `null` restores the CLR namespaces.
+- Two exposed types with the same name in different CLR namespaces cannot share one namespace — the
+  model now refuses to build and names them, instead of letting one shadow the other.
 
 ### A read type with a required navigation can be created again
 

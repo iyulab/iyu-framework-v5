@@ -605,6 +605,20 @@ Two boundaries are deliberate:
 - **A property the model never declares never reaches this.** Deserialization refuses it
   first, with OData's own error. Only a property `TRead` declares gets this far.
 
+### The namespace the model is published under
+
+`$metadata`, each payload's `@odata.type` and any type-cast segment name types under one EDM
+namespace, `Default` — not the CLR namespace the types are declared in, which would publish how the
+application organises its code to every caller.
+
+```csharp
+options.ODataModel.Namespace = "Shop";   // another name
+options.ODataModel.Namespace = null;     // each type's CLR namespace (the behaviour before this setting existed)
+```
+
+Two exposed types with the same name cannot share a namespace; the model refuses to build and names
+them.
+
 ### How many rows a response carries
 
 A read of an entity set returns at most **1000 rows per response**, and a `$top` above **1000** is

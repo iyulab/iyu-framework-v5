@@ -65,6 +65,16 @@ public sealed class TallyBookNotesController(TallyBookContext ctx)
 public sealed class TallyBookSummariesController(TallyBookContext ctx)
     : IyuODataController<TallyBookSummaryExt, TallyBookSummary>(ctx);
 
+public static class NamespaceClashA
+{
+    public sealed class Twin : IyuEntity { }
+}
+
+public static class NamespaceClashB
+{
+    public sealed class Twin : IyuEntity { }
+}
+
 /// <summary>
 /// The body each error point of one <c>/$data</c> route answers with today — pinned as it is, not
 /// as it should be.
@@ -89,7 +99,7 @@ public class ErrorResponseShapeTests
     private const string Notes = "TallyBookNotes";
     private const string Summaries = "TallyBookSummaries";
 
-    private static async Task<WebApplication> StartAsync()
+    private static async Task<WebApplication> StartAsync(Action<IyuEdmModelBuilder>? model = null)
     {
         var dbName = "errorshape-" + Guid.NewGuid().ToString("N");
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
@@ -105,6 +115,7 @@ public class ErrorResponseShapeTests
                 options.ODataModel.AddEntityPair<TallyBookSummaryExt, TallyBookSummary>(
                     Summaries, ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete);
                 options.ODataModel.DeclareSharedKey(Notes, Ledgers);
+                model?.Invoke(options.ODataModel);
             });
 
         var app = builder.Build();
@@ -224,12 +235,12 @@ public class ErrorResponseShapeTests
     }
 
     /// <summary>
-    /// The EDM namespace is the read types' CLR namespace: <c>$metadata</c> publishes it, and a query
-    /// error naming a property spells the full CLR type name into <c>message</c>. Pinned because
-    /// choosing a neutral namespace changes <c>@odata.type</c> and cast segments for every caller.
+    /// The model is published under a neutral namespace, not the read types' CLR namespace: neither
+    /// <c>$metadata</c> nor a query error that names a type reveals how the application organises its
+    /// code. The type names themselves are unchanged.
     /// </summary>
     [Fact]
-    public async Task The_model_namespace_is_the_CLR_namespace_of_the_read_types()
+    public async Task The_model_is_published_under_a_neutral_namespace()
     {
         await using var app = await StartAsync();
         using var client = app.GetTestClient();
@@ -238,8 +249,54 @@ public class ErrorResponseShapeTests
         using var error = await client.GetAsync($"/$data/{Ledgers}?$filter=Nope eq 1");
         var message = await error.Content.ReadAsStringAsync();
 
-        Assert.Contains($"Namespace=\"{typeof(TallyBookExt).Namespace}\"", metadata);
-        Assert.Contains(typeof(TallyBookExt).FullName!, message);
+        Assert.Contains("Namespace=\"Default\"", metadata);
+        Assert.Contains("Default.TallyBookExt", metadata);
+        Assert.DoesNotContain(typeof(TallyBookExt).Namespace!, metadata);
+        Assert.Contains("Default.TallyBookExt", message);
+        Assert.DoesNotContain(typeof(TallyBookExt).Namespace!, message);
+    }
+
+    /// <summary>A payload's <c>@odata.type</c>, where one is written, carries the same namespace.</summary>
+    [Fact]
+    public async Task A_payload_names_its_type_in_the_published_namespace()
+    {
+        await using var app = await StartAsync();
+        await SeedBookAsync(app);
+        using var client = app.GetTestClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/$data/{Ledgers}");
+        request.Headers.TryAddWithoutValidation("Accept", "application/json;odata.metadata=full");
+
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("\"@odata.type\":\"#Default.TallyBookExt\"", body);
+    }
+
+    /// <summary><c>null</c> keeps the CLR namespaces — the behaviour before the setting existed.</summary>
+    [Fact]
+    public async Task A_null_namespace_keeps_the_CLR_namespaces()
+    {
+        await using var app = await StartAsync(model => model.Namespace = null);
+        using var client = app.GetTestClient();
+
+        var metadata = await client.GetStringAsync("/$data/$metadata");
+
+        Assert.Contains($"{typeof(TallyBookExt).Namespace}.TallyBookExt", metadata);
+    }
+
+    /// <summary>
+    /// Two exposed types with the same name cannot share one namespace; the model refuses to build and
+    /// names them, rather than letting one shadow the other.
+    /// </summary>
+    [Fact]
+    public void Two_types_that_would_share_a_name_are_refused_by_name()
+    {
+        var model = new IyuEdmModelBuilder();
+        model.AddEntityPair<NamespaceClashA.Twin, NamespaceClashA.Twin>("TwinsA");
+        model.AddEntityPair<NamespaceClashB.Twin, NamespaceClashB.Twin>("TwinsB");
+
+        var refused = Assert.Throws<InvalidOperationException>(() => model.GetEdmModel());
+        Assert.Contains("'Twin'", refused.Message);
     }
 
     [Fact]

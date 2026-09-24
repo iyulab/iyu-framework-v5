@@ -30,6 +30,22 @@ public sealed class IyuEdmModelBuilder
     public IyuEntityPairRegistry Registry { get; } = new();
 
     /// <summary>
+    /// The EDM namespace every type in the model is published under — <c>$metadata</c>, the
+    /// <c>@odata.type</c> of each payload, type-cast segments, and the type names query errors
+    /// quote. Defaults to <c>"Default"</c>, the name the model builder already gives the entity
+    /// container. <see langword="null"/> keeps each type's CLR namespace, the behaviour before
+    /// this setting existed.
+    /// </summary>
+    /// <remarks>
+    /// Left to the model builder, a type's EDM namespace is its CLR namespace, so the service
+    /// publishes how the consuming application organises its code — to every caller, since
+    /// <c>$metadata</c> is anonymous wherever the data is. Nothing about the data depends on it.
+    /// Two exposed types that share a name in different CLR namespaces cannot share one EDM
+    /// namespace; <see cref="GetEdmModel"/> names them rather than letting one shadow the other.
+    /// </remarks>
+    public string? Namespace { get; set; } = "Default";
+
+    /// <summary>
     /// Registers a read/write entity pair under <paramref name="setName"/>.
     /// Only <typeparamref name="TRead"/> is exposed as an OData entity set; the
     /// write type remains internal to the runtime.
@@ -323,6 +339,7 @@ public sealed class IyuEdmModelBuilder
 
         ApplyPaging();
         ApplyEnumMemberNames();
+        _modelBuilder.OnModelCreating = ApplyNamespace;
         var edmModel = _modelBuilder.GetEdmModel();
 
         // ODataConventionModelBuilder always hands back a mutable EdmModel — verified
@@ -470,6 +487,33 @@ public sealed class IyuEdmModelBuilder
             new EdmRecordExpression(new EdmPropertyConstructor(propertyName, new EdmBooleanConstant(false))));
         annotation.SetSerializationLocation(model, EdmVocabularyAnnotationSerializationLocation.Inline);
         model.AddVocabularyAnnotation(annotation);
+    }
+
+    /// <summary>
+    /// Publishes every discovered type under <see cref="Namespace"/>. Runs from
+    /// <see cref="ODataConventionModelBuilder.OnModelCreating"/> — after discovery, when navigation
+    /// targets and enums the registered types reach are known, and before the model is built.
+    /// </summary>
+    private void ApplyNamespace(ODataConventionModelBuilder builder)
+    {
+        if (Namespace is null) return;
+        ArgumentException.ThrowIfNullOrWhiteSpace(Namespace, nameof(Namespace));
+
+        var clashes = builder.StructuralTypes.Select(t => (t.Name, t.ClrType))
+            .Concat(builder.EnumTypes.Select(t => (t.Name, t.ClrType)))
+            .GroupBy(t => t.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"'{g.Key}' ({string.Join(", ", g.Select(t => t.ClrType.FullName))})")
+            .ToList();
+        if (clashes.Count > 0)
+            throw new InvalidOperationException(
+                $"Cannot publish the model under the namespace '{Namespace}': types with the same name come from "
+                + $"different CLR namespaces — {string.Join("; ", clashes)}. Rename one, or set "
+                + $"{nameof(IyuEdmModelBuilder)}.{nameof(Namespace)} to null to keep the CLR namespaces.");
+
+        builder.Namespace = Namespace;
+        foreach (var type in builder.StructuralTypes) type.Namespace = Namespace;
+        foreach (var type in builder.EnumTypes) type.Namespace = Namespace;
     }
 
     /// <summary>
