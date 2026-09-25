@@ -29,7 +29,19 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`
+**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.VaultAi`
+
+### Fixed
+
+- **`Iyu.VaultAi`: a failed report generation no longer answers with an exception's own message.** 🔇 no
+  build-time signal. The generate endpoint returned the message of any `FileNotFoundException` (404) or
+  `InvalidOperationException` (502) it caught, whatever raised it — text that can name a server path or
+  carry an upstream service's response body. It now answers `{ "error", "code" }`: its own failures keep
+  their text with a stable code — `prompt_missing` (404), `generation_failed` (502), `report_busy` (409) —
+  and anything else is `unexpected_error` (500, previously 502 or 404) with a fixed message, the details
+  going to the log. The scheduler's failure marker, which the reports UI serves, follows the same rule.
+
+### Dependencies
 
 No behaviour change. The minimum versions these packages require move to the current patch releases:
 `Microsoft.EntityFrameworkCore` and `.Relational`, `Microsoft.AspNetCore.Authentication.JwtBearer`,

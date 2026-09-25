@@ -159,7 +159,7 @@ public sealed class ReportSchedulerService : BackgroundService
                 | 대상 슬롯 | {targetFile} |
                 | 실패 시각 | {when:yyyy-MM-dd HH:mm} |
                 | 연속 실패 | {consecutive}회 |
-                | 사유 | {ex.Message} |
+                | 사유 | {VaultAiReportsApi.DescribeFailure(ex).Message} |
 
                 > 이 표식은 생성 실패가 **조용히 누락**되지 않도록 시스템이 남긴 것입니다. 원인(데이터 공백·AI 응답 오류·재시도 초과 등)을 확인한 뒤 수동 재생성하거나 다음 예약 주기를 기다리세요.
 

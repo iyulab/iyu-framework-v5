@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Text;
@@ -150,22 +151,32 @@ internal static class VaultAiReportsApi
         {
             // 클라이언트가 요청을 중단 — 응답 불필요
         }
-        catch (ReportGenerationBusyException ex)
+        catch (Exception ex)
         {
-            ctx.Response.StatusCode = 409;
-            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message }, WebJson);
-        }
-        catch (FileNotFoundException ex)
-        {
-            ctx.Response.StatusCode = 404;
-            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message }, WebJson);
-        }
-        catch (InvalidOperationException ex)
-        {
-            ctx.Response.StatusCode = 502;
-            await ctx.Response.WriteAsJsonAsync(new { error = ex.Message }, WebJson);
+            var failure = DescribeFailure(ex);
+            if (failure.Code == UnexpectedFailureCode)
+            {
+                ctx.RequestServices.GetService<ILoggerFactory>()?
+                    .CreateLogger(typeof(VaultAiReportsApi).FullName!)
+                    .LogError(ex, "리포트 즉시 생성 실패: {Folder}", folder);
+            }
+            ctx.Response.StatusCode = failure.Status;
+            await ctx.Response.WriteAsJsonAsync(new { error = failure.Message, code = failure.Code }, WebJson);
         }
     }
+
+    internal const string UnexpectedFailureCode = "unexpected_error";
+
+    /// <summary>
+    /// 생성 실패를 호출자·운영자에게 보여 줄 형태로. 이 모듈이 의도해 던진 실패
+    /// (<see cref="ReportGenerationException"/>)만 자기 문구·코드를 그대로 내고, 그 밖의 예외는
+    /// 원문을 내지 않는다 — 그 메시지는 서버 파일 경로나 상류 서비스의 응답 본문을 담을 수
+    /// 있고, 호출자가 할 수 있는 일을 말해 주지도 않는다. 원문은 로그와 실행 로그에 남는다.
+    /// </summary>
+    internal static (int Status, string Code, string Message) DescribeFailure(Exception exception)
+        => exception is ReportGenerationException known
+            ? (known.Status, known.Code, known.Message)
+            : (500, UnexpectedFailureCode, "리포트 생성 중 예기치 않은 오류가 발생했습니다. 서버 로그를 확인하세요.");
 
     // ── 생성 핵심 로직 (스케줄러 + API 공용) ────────────────────────────────────
 
@@ -345,7 +356,7 @@ internal static class VaultAiReportsApi
     {
         var promptPath = Path.Combine(folderPath, "prompt.md");
         if (!File.Exists(promptPath))
-            throw new FileNotFoundException("prompt.md 없음", promptPath);
+            throw new ReportGenerationException("prompt_missing", 404, "리포트 폴더에 prompt.md 가 없습니다.");
 
         var template      = await File.ReadAllTextAsync(promptPath, ct);
         var effectiveDate = reportDate ?? DateTime.Today.AddDays(-1);
@@ -456,7 +467,7 @@ internal static class VaultAiReportsApi
         }
 
         if (content is null)
-            throw new InvalidOperationException(
+            throw new ReportGenerationException("generation_failed", 502,
                 $"리포트 생성 실패: {MaxRetryCount}회 시도 후에도 유효한 응답 없음"
                 + (feedback is not null ? $" (마지막 검증 실패: {string.Join(" | ", feedback)})" : string.Empty),
                 lastEx);
@@ -812,4 +823,16 @@ internal static class VaultAiReportsApi
 }
 
 /// <summary>같은 리포트 폴더에 대한 생성이 이미 진행 중일 때 발생. API는 409로 매핑.</summary>
-internal sealed class ReportGenerationBusyException(string message) : Exception(message);
+/// <summary>
+/// 이 모듈이 의도해 내는 생성 실패 — 호출자에게 보여도 되는 문구와 안정된 코드·HTTP 상태를
+/// 함께 든다(<see cref="VaultAiReportsApi.DescribeFailure"/>). 그 밖의 예외는 원문이 밖으로 나가지 않는다.
+/// </summary>
+internal class ReportGenerationException(string code, int status, string message, Exception? inner = null)
+    : Exception(message, inner)
+{
+    public string Code { get; } = code;
+    public int Status { get; } = status;
+}
+
+internal sealed class ReportGenerationBusyException(string message)
+    : ReportGenerationException("report_busy", 409, message);
