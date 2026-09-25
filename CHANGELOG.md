@@ -27,6 +27,16 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`
+
+No behaviour change. The minimum versions these packages require move to the current patch releases:
+`Microsoft.EntityFrameworkCore` and `.Relational`, `Microsoft.AspNetCore.Authentication.JwtBearer`,
+`Microsoft.Extensions.Http`, `.DependencyInjection.Abstractions` and `.Logging.Abstractions` 10.0.12 ·
+`HotChocolate.AspNetCore`, `.Authorization` and `.Data.EntityFramework` 16.6.7 ·
+`System.IdentityModel.Tokens.Jwt` 8.23.0.
+
 ## [0.32.0] - 2026-09-25
 
 **Packages affected:** `Iyu.Server.OData`, `Iyu.MainServer`
