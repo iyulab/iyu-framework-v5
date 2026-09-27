@@ -390,6 +390,10 @@ If `Customers` carries a `readPolicy` the caller does not satisfy, the request i
 though `Orders` is open — `401` without an identity, `403` with one, the same split `Customers`
 produces on its own route. The check runs before the action, so a refusal costs no query.
 
+The policy that failed is handed on: `HttpContext.Features.Get<IIyuAuthorizationFailureFeature>()`
+carries its `Policy` and `EntitySet`. A host that words its own 401/403 should read it before the
+endpoint's authorization metadata, which names `Orders`' policy — one this caller may already hold.
+
 It is deliberately **fail-closed** on an `$expand` it cannot interpret: such a request is answered
 `400` rather than passed along, because an expression this check rejects and the query pipeline
 later accepts would be a way around it. It parses with the route's own resolver and settings, so it reads an

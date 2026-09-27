@@ -90,6 +90,11 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
             var result = await authorization.AuthorizeAsync(context.HttpContext.User, policy);
             if (result.Succeeded) continue;
 
+            // The endpoint's metadata names the addressed set's policy, not this one — hand on the
+            // one that actually failed for a host that words its own refusals.
+            context.HttpContext.Features.Set<IIyuAuthorizationFailureFeature>(
+                new IyuAuthorizationFailureFeature(policy, target));
+
             // Same split the framework's own AuthorizeFilter produces: a caller with no identity is
             // told to authenticate, one with an identity is told it is not enough.
             context.Result = context.HttpContext.User.Identity?.IsAuthenticated == true

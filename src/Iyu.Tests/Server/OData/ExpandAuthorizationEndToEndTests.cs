@@ -83,6 +83,7 @@ public class ExpandAuthorizationEndToEndTests
     private const string SecretsSet = "NavSecrets";
     private const string SecretReadPolicy = "secrets.read";
     private const string SecretWritePolicy = "secrets.write";
+    private const string FailedPolicyHeader = "X-Failed-Policy";
 
     private static readonly Guid SecretId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private const string SecretCode = "the-code-behind-the-policy";
@@ -115,6 +116,18 @@ public class ExpandAuthorizationEndToEndTests
             });
 
         var app = builder.Build();
+        // What a host that words its own 401/403 does: read the framework's failure feature. Here it
+        // is surfaced as a header so the tests can see what such a host would have been handed.
+        app.Use(async (http, next) =>
+        {
+            http.Response.OnStarting(() =>
+            {
+                if (http.Features.Get<IIyuAuthorizationFailureFeature>() is { } failure)
+                    http.Response.Headers[FailedPolicyHeader] = $"{failure.Policy}|{failure.EntitySet}";
+                return Task.CompletedTask;
+            });
+            await next();
+        });
         app.UseAuthentication();
         app.UseIyuMainServer();
         await app.StartAsync();
@@ -298,6 +311,44 @@ public class ExpandAuthorizationEndToEndTests
             Assert.Contains(SecretCode, permittedBody, StringComparison.Ordinal);
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
             Assert.DoesNotContain(SecretCode, anonymousBody, StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// The policy that failed is handed on. The endpoint's own metadata names the addressed set's
+    /// policy — which this caller may already hold — so a host that words its refusal from there
+    /// would tell the caller to acquire a permission it has. Both halves of the split carry it.
+    /// </summary>
+    [Theory]
+    [InlineData("orders.only", HttpStatusCode.Forbidden)]
+    [InlineData(null, HttpStatusCode.Unauthorized)]
+    public async Task A_refused_expand_names_the_policy_that_failed(string? perm, HttpStatusCode expected)
+    {
+        var app = await StartAsync();
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .SendAsync(Request($"/$data/{OrdersSet}?$expand=Secret", perm: perm));
+
+            Assert.Equal(expected, resp.StatusCode);
+            Assert.Equal($"{SecretReadPolicy}|{SecretsSet}",
+                Assert.Single(resp.Headers.GetValues(FailedPolicyHeader)));
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task A_permitted_expand_carries_no_failure()
+    {
+        var app = await StartAsync();
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .SendAsync(Request($"/$data/{OrdersSet}?$expand=Secret", perm: SecretReadPolicy));
+
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.False(resp.Headers.Contains(FailedPolicyHeader));
         }
         finally { await app.DisposeAsync(); }
     }

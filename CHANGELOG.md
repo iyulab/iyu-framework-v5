@@ -33,6 +33,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **`Iyu.MainServer`: `IIyuAuthorizationFailureFeature` names the policy a refused `$expand` failed.** The
+  `$expand` authorization check refuses a request because of a set the request *reaches*, while the endpoint's
+  own authorization metadata names the *addressed* set's policy — one the caller may already hold. A host that
+  words its 401/403 from that metadata told the caller to acquire a permission it had. The check now sets
+  `HttpContext.Features.Get<IIyuAuthorizationFailureFeature>()` (`Policy`, `EntitySet`) before refusing; the
+  refusal itself is unchanged (`ForbidResult` / `ChallengeResult`, through the authentication scheme).
 - **`Iyu.MainServer`: `POST /api/auth/token` accepts the request shapes of RFC 6749 §4.4 (client
   credentials).** Standard OAuth2 clients — token managers, HTTP connectors with a "client credentials"
   setting — send an `application/x-www-form-urlencoded` body (`grant_type`, `client_id`, `client_secret`,
