@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
+using Iyu.Core.Attributes;
 using Microsoft.AspNetCore.OData.Query.Expressions;
 using Microsoft.OData.UriParser;
 
@@ -32,6 +34,12 @@ namespace Iyu.Server.OData;
 /// <c>x =&gt; (x.P1 != null &amp;&amp; x.P1.ToLower().Contains(term)) || ...</c> →
 /// <c>WHERE LOWER([P1]) LIKE '%term%' OR ...</c>. <c>ToLower()</c> on both sides keeps
 /// matching case-insensitive regardless of the database collation.
+/// </para>
+/// <para>
+/// <b>Which properties.</b> A type that marks properties with <see cref="SearchableAttribute"/> is
+/// searched across those only; a type that marks none, across every readable string property. The
+/// declaration is what keeps a note, a share token or an identification number from matching a
+/// search meant for names — and fewer columns means fewer <c>LIKE</c> clauses per term.
 /// </para>
 /// </remarks>
 public sealed class IyuStringSearchBinder : ISearchBinder
@@ -88,13 +96,8 @@ public sealed class IyuStringSearchBinder : ISearchBinder
 
         var term = Expression.Constant(termNode.Text.ToLowerInvariant(), typeof(string));
 
-        var stringProperties = elementClrType
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.PropertyType == typeof(string) && p.CanRead && p.GetIndexParameters().Length == 0)
-            .ToList();
-
         Expression? body = null;
-        foreach (var property in stringProperties)
+        foreach (var property in SearchedProperties(elementClrType))
         {
             var access = Expression.Property(parameter, property);
             var notNull = Expression.NotEqual(access, Expression.Constant(null, typeof(string)));
@@ -106,4 +109,27 @@ public sealed class IyuStringSearchBinder : ISearchBinder
 
         return body ?? Expression.Constant(false);
     }
+
+    private static readonly ConcurrentDictionary<Type, PropertyInfo[]> Searched = new();
+
+    /// <summary>
+    /// The string properties a term is matched against: the ones marked
+    /// <see cref="SearchableAttribute"/> when the type marks any property at all, otherwise every
+    /// readable string property.
+    /// </summary>
+    /// <remarks>
+    /// The declaration is read from the element type the query runs over — the set's read type —
+    /// including properties it inherits. A declaration on a non-string property narrows the search
+    /// all the same but contributes no clause, since search compares text.
+    /// </remarks>
+    internal static PropertyInfo[] SearchedProperties(Type elementClrType) => Searched.GetOrAdd(elementClrType, static type =>
+    {
+        var readable = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
+            .ToList();
+        var declared = readable.Where(p => p.IsDefined(typeof(SearchableAttribute), inherit: true)).ToList();
+        return (declared.Count > 0 ? declared : readable)
+            .Where(p => p.PropertyType == typeof(string))
+            .ToArray();
+    });
 }

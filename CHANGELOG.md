@@ -29,10 +29,19 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
+- **`Iyu.Core`: `[Searchable]`, and `$search` follows it.** 🔇 no build-time signal. The model language's
+  `@searchable` declares which fields free-text search is meant for, but nothing carried it to the runtime:
+  `$search` matched every string property of the read type — notes, share tokens and identification numbers
+  included, so a search for a customer name returned rows whose note mentioned it. A type that marks
+  properties `[Searchable]` (in `Iyu.Core.Attributes`) is now searched across those only; **a type that marks
+  none is searched across every string property, as before.** Declarations on base types count. A declaration
+  on a non-string property narrows the search but is not itself searched.
+  - Behaviour change for any read type that already carries `[Searchable]` — once a generator emits it from
+    `@searchable`, check that every field you expect search to reach is declared.
 - **`Iyu.MainServer`: `IIyuAuthorizationFailureFeature` names the policy a refused `$expand` failed.** The
   `$expand` authorization check refuses a request because of a set the request *reaches*, while the endpoint's
   own authorization metadata names the *addressed* set's policy — one the caller may already hold. A host that
