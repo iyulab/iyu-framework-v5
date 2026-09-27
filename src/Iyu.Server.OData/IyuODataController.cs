@@ -9,7 +9,10 @@ using Microsoft.AspNetCore.OData.Query;
 using Microsoft.AspNetCore.OData.Results;
 using Microsoft.AspNetCore.OData.Routing.Controllers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.OData;
+using Microsoft.OData.UriParser;
 
 namespace Iyu.Server.OData;
 
@@ -441,13 +444,38 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// </remarks>
     private async Task<IActionResult> BindingFailureAsync(CancellationToken ct)
     {
-        var undeclared = HttpContext is null ? [] : await UndeclaredBodyProperties.FindAsync(Request, ct);
-        if (undeclared.Count == 0) return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
+        LogBindingFailure();
+        var findings = HttpContext is null ? WriteBodyFindings.None : await WriteBodyInspector.InspectAsync(Request, ct);
 
         var state = new ModelStateDictionary();
-        foreach (var name in undeclared)
-            state.AddModelError(name, $"The property '{name}' is not declared by this entity set's type.");
-        return Invalid(state, ODataErrorCodes.UnknownProperty);
+        if (findings.Undeclared.Count > 0)
+        {
+            foreach (var name in findings.Undeclared)
+                state.AddModelError(name, $"The property '{name}' is not declared by this entity set's type.");
+            return Invalid(state, ODataErrorCodes.UnknownProperty);
+        }
+        if (findings.Unconvertible.Count > 0)
+        {
+            foreach (var value in findings.Unconvertible)
+                state.AddModelError(value.Path, value.Message);
+            return Invalid(state, ODataErrorCodes.InvalidBody);
+        }
+        return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
+    }
+
+    /// <summary>
+    /// Records the reader's own exception for the operator before the response replaces it with a
+    /// fixed sentence. The caller gets the property and the declared type; the server keeps the
+    /// rest, so "who sent what that failed" can still be answered from the log.
+    /// </summary>
+    private void LogBindingFailure()
+    {
+        var cause = ModelState.Values.SelectMany(e => e.Errors).FirstOrDefault(e => e.Exception is not null)?.Exception;
+        if (cause is null || HttpContext?.RequestServices.GetService<ILoggerFactory>() is not { } factory) return;
+
+        var set = Request.ODataFeature().Path?.OfType<EntitySetSegment>().FirstOrDefault()?.EntitySet.Name;
+        factory.CreateLogger<IyuODataController<TRead, TWrite>>().LogWarning(cause,
+            "{Method} body for entity set {EntitySet} did not bind", Request.Method, set);
     }
 
     /// <summary>

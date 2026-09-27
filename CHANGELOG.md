@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -43,6 +43,18 @@ onward; earlier entries state the same consequence in prose where it applies.
   - Every token response carries `Cache-Control: no-store` (§5.1).
 
 ### Changed
+
+- **`Iyu.Server.OData`: a write body value that cannot be converted to its property's type is refused with
+  the property.** 🔇 no build-time signal. The `InvalidBody` answer said only *"The value could not be
+  converted to its expected type."*, with no `target` — a caller had to drop fields one at a time to find the
+  one at fault. Each such value is now a `details[]` entry whose `target` is the property path (`Seq`,
+  `Address.Zip`, the same form `UnknownProperty` uses) and whose message names the declared type — *"The
+  value could not be converted to Int32."*, *"The value is not a member of OrderStatus."* The value that was
+  sent and the reader's own message are still not echoed.
+  - The body is compared against the entity set's type after the bind has failed, and only values whose JSON
+    form cannot be the declared type are reported. When none is found, the answer is the generic one as before.
+  - The reader's exception is now logged at `Warning` with the method and entity set, so the cause stays
+    recoverable on the server.
 
 - **`Iyu.MainServer`: token endpoint errors follow RFC 6749 §5.2.** 🔇 no build-time signal. A credential that
   does not authenticate was a bare `401`; it is now `{ "error": "invalid_client" }` — `401` with
