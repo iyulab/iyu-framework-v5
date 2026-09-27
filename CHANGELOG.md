@@ -33,6 +33,23 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Fixed
 
+- **`Iyu.MainServer`: revoking, rotating or re-scoping a service client now ends the access tokens already
+  issued to it.** 🔇 no build-time signal. Those three operations used to act only on the next issuance —
+  a token obtained before a revocation stayed valid for the rest of its lifetime (one hour by default),
+  which is exactly the window a leaked credential is revoked to close. Service-client tokens now carry a
+  keyed fingerprint of the client's secret and effective permissions (claim `sc_stamp`), and the bearer
+  handler checks it against the store: a revoked, expired, rotated or re-scoped client's earlier tokens
+  answer **401**. A successful check is reused for `IdentityTokenOptions.ServiceClientValidationWindow`
+  (default 30 seconds — the longest a change takes to reach a token in use); `TimeSpan.Zero` checks every
+  request. `IdentityTokenOptions.ValidateServiceClientTokens = false` restores the previous behaviour.
+  - Clients re-authenticate after a rotation or permission change; standard client-credentials token
+    managers do this on a 401.
+  - Tokens issued by an earlier version carry no fingerprint and are not checked; they expire on their own.
+  - The check is registered as the JWT bearer `OnTokenValidated` event. A host that replaces
+    `JwtBearerOptions.Events` wholesale removes it — add to the existing events instead.
+  - Tokens a consuming app signs for a person through `IssueUserToken` carry no fingerprint and are
+    unaffected.
+
 - **`Iyu.VaultAi`: a failed report generation no longer answers with an exception's own message.** 🔇 no
   build-time signal. The generate endpoint returned the message of any `FileNotFoundException` (404) or
   `InvalidOperationException` (502) it caught, whatever raised it — text that can name a server path or

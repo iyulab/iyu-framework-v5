@@ -29,6 +29,14 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
 `id` 를 발급 응답을 잃은 뒤에 얻는 곳이 `GET` 이다. 그것이 이 엔드포인트가 있는 이유이며,
 없으면 앞의 셋은 발급 응답을 보관했을 때만 쓸 수 있다.
 
+**폐기·회전·권한 교체는 이미 발급된 토큰에도 닿는다.** 서비스 클라이언트 토큰은 발급 시점의 시크릿·유효 권한
+지문(`sc_stamp` 클레임)을 싣고, Bearer 검증 단계가 저장소의 현재 상태와 대조한다 — 폐기·만료·회전·권한 교체 뒤
+기존 토큰은 **401** 이다. 확인 결과는 `IdentityTokenOptions.ServiceClientValidationWindow`(기본 30초) 동안 재사용되므로,
+**변경이 사용 중인 토큰에 닿기까지 최대 그 시간**이 걸린다(`TimeSpan.Zero` 면 매 요청 확인). 끄려면
+`ValidateServiceClientTokens = false` — 그러면 위 세 조작은 다음 발급만 막고, 기존 토큰은 `Lifetime` 끝까지 유효하다.
+이 확인은 JWT Bearer 의 `OnTokenValidated` 이벤트로 등록된다 — 호스트가 `JwtBearerOptions.Events` 를 통째로 바꾸면
+사라지므로, 이벤트를 덧붙이는 방식으로 설정할 것.
+
 다섯 경로 모두 쿠키 인증(소유자 본인)을 요구하고, 남의 클라이언트는 **404** 다(403 이 아니다 —
 존재 자체를 알리지 않는다).
 

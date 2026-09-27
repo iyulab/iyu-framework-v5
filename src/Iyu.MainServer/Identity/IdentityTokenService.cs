@@ -57,6 +57,8 @@ public sealed class IdentityTokenService
             new("owner", client.OwnerUserId.ToString()),   // reserved for future owner-scoped JWT authorization; not yet enforced
         };
         claims.AddRange(effective.Select(p => new Claim(_opts.PermissionClaimType, p)));
+        claims.Add(new Claim(IyuIdentityClaims.ServiceClientStampClaimType,
+            ServiceClientStamp.Compute(_opts.SigningKey, client.SecretHash, effective)));
 
         var jwt = SignToken(claims, _opts.Lifetime, now);
 

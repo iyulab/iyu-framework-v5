@@ -41,6 +41,8 @@ public static class IyuIdentityServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IdentityTokenService>();
         services.AddScoped<ServiceClientService>();
+        services.AddMemoryCache();
+        services.AddScoped<ServiceClientTokenValidator>();
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(tokenOptions.SigningKey));
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -60,6 +62,19 @@ public static class IyuIdentityServiceCollectionExtensions
                     ValidateIssuerSigningKey = true, IssuerSigningKey = key,
                     ValidateLifetime = true,
                 };
+                // Revoke, rotate and PATCH permissions act on the store; the token was signed before
+                // any of them. This is where the two meet — see ServiceClientTokenValidator.
+                if (tokenOptions.ValidateServiceClientTokens)
+                    opts.Events = new JwtBearerEvents
+                    {
+                        OnTokenValidated = async ctx =>
+                        {
+                            var validator = ctx.HttpContext.RequestServices.GetRequiredService<ServiceClientTokenValidator>();
+                            var reason = await validator.RejectionAsync(ctx.Principal!, ctx.HttpContext.RequestAborted);
+                            if (reason is not null)
+                                ctx.Fail("The service client behind this token has been revoked, rotated or re-scoped.");
+                        },
+                    };
             });
 
         services.AddAuthorization(opts =>
