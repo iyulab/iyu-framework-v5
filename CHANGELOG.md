@@ -31,6 +31,25 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.VaultAi`
 
+### Added
+
+- **`Iyu.MainServer`: `POST /api/auth/token` accepts the request shapes of RFC 6749 §4.4 (client
+  credentials).** Standard OAuth2 clients — token managers, HTTP connectors with a "client credentials"
+  setting — send an `application/x-www-form-urlencoded` body (`grant_type`, `client_id`, `client_secret`,
+  `scope`) or authenticate with HTTP Basic, and the endpoint used to bind a JSON body only, so none of them
+  could obtain a token. Both shapes are now read; the JSON body is still accepted but is not a standard shape.
+  - `scope` (optional, space-delimited): a subset of the client's permissions narrows the token to it; a code
+    outside them is `invalid_scope`. `IdentityTokenService.IssueClientCredentialsAsync` gains an overload taking it.
+  - Every token response carries `Cache-Control: no-store` (§5.1).
+
+### Changed
+
+- **`Iyu.MainServer`: token endpoint errors follow RFC 6749 §5.2.** 🔇 no build-time signal. A credential that
+  does not authenticate was a bare `401`; it is now `{ "error": "invalid_client" }` — `401` with
+  `WWW-Authenticate: Basic` when the credentials came in a Basic header, `400` when they came in the body
+  (form or JSON). A missing `grant_type` is `invalid_request` (was `unsupported_grant_type`). Credentials in
+  both the header and the body are `invalid_request`.
+
 ### Fixed
 
 - **`Iyu.MainServer`: revoking, rotating or re-scoping a service client now ends the access tokens already

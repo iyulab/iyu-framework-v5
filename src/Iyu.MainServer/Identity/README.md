@@ -13,7 +13,21 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    이 클레임이 없으면 서비스 클라이언트(JWT)는 정상 동작하는데 사람(쿠키) 사용자만 모든 permission 정책에서 403을 받는다.
    헬퍼로 `IyuIdentityClaims.Permission(code)`를 사용할 수 있다(예: `identity.AddClaim(IyuIdentityClaims.Permission("orders.read"))`).
 
-토큰 흐름: `POST /api/auth/token {clientId, clientSecret, grant_type:"client_credentials"}` → 단기 JWT → `Authorization: Bearer`.
+토큰 흐름: `POST /api/auth/token` → 단기 JWT → `Authorization: Bearer`. 요청은 **RFC 6749 §4.4 client credentials** 모양이다:
+
+```http
+POST /api/auth/token
+Content-Type: application/x-www-form-urlencoded
+Authorization: Basic base64(urlencode(client_id) ":" urlencode(client_secret))
+
+grant_type=client_credentials&scope=orders.read
+```
+
+- 자격은 HTTP Basic(권장, §2.3.1) 또는 form 본문의 `client_id`·`client_secret` — **둘 중 하나만**(둘 다면 `invalid_request`).
+- `scope`(선택, 공백 구분): 클라이언트 유효 권한의 부분집합이면 그만큼 좁힌 토큰, 넘으면 `invalid_scope`. 없으면 유효 권한 전부.
+- 오류는 §5.2 `{ "error": "…" }` — 자격 실패는 `invalid_client`(Basic 이면 401 + `WWW-Authenticate: Basic`, 본문이면 400).
+  응답은 전부 `Cache-Control: no-store`.
+- 종전의 JSON 본문(`{clientId, clientSecret, grant_type}`)도 계속 받는다 — **비표준**이며, 새 연동은 위 모양을 쓴다.
 
 ## 서비스 클라이언트 — 다섯 가지 조작
 

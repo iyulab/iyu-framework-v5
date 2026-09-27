@@ -11,8 +11,10 @@ public static class IdentityEndpointRouteExtensions
     public static IEndpointRouteBuilder MapIyuIdentity(this IEndpointRouteBuilder app)
     {
         var auth = app.MapGroup("/api/auth");
-        auth.MapPost("/token", (TokenRequest req, IdentityTokenService tokens, CancellationToken ct)
-            => IdentityEndpointHandlers.TokenAsync(req, tokens, ct)).AllowAnonymous();
+        // Read by the handler rather than bound as a parameter: RFC 6749 clients send a form body or
+        // a Basic header, and a record parameter binds only a JSON body.
+        auth.MapPost("/token", (HttpContext http, IdentityTokenService tokens, CancellationToken ct)
+            => IdentityEndpointHandlers.TokenAsync(http, tokens, ct)).AllowAnonymous();
 
         var clients = app.MapGroup("/api/service-clients")
             .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName);

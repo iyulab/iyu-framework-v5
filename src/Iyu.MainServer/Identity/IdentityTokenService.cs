@@ -28,7 +28,18 @@ public sealed class IdentityTokenService
         _store = store; _opts = opts; _clock = clock; _log = log;
     }
 
-    public async Task<TokenResult> IssueClientCredentialsAsync(string clientId, string secret, CancellationToken ct)
+    public Task<TokenResult> IssueClientCredentialsAsync(string clientId, string secret, CancellationToken ct) =>
+        IssueClientCredentialsAsync(clientId, secret, scope: null, ct);
+
+    /// <summary>Issues a client-credentials token, optionally narrowed to a requested scope.</summary>
+    /// <remarks>
+    /// <paramref name="scope"/> is the RFC 6749 §3.3 <c>scope</c> parameter: space-delimited permission codes. Absent or blank,
+    /// the token carries every permission the client effectively holds. Present, it must be a subset
+    /// of those — the token then carries exactly the requested ones, and a code outside them fails
+    /// the request with <c>invalid_scope</c> rather than being silently dropped.
+    /// </remarks>
+    public async Task<TokenResult> IssueClientCredentialsAsync(string clientId, string secret, string? scope,
+        CancellationToken ct)
     {
         var empty = Array.Empty<string>();
         var client = await _store.FindServiceClientByClientIdAsync(clientId, ct);
@@ -51,19 +62,31 @@ public sealed class IdentityTokenService
         var clientPerms = await _store.GetServiceClientPermissionsAsync(client.Id, ct);
         var effective = PermissionScope.Effective(clientPerms, ownerPerms);
 
+        var requested = (scope ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToList();
+        if (requested.Count > 0 && requested.Any(r => !effective.Contains(r, StringComparer.Ordinal)))
+        {
+            LogRejection(clientId, "requested scope exceeds the client's permissions");
+            return new(false, "invalid_scope", null, 0, empty);
+        }
+        var granted = requested.Count > 0
+            ? effective.Where(p => requested.Contains(p, StringComparer.Ordinal)).ToList()
+            : effective;
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, client.ClientId),
             new("owner", client.OwnerUserId.ToString()),   // reserved for future owner-scoped JWT authorization; not yet enforced
         };
-        claims.AddRange(effective.Select(p => new Claim(_opts.PermissionClaimType, p)));
+        claims.AddRange(granted.Select(p => new Claim(_opts.PermissionClaimType, p)));
+        // The fingerprint covers the client's full effective set, not the narrowed grant: it records
+        // what the client is, so a narrower token is still ended by a change to the client.
         claims.Add(new Claim(IyuIdentityClaims.ServiceClientStampClaimType,
             ServiceClientStamp.Compute(_opts.SigningKey, client.SecretHash, effective)));
 
         var jwt = SignToken(claims, _opts.Lifetime, now);
 
         await _store.TouchServiceClientAsync(client.Id, now, ct);
-        return new(true, null, jwt, (int)_opts.Lifetime.TotalSeconds, effective);
+        return new(true, null, jwt, (int)_opts.Lifetime.TotalSeconds, granted);
     }
 
     /// <summary>
@@ -94,7 +117,7 @@ public sealed class IdentityTokenService
 
     /// <summary>
     /// Signs a JWT for a caller-supplied claim set — the counterpart to
-    /// <see cref="IssueClientCredentialsAsync"/> for a human principal the consuming app has
+    /// <see cref="IssueClientCredentialsAsync(string, string, string?, CancellationToken)"/> for a human principal the consuming app has
     /// already authenticated by its own means (password check, external IdP, etc.). This service
     /// does not verify credentials; the caller is trusted to have done so before calling.
     /// </summary>
@@ -108,7 +131,7 @@ public sealed class IdentityTokenService
     /// short-lived default tuned for service clients.
     /// </param>
     /// <remarks>
-    /// Synchronous, unlike <see cref="IssueClientCredentialsAsync"/> — there is no store lookup here,
+    /// Synchronous, unlike <see cref="IssueClientCredentialsAsync(string, string, string?, CancellationToken)"/> — there is no store lookup here,
     /// only signing of the claims the caller already assembled.
     /// </remarks>
     public TokenResult IssueUserToken(IEnumerable<Claim> claims, TimeSpan? lifetimeOverride = null)
