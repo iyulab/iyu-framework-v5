@@ -44,7 +44,7 @@ public static class IdentityEndpointHandlers
         var (req, viaBasic, readError) = await ReadTokenRequestAsync(http.Request, ct);
         if (readError is not null) return OAuthError(readError, StatusCodes.Status400BadRequest);
 
-        var (result, error) = await IssueAsync(req!, tokens, RefreshTokens(http.RequestServices), ct);
+        var (result, error) = await IssueAsync(req!, tokens, () => RefreshTokens(http.RequestServices), ct);
         if (error != InvalidClient) return result;
         if (!viaBasic) return OAuthError(InvalidClient, StatusCodes.Status400BadRequest);
         http.Response.Headers.WWWAuthenticate = "Basic realm=\"iyu\", charset=\"UTF-8\"";
@@ -59,26 +59,38 @@ public static class IdentityEndpointHandlers
     public static async Task<IResult> TokenAsync(TokenRequest req, IdentityTokenService tokens, CancellationToken ct,
         UserTokenService? users = null)
     {
-        var (result, error) = await IssueAsync(req, tokens, users, ct);
+        var (result, error) = await IssueAsync(req, tokens, () => users, ct);
         return error == InvalidClient ? OAuthError(InvalidClient, StatusCodes.Status401Unauthorized) : result;
     }
 
     private const string InvalidClient = "invalid_client";
 
-    /// <summary>The refresh-token service, when the app has registered both of its ports.</summary>
-    private static UserTokenService? RefreshTokens(IServiceProvider services) =>
-        services.GetService(typeof(IRefreshTokenStore)) is not null && services.GetService(typeof(IUserTokenClaimsSource)) is not null
-            ? (UserTokenService?)services.GetService(typeof(UserTokenService))
-            : null;
+    /// <summary>
+    /// The refresh-token service when the app has registered both of its ports; <c>null</c> when it has
+    /// registered neither (refresh tokens are off).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Only one of the two is registered — a configuration
+    /// mistake, named here rather than answered as an unsupported grant that would hide it.</exception>
+    private static UserTokenService? RefreshTokens(IServiceProvider services)
+    {
+        var store = services.GetService(typeof(IRefreshTokenStore)) is not null;
+        var claims = services.GetService(typeof(IUserTokenClaimsSource)) is not null;
+        if (store != claims)
+            throw new InvalidOperationException(
+                $"Refresh tokens need both {nameof(IRefreshTokenStore)} and {nameof(IUserTokenClaimsSource)} registered; "
+                + $"{(store ? nameof(IUserTokenClaimsSource) : nameof(IRefreshTokenStore))} is missing.");
+        return store ? (UserTokenService?)services.GetService(typeof(UserTokenService)) : null;
+    }
 
     private static async Task<(IResult Result, string? Error)> IssueAsync(
-        TokenRequest req, IdentityTokenService tokens, UserTokenService? users, CancellationToken ct)
+        TokenRequest req, IdentityTokenService tokens, Func<UserTokenService?> refreshTokens, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(req.Grant_Type))
             return Failure("invalid_request");
         if (req.Grant_Type == "refresh_token")
         {
-            if (users is null) return Failure("unsupported_grant_type");
+            // Resolved only for this grant: a half-registered pair must not break client credentials.
+            if (refreshTokens() is not { } users) return Failure("unsupported_grant_type");
             if (string.IsNullOrWhiteSpace(req.Refresh_Token)) return Failure("invalid_request");
             var pair = await users.RefreshAsync(req.Refresh_Token, ct);
             if (!pair.Ok) return Failure(pair.Error!);

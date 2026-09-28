@@ -47,6 +47,43 @@ public class UserTokenServiceTests
     }
 
     [Fact]
+    public async Task A_person_s_access_lifetime_is_set_apart_from_service_client_tokens()
+    {
+        // Shortening a person's access token must not shorten every service client's.
+        _opts.Lifetime = TimeSpan.FromHours(1);
+        _opts.UserAccessTokenLifetime = TimeSpan.FromMinutes(15);
+        _claims.Set("u1", "orders.read");
+        var svc = Service();
+
+        var first = await svc.IssueAsync("u1", default);
+        var refreshed = await svc.RefreshAsync(first.RefreshToken!, default);
+
+        Assert.Equal(900, first.ExpiresInSeconds);
+        Assert.Equal(900, refreshed.ExpiresInSeconds);
+        Assert.Equal(_clock.GetUtcNow().AddMinutes(15).UtcDateTime,
+            new JwtSecurityTokenHandler().ReadJwtToken(refreshed.AccessToken).ValidTo, TimeSpan.FromSeconds(1));
+
+        var store = new FakeIdentityStore();
+        var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
+        var (clientId, secret, hash) = ServiceClientSecrets.Generate();
+        store.AddClient(clientId, hash, owner, perms: ["orders.read"]);
+        var client = await new IdentityTokenService(store, _opts, _clock, new RecordingLogger<IdentityTokenService>())
+            .IssueClientCredentialsAsync(clientId, secret, default);
+        Assert.Equal(3600, client.ExpiresInSeconds);
+    }
+
+    [Fact]
+    public async Task Without_its_own_lifetime_a_person_s_access_token_uses_Lifetime()
+    {
+        _opts.Lifetime = TimeSpan.FromMinutes(20);
+        _claims.Set("u1", "orders.read");
+
+        var pair = await Service().IssueAsync("u1", default);
+
+        Assert.Equal(1200, pair.ExpiresInSeconds);
+    }
+
+    [Fact]
     public async Task Only_the_hash_of_a_refresh_token_is_stored()
     {
         _claims.Set("u1", "orders.read");

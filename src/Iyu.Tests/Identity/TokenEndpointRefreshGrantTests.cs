@@ -26,7 +26,9 @@ public class TokenEndpointRefreshGrantTests
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
 
-    private static async Task<Host> StartAsync(bool refreshTokens)
+    private static Task<Host> StartAsync(bool refreshTokens) => StartAsync(refreshTokens, refreshTokens);
+
+    private static async Task<Host> StartAsync(bool tokenStore, bool claimsSource)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -34,11 +36,8 @@ public class TokenEndpointRefreshGrantTests
         builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
         var claims = new FakeUserTokenClaimsSource();
-        if (refreshTokens)
-        {
-            builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
-            builder.Services.AddSingleton<IUserTokenClaimsSource>(claims);
-        }
+        if (tokenStore) builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
+        if (claimsSource) builder.Services.AddSingleton<IUserTokenClaimsSource>(claims);
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: ["orders.read"]);
 
         var app = builder.Build();
@@ -82,6 +81,34 @@ public class TokenEndpointRefreshGrantTests
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         Assert.Equal("unsupported_grant_type", body.GetProperty("error").GetString());
+    }
+
+    /// <summary>
+    /// Half the ports is a configuration mistake, not "refresh tokens off": answering
+    /// <c>unsupported_grant_type</c> would hide which registration is missing.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, nameof(IUserTokenClaimsSource))]
+    [InlineData(false, true, nameof(IRefreshTokenStore))]
+    public async Task Registering_one_port_of_two_names_the_missing_one(bool tokenStore, bool claimsSource, string missing)
+    {
+        await using var host = await StartAsync(tokenStore, claimsSource);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => PostTokenAsync(host.Http, Refresh("anything")));
+
+        Assert.Contains(missing, error.Message);
+    }
+
+    [Fact]
+    public async Task Half_the_ports_does_not_disturb_client_credentials()
+    {
+        await using var host = await StartAsync(tokenStore: true, claimsSource: false);
+
+        var (res, body) = await PostTokenAsync(host.Http,
+            new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("client_id", "x"), new("client_secret", "y")]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("invalid_client", body.GetProperty("error").GetString());
     }
 
     [Fact]

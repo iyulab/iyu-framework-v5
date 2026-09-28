@@ -32,4 +32,15 @@ public sealed class IdentityTokenOptions
     /// and one left unused this long must sign in again.
     /// </summary>
     public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// The lifetime of a person's access token issued with a refresh token (<see cref="UserTokenService"/>);
+    /// <c>null</c> uses <see cref="Lifetime"/>.
+    /// </summary>
+    /// <remarks>
+    /// Separate because <see cref="Lifetime"/> also governs service-client tokens: keeping a person's
+    /// token short — it bounds how long a deactivation or a narrowed permission set takes to arrive —
+    /// should not shorten every service client's.
+    /// </remarks>
+    public TimeSpan? UserAccessTokenLifetime { get; set; }
 }

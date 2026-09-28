@@ -134,7 +134,7 @@ public sealed class UserTokenService
             return UserTokenPair.Refused;
         }
 
-        var access = _tokens.IssueUserToken(claims);
+        var access = _tokens.IssueUserToken(claims, _opts.UserAccessTokenLifetime);
         var refresh = Base64Url(RandomNumberGenerator.GetBytes(32));
         await _store.InsertAsync(new RefreshTokenRecord(Guid.NewGuid(), familyId, subject, HashRefreshToken(refresh),
             now, now.Add(_opts.RefreshTokenLifetime)), ct);

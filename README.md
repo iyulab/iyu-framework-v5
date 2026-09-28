@@ -189,7 +189,8 @@ next access token and the refresh token that replaces the one it sent. What the 
   out.
 - **Every refresh asks `IUserTokenClaimsSource` again.** A deactivated person (the source answers
   `null`) cannot refresh, and a narrowed permission set reaches the next access token — within one
-  access-token lifetime (`IdentityTokenOptions.Lifetime`, 1 hour by default; keep it short).
+  access-token lifetime. Set `IdentityTokenOptions.UserAccessTokenLifetime` (e.g. 15 minutes) to keep a
+  person's access token short without shortening service-client tokens; unset, it is `Lifetime`.
 - **Sign-out**: `UserTokenService.RevokeAsync(refreshToken)` ends one sign-in,
   `RevokeAllAsync(subject)` every sign-in of the person (password change, deactivation). Access
   tokens already issued run out on their own.
@@ -200,6 +201,7 @@ next access token and the refresh token that replaces the one it sent. What the 
   racing with one token cannot both win.
 
 Without the two ports, `grant_type=refresh_token` answers `unsupported_grant_type` and nothing else changes.
+With only one of them, a refresh request fails with an exception naming the missing one.
 
 ### Diagnosing a service client that stopped working
 

@@ -44,9 +44,11 @@ onward; earlier entries state the same consequence in prose where it applies.
   - Every refresh asks the app again for the person's claims (`IUserTokenClaimsSource` — `null` refuses),
     so deactivation and narrowed permissions reach the next access token.
   - Turned on by registering `IRefreshTokenStore` and `IUserTokenClaimsSource`, both implemented by the app;
-    the store keeps only a hash of each token. Lifetime: `IdentityTokenOptions.RefreshTokenLifetime`
-    (30 days, renewed at each refresh). Without the two, the endpoint answers the new grant with
-    `unsupported_grant_type` and nothing else changes.
+    the store keeps only a hash of each token. Lifetimes: `IdentityTokenOptions.RefreshTokenLifetime`
+    (30 days, renewed at each refresh) and `UserAccessTokenLifetime` (a person's access token, apart from
+    service-client tokens; unset, `Lifetime`). Without the two ports, the endpoint answers the new grant with
+    `unsupported_grant_type` and nothing else changes; with only one, a refresh request throws, naming the
+    missing one.
 
 ### Fixed
 
