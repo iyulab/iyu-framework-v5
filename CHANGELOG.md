@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -52,6 +52,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Fixed
 
+- **`Iyu.VaultAi`: a report generation started by hand that fails leaves a marker, as a scheduled one does.**
+  🔇 no build-time signal. `GET …/{folder}/new` answers 202 and generates in the background; a failure there
+  went only to the run log, so the report list showed nothing and the caller had to notice that no report
+  arrived. It now writes the same failure marker a failed scheduled run writes — counted in the same run of
+  consecutive failures and skipped as «previous report» context — under `{yyyyMMdd-HHmmss}-manual-failed.md`,
+  a name the scheduler never takes for a slot, so the marker cannot make it skip that minute's report.
 - **`Iyu.Server.OData`: `$apply` results write an enum property's declared wire value.** 🔇 no build-time
   signal. An entity read writes an enum member by its `[EnumMember(Value = ...)]` name (`print_order`); a
   `groupby` over the same property wrote the CLR member name (`PrintOrder`), so a label table keyed on one did
