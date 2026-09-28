@@ -29,7 +29,24 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.OData`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+### Added
+
+- **`Iyu.MainServer`: refresh tokens for people — short access tokens with rotating refresh tokens.**
+  `IssueUserToken` could only sign one access token, so a native or desktop client that must not ask its
+  user to sign in every hour got a long-lived token instead: nothing could take it back, and a narrowed
+  permission set reached it only when it expired. `UserTokenService` issues an access token with a refresh
+  token (`IssueAsync(subject)`) and exchanges a refresh token for the next pair (`RefreshAsync`, and
+  `grant_type=refresh_token` on `POST /api/auth/token`, RFC 6749 §6).
+  - Each refresh token is accepted once; presenting it again revokes every token of that sign-in (RFC 9700
+    §4.14.2). `RevokeAsync(refreshToken)` ends one sign-in, `RevokeAllAsync(subject)` all of a person's.
+  - Every refresh asks the app again for the person's claims (`IUserTokenClaimsSource` — `null` refuses),
+    so deactivation and narrowed permissions reach the next access token.
+  - Turned on by registering `IRefreshTokenStore` and `IUserTokenClaimsSource`, both implemented by the app;
+    the store keeps only a hash of each token. Lifetime: `IdentityTokenOptions.RefreshTokenLifetime`
+    (30 days, renewed at each refresh). Without the two, the endpoint answers the new grant with
+    `unsupported_grant_type` and nothing else changes.
 
 ### Fixed
 

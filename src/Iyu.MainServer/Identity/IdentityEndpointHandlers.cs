@@ -10,7 +10,8 @@ namespace Iyu.MainServer.Identity;
 public static class IdentityEndpointHandlers
 {
     /// <summary>
-    /// <c>POST /api/auth/token</c> — the OAuth2 client-credentials grant (RFC 6749 §4.4).
+    /// <c>POST /api/auth/token</c> — the OAuth2 client-credentials grant (RFC 6749 §4.4), and the
+    /// refresh-token grant (§6) when the app has enabled refresh tokens.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -27,6 +28,13 @@ public static class IdentityEndpointHandlers
     /// <c>invalid_client</c> — 401 with <c>WWW-Authenticate: Basic</c> when it came in the header,
     /// 400 when it came in the body. Every answer is marked <c>Cache-Control: no-store</c> (§5.1).
     /// </para>
+    /// <para>
+    /// <c>grant_type=refresh_token</c> with <c>refresh_token</c> exchanges a person's refresh token through
+    /// <see cref="UserTokenService.RefreshAsync"/> — available when <see cref="IRefreshTokenStore"/> and
+    /// <see cref="IUserTokenClaimsSource"/> are registered, <c>unsupported_grant_type</c> otherwise. These
+    /// tokens are issued to people, not to registered clients, so no client authentication is read for
+    /// this grant. A token that cannot be exchanged, for whatever reason, is <c>invalid_grant</c>.
+    /// </para>
     /// </remarks>
     public static async Task<IResult> TokenAsync(HttpContext http, IdentityTokenService tokens, CancellationToken ct)
     {
@@ -36,7 +44,7 @@ public static class IdentityEndpointHandlers
         var (req, viaBasic, readError) = await ReadTokenRequestAsync(http.Request, ct);
         if (readError is not null) return OAuthError(readError, StatusCodes.Status400BadRequest);
 
-        var (result, error) = await IssueAsync(req!, tokens, ct);
+        var (result, error) = await IssueAsync(req!, tokens, RefreshTokens(http.RequestServices), ct);
         if (error != InvalidClient) return result;
         if (!viaBasic) return OAuthError(InvalidClient, StatusCodes.Status400BadRequest);
         http.Response.Headers.WWWAuthenticate = "Basic realm=\"iyu\", charset=\"UTF-8\"";
@@ -48,19 +56,35 @@ public static class IdentityEndpointHandlers
     /// authentication gets, the challenge and cache headers — belong to the HTTP overload; this one
     /// answers a failed authentication with 401 and no challenge.
     /// </summary>
-    public static async Task<IResult> TokenAsync(TokenRequest req, IdentityTokenService tokens, CancellationToken ct)
+    public static async Task<IResult> TokenAsync(TokenRequest req, IdentityTokenService tokens, CancellationToken ct,
+        UserTokenService? users = null)
     {
-        var (result, error) = await IssueAsync(req, tokens, ct);
+        var (result, error) = await IssueAsync(req, tokens, users, ct);
         return error == InvalidClient ? OAuthError(InvalidClient, StatusCodes.Status401Unauthorized) : result;
     }
 
     private const string InvalidClient = "invalid_client";
 
+    /// <summary>The refresh-token service, when the app has registered both of its ports.</summary>
+    private static UserTokenService? RefreshTokens(IServiceProvider services) =>
+        services.GetService(typeof(IRefreshTokenStore)) is not null && services.GetService(typeof(IUserTokenClaimsSource)) is not null
+            ? (UserTokenService?)services.GetService(typeof(UserTokenService))
+            : null;
+
     private static async Task<(IResult Result, string? Error)> IssueAsync(
-        TokenRequest req, IdentityTokenService tokens, CancellationToken ct)
+        TokenRequest req, IdentityTokenService tokens, UserTokenService? users, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(req.Grant_Type))
             return Failure("invalid_request");
+        if (req.Grant_Type == "refresh_token")
+        {
+            if (users is null) return Failure("unsupported_grant_type");
+            if (string.IsNullOrWhiteSpace(req.Refresh_Token)) return Failure("invalid_request");
+            var pair = await users.RefreshAsync(req.Refresh_Token, ct);
+            if (!pair.Ok) return Failure(pair.Error!);
+            return (Results.Ok(new RefreshTokenResponse(pair.AccessToken!, "Bearer", pair.ExpiresInSeconds,
+                pair.RefreshToken!, string.Join(' ', pair.Permissions))), null);
+        }
         if (req.Grant_Type != "client_credentials")
             return Failure("unsupported_grant_type");
         if (string.IsNullOrWhiteSpace(req.ClientId) || string.IsNullOrWhiteSpace(req.ClientSecret))
@@ -87,7 +111,7 @@ public static class IdentityEndpointHandlers
         {
             var form = await request.ReadFormAsync(ct);
             body = new TokenRequest(Single(form["client_id"]), Single(form["client_secret"]),
-                Single(form["grant_type"]), Single(form["scope"]));
+                Single(form["grant_type"]), Single(form["scope"]), Single(form["refresh_token"]));
         }
         else if (request.HasJsonContentType())
         {

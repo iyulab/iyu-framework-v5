@@ -25,4 +25,11 @@ public sealed class IdentityTokenOptions
     /// token that was in use when it happened. <see cref="TimeSpan.Zero"/> checks every request.
     /// </summary>
     public TimeSpan ServiceClientValidationWindow { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How long a person's refresh token stays exchangeable (<see cref="UserTokenService"/>). Each
+    /// exchange issues a new one with a fresh lifetime, so a client in regular use stays signed in
+    /// and one left unused this long must sign in again.
+    /// </summary>
+    public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(30);
 }

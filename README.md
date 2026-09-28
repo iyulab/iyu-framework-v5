@@ -157,7 +157,49 @@ app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore st
 `IdentityTokenOptions` (`SigningKey`/`Issuer`/`Audience`) the cookie/OIDC recipes above never touch.
 `lifetimeOverride` is there because a client without a refresh flow (a mobile app queuing work
 offline) typically needs a longer-lived token than the short default tuned for service clients —
-pass nothing to keep `IdentityTokenOptions.Lifetime`.
+pass nothing to keep `IdentityTokenOptions.Lifetime`. A long-lived access token cannot be taken
+back, though: prefer the refresh flow below for a public client.
+
+**Refresh tokens (short access, rotating refresh — RFC 9700 §4.14, RFC 8252):** register the two
+ports and sign the person in through `UserTokenService` instead:
+
+```csharp
+builder.Services.AddScoped<IRefreshTokenStore, EfRefreshTokenStore>();        // your table of RefreshTokenRecord
+builder.Services.AddScoped<IUserTokenClaimsSource, AppUserClaimsSource>();    // claims for a subject, or null to refuse
+
+app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, UserTokenService users, CancellationToken ct) =>
+{
+    var user = await store.FindUserByUsernameAsync(req.Username, ct);
+    if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
+
+    var pair = await users.IssueAsync(user.Id.ToString(), ct);
+    return pair.Ok
+        ? Results.Ok(new { access_token = pair.AccessToken, expires_in = pair.ExpiresInSeconds, refresh_token = pair.RefreshToken })
+        : Results.Unauthorized();
+}).AllowAnonymous();
+```
+
+The client then exchanges its refresh token at the existing endpoint —
+`POST /api/auth/token` with `grant_type=refresh_token&refresh_token=…` (form or JSON) — and gets the
+next access token and the refresh token that replaces the one it sent. What the flow guarantees:
+
+- **Each refresh token works once.** Presenting one a second time revokes every token descended from
+  that sign-in — the server cannot tell the client from whoever copied the token. A client must keep
+  the newest refresh token it received; one that retries a refresh whose response it lost is signed
+  out.
+- **Every refresh asks `IUserTokenClaimsSource` again.** A deactivated person (the source answers
+  `null`) cannot refresh, and a narrowed permission set reaches the next access token — within one
+  access-token lifetime (`IdentityTokenOptions.Lifetime`, 1 hour by default; keep it short).
+- **Sign-out**: `UserTokenService.RevokeAsync(refreshToken)` ends one sign-in,
+  `RevokeAllAsync(subject)` every sign-in of the person (password change, deactivation). Access
+  tokens already issued run out on their own.
+- **Lifetime**: `IdentityTokenOptions.RefreshTokenLifetime` (30 days by default), renewed at every
+  refresh — a client used at least that often stays signed in.
+- **The store** keeps only the token's hash (`UserTokenService.HashRefreshToken`) and must make
+  `TryMarkUsedAsync` one conditional write (`… WHERE Id = @id AND UsedAt IS NULL`), so two requests
+  racing with one token cannot both win.
+
+Without the two ports, `grant_type=refresh_token` answers `unsupported_grant_type` and nothing else changes.
 
 ### Diagnosing a service client that stopped working
 

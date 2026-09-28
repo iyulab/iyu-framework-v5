@@ -83,3 +83,21 @@ grant_type=client_credentials&scope=orders.read
 없지만, 어디서 오는지는 저장소의 몫이고 모든 저장소에 답이 있다(엔티티 베이스에서 오든, 컬럼에서
 오든). 아직 보지 않은 저장소 하나 때문에 nullable 로 두면, **항상 값이 있는** 모든 소비자가
 null 검사를 하게 된다.
+
+## 사람 사용자의 리프레시 토큰 — `UserTokenService`
+
+네이티브·데스크톱 같은 공개 클라이언트에 긴 수명 액세스 토큰 대신 «짧은 액세스 + 회전 리프레시»를 준다.
+켜는 방법은 포트 두 개를 등록하는 것뿐이다 — `IRefreshTokenStore`(저장) · `IUserTokenClaimsSource`(주체의 클레임, `null` 이면 거절).
+둘이 없으면 `POST /api/auth/token` 의 `grant_type=refresh_token` 은 `unsupported_grant_type` 이다. 사용법은 리포 README `## Identity` 의 «Refresh tokens».
+
+### 저장소가 지켜야 할 것 — `IRefreshTokenStore`
+
+1. **토큰 원문을 저장하지 않는다.** 저장되는 것은 `RefreshTokenRecord.TokenHash`(SHA-256) 뿐이고 조회 키도 그것이다.
+2. **`TryMarkUsedAsync` 는 조건부 쓰기 한 번**이다 — `UPDATE … SET UsedAt = @at WHERE Id = @id AND UsedAt IS NULL`, 한 행이 바뀌었으면 `true`.
+   읽고 나서 쓰는 두 단계로 구현하면 같은 토큰을 든 두 요청이 **둘 다** 이긴다 — 복사된 토큰이 진짜 클라이언트와 경주하는 모양이 바로 그것이다.
+3. **폐기는 계열(`FamilyId`)·주체(`Subject`) 단위**로, 이미 폐기된 행은 건드리지 않는다. 시각은 인자로 받은 것을 쓴다(시계는 하나).
+
+### 클레임 원천이 지켜야 할 것 — `IUserTokenClaimsSource`
+
+로그인 때와 **매 리프레시 때** 불린다. 비활성·삭제된 사용자에게는 `null` 을 돌려준다 — 그 리프레시는 실패하고 그 로그인 계열 전체가 폐기된다.
+권한이 줄었으면 줄어든 클레임을 돌려준다 — 다음 액세스 토큰부터 반영된다(이미 나간 액세스 토큰은 수명까지 유효 — `IdentityTokenOptions.Lifetime` 을 짧게).

@@ -41,6 +41,9 @@ public static class IyuIdentityServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IdentityTokenService>();
         services.AddScoped<ServiceClientService>();
+        // Resolvable only once the app registers IRefreshTokenStore and IUserTokenClaimsSource —
+        // which is what turns refresh tokens on (the token endpoint checks for them).
+        services.AddScoped<UserTokenService>();
         services.AddMemoryCache();
         services.AddScoped<ServiceClientTokenValidator>();
 
