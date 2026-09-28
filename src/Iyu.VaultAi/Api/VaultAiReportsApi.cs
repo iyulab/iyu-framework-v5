@@ -574,7 +574,8 @@ internal static class VaultAiReportsApi
 
         // 요청 수명과 분리해 백그라운드로 생성(ctx.RequestAborted 사용 금지 — 응답 직후 취소됨).
         // 사전 검사와 시작 사이의 경합은 RunGenerateAsync의 gate가 최종적으로 흡수한다.
-        _ = Task.Run(() => RunGenerateInBackgroundAsync(folderPath, client, agentId, settings, dataProvider));
+        var logger = ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger(typeof(VaultAiReportsApi).FullName!);
+        _ = Task.Run(() => RunGenerateInBackgroundAsync(folderPath, client, agentId, settings, dataProvider, logger));
 
         ctx.Response.StatusCode = 202; // Accepted — 요청 수락, 생성은 비동기로 진행
         return ctx.Response.WriteAsJsonAsync(new
@@ -583,9 +584,14 @@ internal static class VaultAiReportsApi
         }, WebJson);
     }
 
-    private static async Task RunGenerateInBackgroundAsync(
+    /// <summary>
+    /// The body of a manual generation, after the 202. A failure leaves the same marker a failed
+    /// scheduled run does (<see cref="ReportFailureMarker"/>) — the caller was told only that the
+    /// work started, and the run log alone is not where anyone looks for a missing report.
+    /// </summary>
+    internal static async Task RunGenerateInBackgroundAsync(
         string folderPath, IVaultAiClient client, Guid agentId, VaultAiSettings settings,
-        IReportDataProvider? dataProvider)
+        IReportDataProvider? dataProvider, ILogger? logger)
     {
         try
         {
@@ -596,10 +602,26 @@ internal static class VaultAiReportsApi
         {
             // 이미 생성이 진행 중 — 트리거 무시
         }
-        catch
+        catch (Exception ex)
         {
-            // 백그라운드 실패는 폴더별 실행 로그(ReportRunLog)에 이미 기록됨
+            // 실행 로그(ReportRunLog)에 이미 기록됨 — 목록에서도 보이도록 표식을 남긴다.
+            var fileName = ReportFailureMarker.ManualFileName(DateTime.Now);
+            ReportFailureMarker.TryWrite(Path.Combine(folderPath, "output", fileName), ReportName(folderPath), fileName,
+                ex, ReportFailureMarker.Origin.Manual, logger);
         }
+    }
+
+    /// <summary>The report's display name from its <c>info.json</c>, or the folder name.</summary>
+    private static string ReportName(string folderPath)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(folderPath, "info.json")));
+            if (doc.RootElement.TryGetProperty("name", out var name) && name.GetString() is { Length: > 0 } text)
+                return text;
+        }
+        catch (Exception e) when (e is IOException or JsonException or InvalidOperationException) { }
+        return Path.GetFileName(folderPath);
     }
 
     private static string BuildAttemptPrompt(string prompt, IReadOnlyList<string>? feedback)
