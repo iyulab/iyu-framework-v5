@@ -27,6 +27,22 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`
+
+### Fixed
+
+- **`Iyu.Server.OData`: `$apply` results write an enum property's declared wire value.** 🔇 no build-time
+  signal. An entity read writes an enum member by its `[EnumMember(Value = ...)]` name (`print_order`); a
+  `groupby` over the same property wrote the CLR member name (`PrintOrder`), so a label table keyed on one did
+  not match the other, and a grouped value sent back in `$filter` was rejected as an unknown enumeration
+  constant. `groupby` and `aggregate` results — including a `groupby` over a navigation path — now write the
+  same value an entity read does. The cause is in `Microsoft.AspNetCore.OData` (dynamic-type results bypass
+  the enum member map, unchanged through 9.5.0); `IyuODataResourceSerializer` absorbs it until that changes.
+  - Behaviour change for a client that already normalized grouped enum values from the CLR name — that step
+    now receives the declared value.
+
 ## [0.33.0] - 2026-09-28
 
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Report`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`

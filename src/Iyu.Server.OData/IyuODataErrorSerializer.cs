@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.OData.Formatter.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OData;
+using Microsoft.OData.Edm;
 
 namespace Iyu.Server.OData;
 
@@ -66,21 +67,31 @@ public sealed class IyuODataErrorSerializer : ODataErrorSerializer
 
 /// <summary>
 /// The Iyu runtime's <see cref="IODataSerializerProvider"/>: the stock provider, with errors written
-/// by <see cref="IyuODataErrorSerializer"/>.
+/// by <see cref="IyuODataErrorSerializer"/> and resources by <see cref="IyuODataResourceSerializer"/>.
 /// </summary>
 public sealed class IyuODataSerializerProvider : ODataSerializerProvider
 {
     private readonly IyuODataErrorSerializer _errorSerializer;
+    private readonly IyuODataResourceSerializer _resourceSerializer;
 
     /// <param name="services">The route's service provider, as the stock provider takes it.</param>
     /// <param name="includeErrorDetails">See <see cref="IyuODataErrorSerializer(bool?)"/>.</param>
     public IyuODataSerializerProvider(IServiceProvider services, bool? includeErrorDetails)
         : base(services)
-        => _errorSerializer = new IyuODataErrorSerializer(includeErrorDetails);
+    {
+        _errorSerializer = new IyuODataErrorSerializer(includeErrorDetails);
+        _resourceSerializer = new IyuODataResourceSerializer(this);
+    }
 
     /// <inheritdoc />
     public override IODataSerializer GetODataPayloadSerializer(Type type, HttpRequest request)
         => type == typeof(ODataError) || type == typeof(SerializableError)
             ? _errorSerializer
             : base.GetODataPayloadSerializer(type, request);
+
+    /// <inheritdoc />
+    public override IODataEdmTypeSerializer GetEdmTypeSerializer(IEdmTypeReference edmType)
+        => edmType is not null && (edmType.IsEntity() || edmType.IsComplex())
+            ? _resourceSerializer
+            : base.GetEdmTypeSerializer(edmType!);
 }
