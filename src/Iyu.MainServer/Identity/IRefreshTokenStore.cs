@@ -26,8 +26,8 @@ public sealed record RefreshTokenRecord(
 
 /// <summary>
 /// Where refresh tokens are kept. The concrete implementation lives in the consuming app, like
-/// <see cref="IServiceClientStore"/>; registering it (with <see cref="IUserTokenClaimsSource"/>) is what
-/// enables refresh tokens.
+/// <see cref="IServiceClientStore"/>. Required, with <see cref="IUserTokenClaimsSource"/>, once the app turns
+/// refresh tokens on (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>).
 /// </summary>
 /// <remarks>
 /// Timestamps are passed in rather than read from the store's own clock — one clock decides, the

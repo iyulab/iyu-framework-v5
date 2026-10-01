@@ -160,10 +160,11 @@ offline) typically needs a longer-lived token than the short default tuned for s
 pass nothing to keep `IdentityTokenOptions.Lifetime`. A long-lived access token cannot be taken
 back, though: prefer the refresh flow below for a public client.
 
-**Refresh tokens (short access, rotating refresh — RFC 9700 §4.14, RFC 8252):** register the two
-ports and sign the person in through `UserTokenService` instead:
+**Refresh tokens (short access, rotating refresh — RFC 9700 §4.14, RFC 8252):** turn them on, register
+the two ports, and sign the person in through `UserTokenService` instead:
 
 ```csharp
+builder.Services.AddIyuRefreshTokens();                                        // without it, neither port is needed
 builder.Services.AddScoped<IRefreshTokenStore, EfRefreshTokenStore>();        // your table of RefreshTokenRecord
 builder.Services.AddScoped<IUserTokenClaimsSource, AppUserClaimsSource>();    // claims for a subject, or null to refuse
 

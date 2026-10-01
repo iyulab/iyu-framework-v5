@@ -27,6 +27,28 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.MainServer`
+
+### Fixed
+
+- **`Iyu.MainServer`: an app that does not use refresh tokens failed to start under 0.34.0 wherever
+  service-provider validation is on (Development by default).** `AddIyuIdentity` registered
+  `UserTokenService` unconditionally, and its constructor needs `IRefreshTokenStore` — so validation
+  refused the container for apps that registered neither port, contrary to 0.34.0's own note that nothing
+  changes without them. Refresh tokens are now turned on explicitly, and `AddIyuIdentity` alone requires
+  neither port.
+
+### Changed
+
+- 🔴 🔇 **`Iyu.MainServer`: refresh tokens are turned on by `services.AddIyuRefreshTokens()`, not by
+  registering the two ports.** The app still registers `IRefreshTokenStore` and `IUserTokenClaimsSource`,
+  with the lifetimes its storage needs. An app on 0.34.0 that registered them must add the call: without
+  it, `grant_type=refresh_token` answers `unsupported_grant_type` and `UserTokenService` is not in the
+  container. With the call and a port missing, validation names the port at startup (otherwise the first
+  resolution does) — the 0.34.0 message thrown by the token endpoint is gone.
+
 ## [0.34.0] - 2026-09-28
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.VaultAi`

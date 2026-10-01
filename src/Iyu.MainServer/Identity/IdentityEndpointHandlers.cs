@@ -30,8 +30,8 @@ public static class IdentityEndpointHandlers
     /// </para>
     /// <para>
     /// <c>grant_type=refresh_token</c> with <c>refresh_token</c> exchanges a person's refresh token through
-    /// <see cref="UserTokenService.RefreshAsync"/> — available when <see cref="IRefreshTokenStore"/> and
-    /// <see cref="IUserTokenClaimsSource"/> are registered, <c>unsupported_grant_type</c> otherwise. These
+    /// <see cref="UserTokenService.RefreshAsync"/> — available once the app calls
+    /// <see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>, <c>unsupported_grant_type</c> otherwise. These
     /// tokens are issued to people, not to registered clients, so no client authentication is read for
     /// this grant. A token that cannot be exchanged, for whatever reason, is <c>invalid_grant</c>.
     /// </para>
@@ -66,21 +66,13 @@ public static class IdentityEndpointHandlers
     private const string InvalidClient = "invalid_client";
 
     /// <summary>
-    /// The refresh-token service when the app has registered both of its ports; <c>null</c> when it has
-    /// registered neither (refresh tokens are off).
+    /// The refresh-token service when the app turned refresh tokens on
+    /// (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>); <c>null</c> when it did not.
     /// </summary>
-    /// <exception cref="InvalidOperationException">Only one of the two is registered — a configuration
-    /// mistake, named here rather than answered as an unsupported grant that would hide it.</exception>
-    private static UserTokenService? RefreshTokens(IServiceProvider services)
-    {
-        var store = services.GetService(typeof(IRefreshTokenStore)) is not null;
-        var claims = services.GetService(typeof(IUserTokenClaimsSource)) is not null;
-        if (store != claims)
-            throw new InvalidOperationException(
-                $"Refresh tokens need both {nameof(IRefreshTokenStore)} and {nameof(IUserTokenClaimsSource)} registered; "
-                + $"{(store ? nameof(IUserTokenClaimsSource) : nameof(IRefreshTokenStore))} is missing.");
-        return store ? (UserTokenService?)services.GetService(typeof(UserTokenService)) : null;
-    }
+    /// <exception cref="InvalidOperationException">Turned on with a port missing — a configuration mistake,
+    /// named by the container rather than answered as an unsupported grant that would hide it.</exception>
+    private static UserTokenService? RefreshTokens(IServiceProvider services) =>
+        (UserTokenService?)services.GetService(typeof(UserTokenService));
 
     private static async Task<(IResult Result, string? Error)> IssueAsync(
         TokenRequest req, IdentityTokenService tokens, Func<UserTokenService?> refreshTokens, CancellationToken ct)

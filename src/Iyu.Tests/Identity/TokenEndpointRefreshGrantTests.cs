@@ -14,7 +14,7 @@ namespace Iyu.Tests.Identity;
 
 /// <summary>
 /// <c>POST /api/auth/token</c> with <c>grant_type=refresh_token</c> (RFC 6749 §6), driven over HTTP:
-/// on only when the app registers the two refresh-token ports, and the access token it returns is
+/// on only when the app turns refresh tokens on (with its two ports), and the access token it returns is
 /// one the bearer scheme accepts.
 /// </summary>
 public class TokenEndpointRefreshGrantTests
@@ -26,9 +26,9 @@ public class TokenEndpointRefreshGrantTests
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
 
-    private static Task<Host> StartAsync(bool refreshTokens) => StartAsync(refreshTokens, refreshTokens);
+    private static Task<Host> StartAsync(bool refreshTokens) => StartAsync(refreshTokens, refreshTokens, refreshTokens);
 
-    private static async Task<Host> StartAsync(bool tokenStore, bool claimsSource)
+    private static async Task<Host> StartAsync(bool turnedOn, bool tokenStore, bool claimsSource)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -39,6 +39,7 @@ public class TokenEndpointRefreshGrantTests
         if (tokenStore) builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
         if (claimsSource) builder.Services.AddSingleton<IUserTokenClaimsSource>(claims);
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: ["orders.read"]);
+        if (turnedOn) builder.Services.AddIyuRefreshTokens();
 
         var app = builder.Build();
         app.UseAuthentication();
@@ -73,7 +74,7 @@ public class TokenEndpointRefreshGrantTests
     }
 
     [Fact]
-    public async Task The_grant_is_unsupported_until_the_app_registers_the_ports()
+    public async Task The_grant_is_unsupported_until_the_app_turns_refresh_tokens_on()
     {
         await using var host = await StartAsync(refreshTokens: false);
 
@@ -83,16 +84,28 @@ public class TokenEndpointRefreshGrantTests
         Assert.Equal("unsupported_grant_type", body.GetProperty("error").GetString());
     }
 
+    /// <summary>Registering the ports is not the switch — turning the feature on is.</summary>
+    [Fact]
+    public async Task Registered_ports_alone_leave_the_grant_unsupported()
+    {
+        await using var host = await StartAsync(turnedOn: false, tokenStore: true, claimsSource: true);
+
+        var (res, body) = await PostTokenAsync(host.Http, Refresh("anything"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("unsupported_grant_type", body.GetProperty("error").GetString());
+    }
+
     /// <summary>
-    /// Half the ports is a configuration mistake, not "refresh tokens off": answering
+    /// Turned on with a port missing is a configuration mistake, not "refresh tokens off": answering
     /// <c>unsupported_grant_type</c> would hide which registration is missing.
     /// </summary>
     [Theory]
     [InlineData(true, false, nameof(IUserTokenClaimsSource))]
     [InlineData(false, true, nameof(IRefreshTokenStore))]
-    public async Task Registering_one_port_of_two_names_the_missing_one(bool tokenStore, bool claimsSource, string missing)
+    public async Task Turning_on_with_one_port_of_two_names_the_missing_one(bool tokenStore, bool claimsSource, string missing)
     {
-        await using var host = await StartAsync(tokenStore, claimsSource);
+        await using var host = await StartAsync(turnedOn: true, tokenStore, claimsSource);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => PostTokenAsync(host.Http, Refresh("anything")));
 
@@ -100,9 +113,9 @@ public class TokenEndpointRefreshGrantTests
     }
 
     [Fact]
-    public async Task Half_the_ports_does_not_disturb_client_credentials()
+    public async Task A_missing_port_does_not_disturb_client_credentials()
     {
-        await using var host = await StartAsync(tokenStore: true, claimsSource: false);
+        await using var host = await StartAsync(turnedOn: true, tokenStore: true, claimsSource: false);
 
         var (res, body) = await PostTokenAsync(host.Http,
             new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("client_id", "x"), new("client_secret", "y")]));

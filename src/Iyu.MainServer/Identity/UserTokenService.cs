@@ -38,8 +38,9 @@ public sealed record UserTokenPair(bool Ok, string? Error, string? AccessToken, 
 /// needs no salt or slow hash — there is nothing to guess.
 /// </para>
 /// <para>
-/// Available when the app registers <see cref="IRefreshTokenStore"/> and <see cref="IUserTokenClaimsSource"/>;
-/// <c>POST /api/auth/token</c> then also accepts <c>grant_type=refresh_token</c>.
+/// Registered by <see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>, alongside the app's
+/// <see cref="IRefreshTokenStore"/> and <see cref="IUserTokenClaimsSource"/>; <c>POST /api/auth/token</c> then
+/// also accepts <c>grant_type=refresh_token</c>.
 /// </para>
 /// </remarks>
 public sealed class UserTokenService
