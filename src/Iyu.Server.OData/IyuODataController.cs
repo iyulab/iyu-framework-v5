@@ -108,7 +108,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         var write = new TWrite();
         if (body.Id == Guid.Empty) body.Id = Guid.NewGuid();
         write.Id = body.Id;
-        CopyCommonProperties(body, write, pair?.WriteExcludedProperties);
+        CopyCommonProperties(body, write, WithRowVersions(pair?.WriteExcludedProperties));
 
         WriteSet.Add(write);
         await Context.SaveChangesAsync(ct);
@@ -158,7 +158,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
             return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
 
         var excludedFromWrite = registry.FindByReadType(typeof(TRead))?.WriteExcludedProperties;
-        var (writable, unwritable) = PartitionByWritability(changedNames, excludedFromWrite);
+        var (writable, unwritable) = PartitionByWritability(changedNames, excludedFromWrite, RowVersionNames());
 
         // A request whose every property is unwritable cannot change anything. Reporting
         // success for it is what let a caller conclude the field was locked rather than
@@ -191,7 +191,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// </para>
     /// </remarks>
     private static (ISet<string> Writable, IReadOnlyDictionary<string, string> Unwritable) PartitionByWritability(
-        ISet<string> changedNames, IReadOnlySet<string>? excludedFromWrite)
+        ISet<string> changedNames, IReadOnlySet<string>? excludedFromWrite, IReadOnlySet<string> rowVersions)
     {
         var targetProps = typeof(TWrite).GetProperties()
             .Where(p => p.CanWrite && p.GetSetMethod(nonPublic: false) is not null)
@@ -207,6 +207,12 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
             if (name is nameof(IyuEntity.Id) or nameof(IyuEntity.CreatedAt) or nameof(IyuEntity.UpdatedAt))
             {
                 unwritable[name] = "The property is managed by the server and cannot be updated.";
+                continue;
+            }
+            if (rowVersions.Contains(name))
+            {
+                unwritable[name] = "The property is the row's version, which the database sets. " +
+                                   "Name the version a write expects with If-Match instead.";
                 continue;
             }
             if (excludedFromWrite is not null && excludedFromWrite.Contains(name))
@@ -322,6 +328,26 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         WriteSet.Remove(write);
         if (!await SaveUnderPreconditionAsync(precondition, ct)) return PreconditionFailed();
         return NoContent();
+    }
+
+    /// <summary>
+    /// The write type's concurrency tokens — the row's version. The store sets it and a client names
+    /// the version it expects with <c>If-Match</c>; a value in the body is never stored. Copying one
+    /// would let a client pick the version its next conditional write is checked against, and for a
+    /// <c>rowversion</c> column the database refuses an explicit value outright.
+    /// </summary>
+    private IReadOnlySet<string> RowVersionNames()
+        => Context.Model.FindEntityType(typeof(TWrite))?.GetProperties()
+               .Where(p => p.IsConcurrencyToken)
+               .Select(p => p.Name)
+               .ToHashSet(StringComparer.Ordinal)
+           ?? new HashSet<string>(StringComparer.Ordinal);
+
+    private IReadOnlySet<string> WithRowVersions(IReadOnlySet<string>? excluded)
+    {
+        var rowVersions = RowVersionNames();
+        if (rowVersions.Count == 0) return excluded ?? rowVersions;
+        return excluded is null ? rowVersions : excluded.Union(rowVersions).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>What an <c>If-Match</c> header decided before a write.</summary>

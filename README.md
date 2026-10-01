@@ -693,6 +693,11 @@ is refused with `412` `PreconditionFailed` and nothing is written — read the r
 - If the write type maps the same property as an EF concurrency token (`IsRowVersion`, or
   `[ConcurrencyCheck]`), a change landing between the check and the save is caught by the save and
   answered with the same `412`.
+- **The version travels in headers, never in the body.** A write type's concurrency token is the
+  database's: a `POST` or `PATCH` body that carries it does not set it. Sent alongside other changes it is
+  dropped; sent alone it is refused with `400` `UnwritableProperty`. (A `rowversion` column would refuse
+  an explicit value anyway.) With distinct read and write types, give the token the same name on both —
+  the ETag is built from the read type and the save check runs on the write type.
 
 ### The namespace the model is published under
 

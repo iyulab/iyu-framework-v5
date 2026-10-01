@@ -39,6 +39,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   ignored `If-Match`: a client writing from a stale copy overwrote the newer row and got `204`. Requests
   without `If-Match`, `If-Match: *`, and sets without a concurrency property behave as before. A read by
   key now also sends the `ETag` header. New code in `ODataErrorCodes`; README «Optimistic concurrency».
+  A concurrency token in a `POST` or `PATCH` body is never stored: alongside other changes it is
+  dropped, alone it is `400` `UnwritableProperty` — the version goes in `If-Match`. Before, the body's
+  value was copied to the write entity, letting a client choose the version its next conditional write
+  would be checked against (and failing with a database error on a SQL Server `rowversion` column).
 
 - **`Iyu.MainServer`: an app that does not use refresh tokens failed to start under 0.34.0 wherever
   service-provider validation is on (Development by default).** `AddIyuIdentity` registered
