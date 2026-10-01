@@ -673,11 +673,26 @@ code from `ODataErrorCodes` — branch on the code, not on the message text:
 | `405` | `ReadOnlySet` | the set is registered read-only for this verb |
 | `409` | `SharedKeyPrincipalMissing` | a shared-key row names a principal that does not exist |
 | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row |
+| `412` | `PreconditionFailed` | a `PATCH` or `DELETE` sent `If-Match` naming a version the row no longer has (below) |
 
 The two query-layer answers come from `IyuEnableQueryAttribute`, which the generic `Get` actions carry
 in place of `[EnableQuery]`; a controller that overrides `Get` puts `[IyuEnableQuery]` on the override
 to keep them. Authorization refusals (`401`/`403`) and the database errors `IyuWriteExceptionHandler`
 answers are outside this table.
+
+### Optimistic concurrency: `@odata.etag` and `If-Match`
+
+A set whose read type has a concurrency property (`[ConcurrencyCheck]` or `[Timestamp]`) answers each
+entity with `@odata.etag`, and a read by key also sends it as the `ETag` header. A `PATCH` or `DELETE`
+that sends that value back as `If-Match` is applied only if the row is still that version; otherwise it
+is refused with `412` `PreconditionFailed` and nothing is written — read the row again and decide.
+
+- **Without `If-Match` the write is unconditional**, as it always was. `If-Match: *` only requires the
+  row to exist.
+- **A set with no concurrency property is unaffected** — it carries no ETag and ignores the header.
+- If the write type maps the same property as an EF concurrency token (`IsRowVersion`, or
+  `[ConcurrencyCheck]`), a change landing between the check and the save is caught by the save and
+  answered with the same `412`.
 
 ### The namespace the model is published under
 

@@ -38,4 +38,10 @@ public static class ODataErrorCodes
 
     /// <summary><c>409</c> — the principal already has its one shared-key row.</summary>
     public const string SharedKeyRowExists = "SharedKeyRowExists";
+
+    /// <summary>
+    /// <c>412</c> — a <c>PATCH</c> or <c>DELETE</c> sent <c>If-Match</c> with a version of the row other than
+    /// the current one. Read the row again (its <c>@odata.etag</c>), and decide whether to reapply.
+    /// </summary>
+    public const string PreconditionFailed = "PreconditionFailed";
 }

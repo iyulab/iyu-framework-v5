@@ -29,9 +29,16 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
 
 ### Fixed
+
+- 🔇 **`Iyu.Server.OData`: a `PATCH` or `DELETE` that sends `If-Match` is refused with `412`
+  (`PreconditionFailed`) when the row has changed since that version.** A set whose read type has a
+  concurrency property already answered every entity with `@odata.etag`, but the generic write actions
+  ignored `If-Match`: a client writing from a stale copy overwrote the newer row and got `204`. Requests
+  without `If-Match`, `If-Match: *`, and sets without a concurrency property behave as before. A read by
+  key now also sends the `ETag` header. New code in `ODataErrorCodes`; README «Optimistic concurrency».
 
 - **`Iyu.MainServer`: an app that does not use refresh tokens failed to start under 0.34.0 wherever
   service-provider validation is on (Development by default).** `AddIyuIdentity` registered

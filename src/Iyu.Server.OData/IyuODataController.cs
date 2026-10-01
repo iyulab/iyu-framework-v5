@@ -3,7 +3,9 @@ using Iyu.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.OData.Abstracts;
 using Microsoft.AspNetCore.OData.Deltas;
+using Microsoft.AspNetCore.OData.Edm;
 using Microsoft.AspNetCore.OData.Extensions;
 using Microsoft.AspNetCore.OData.Query;
 using Microsoft.AspNetCore.OData.Results;
@@ -11,6 +13,7 @@ using Microsoft.AspNetCore.OData.Routing.Controllers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Net.Http.Headers;
 using Microsoft.OData;
 using Microsoft.OData.UriParser;
 
@@ -73,6 +76,9 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// reference as absent — a valid-looking response that is simply wrong. The 404 for a missing
     /// key comes from <see cref="IyuEnableQueryAttribute"/>, which answers an empty single result that way.
     /// </remarks>
+    // Declared first so that it runs last on the way out — after the query attribute has turned the
+    // SingleResult into the one entity the header is computed from.
+    [ETagActionFilter]
     [IyuEnableQuery]
     public virtual SingleResult<TRead> Get(Guid key)
         => SingleResult.Create(ReadSet.AsNoTracking().Where(e => e.Id == key));
@@ -136,6 +142,8 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
         if (write is null) return IyuEnableQueryAttribute.KeyNotFound();
+        var precondition = await MatchIfMatchAsync(key, write, ct);
+        if (precondition.Failed) return PreconditionFailed();
 
         // Apply ONLY the properties the client actually set. Copying the full
         // TRead placeholder would overwrite untouched fields with defaults.
@@ -159,7 +167,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
             return Invalid(UnwritablePropertiesModelState(unwritable), ODataErrorCodes.UnwritableProperty);
 
         CopySelectedProperties(readProjection, write, writable, excludedFromWrite);
-        await Context.SaveChangesAsync(ct);
+        if (!await SaveUnderPreconditionAsync(precondition, ct)) return PreconditionFailed();
 
         return StatusCode(StatusCodes.Status204NoContent);
     }
@@ -308,11 +316,90 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
 
         var write = await WriteSet.FirstOrDefaultAsync(e => e.Id == key, ct);
         if (write is null) return IyuEnableQueryAttribute.KeyNotFound();
+        var precondition = await MatchIfMatchAsync(key, write, ct);
+        if (precondition.Failed) return PreconditionFailed();
 
         WriteSet.Remove(write);
-        await Context.SaveChangesAsync(ct);
+        if (!await SaveUnderPreconditionAsync(precondition, ct)) return PreconditionFailed();
         return NoContent();
     }
+
+    /// <summary>What an <c>If-Match</c> header decided before a write.</summary>
+    /// <param name="Failed">The header names no version of the row as it is now.</param>
+    /// <param name="Conditional">The header was honoured, so a concurrent change found at save time is
+    /// the same failure, not a conflict.</param>
+    private readonly record struct Precondition(bool Failed, bool Conditional);
+
+    /// <summary>
+    /// Checks <c>If-Match</c> against the row's current ETag, for a set whose type has concurrency
+    /// properties — the sets this server answers with <c>@odata.etag</c>. Advertising an ETag and then
+    /// ignoring <c>If-Match</c> is what turned a client's stale write into a silent overwrite.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// No header, or a set without concurrency properties, leaves the write unconditional, as before.
+    /// <c>*</c> matches any existing row; the caller has already answered a missing one with 404.
+    /// </para>
+    /// <para>
+    /// The ETag is the read type's (it is what responses carry). Where the write type maps the same
+    /// property as an EF concurrency token, the save checks it too, so a change landing between this
+    /// check and the save fails the save rather than being overwritten — answered with the same 412.
+    /// Its original value is set to the version the client named, not the one this request happened to
+    /// load, so a row that changed between the load and the check is judged by the client's version.
+    /// </para>
+    /// </remarks>
+    private async Task<Precondition> MatchIfMatchAsync(Guid key, TWrite write, CancellationToken ct)
+    {
+        var ifMatch = Request.GetTypedHeaders().IfMatch;
+        if (ifMatch is not { Count: > 0 } || !HasConcurrencyProperties()) return default;
+        if (ifMatch.Any(t => t.Equals(EntityTagHeaderValue.Any))) return default;
+
+        var row = ReadSet.AsNoTracking().Where(e => e.Id == key);
+        foreach (var tag in ifMatch)
+        {
+            var etag = Request.GetETag<TRead>(tag);
+            if (etag is not { IsWellFormed: true } || !await etag.ApplyTo(row).AnyAsync(ct)) continue;
+
+            var entry = Context.Entry(write);
+            foreach (var property in entry.Properties.Where(p => p.Metadata.IsConcurrencyToken))
+            {
+                var value = etag[property.Metadata.Name];
+                if (value is not null) property.OriginalValue = value;
+            }
+            return new Precondition(Failed: false, Conditional: true);
+        }
+        return new Precondition(Failed: true, Conditional: true);
+    }
+
+    private bool HasConcurrencyProperties()
+    {
+        var model = Request.GetModel();
+        var source = Request.ODataFeature().Path?.NavigationSource();
+        return model is not null && source is not null && model.GetConcurrencyProperties(source).Any();
+    }
+
+    /// <summary>Saves; <see langword="false"/> when a conditional write lost to a concurrent change.</summary>
+    private async Task<bool> SaveUnderPreconditionAsync(Precondition precondition, CancellationToken ct)
+    {
+        try
+        {
+            await Context.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException) when (precondition.Conditional)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The <c>412</c> a write answers when <c>If-Match</c> names a version the row no longer has.</summary>
+    private static ObjectResult PreconditionFailed()
+        => new(new ODataError
+        {
+            Code = ODataErrorCodes.PreconditionFailed,
+            Message = "The entity has changed since the version named in If-Match.",
+        })
+        { StatusCode = StatusCodes.Status412PreconditionFailed };
 
     /// <summary>
     /// The three ways a POST to a shared-key set can fail before anything is written, or
