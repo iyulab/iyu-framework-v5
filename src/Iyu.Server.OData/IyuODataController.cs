@@ -384,8 +384,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         foreach (var tag in ifMatch)
         {
             var etag = Request.GetETag<TRead>(tag);
-            if (etag is not { IsWellFormed: true }) continue;
-            AlignToReadType(etag);
+            if (etag is not { IsWellFormed: true } || !AlignToReadType(etag)) continue;
             if (!await etag.ApplyTo(row).AnyAsync(ct)) continue;
 
             var entry = Context.Entry(write);
@@ -409,19 +408,34 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// <c>long</c> constant, an expression .NET refuses to build, and the request failed with 500.
     /// Converting here is the comparison the ETag meant; the same value then seeds the write type's
     /// original value, whose type is the read type's.
+    /// <para>
+    /// The ETag is the client's text: a value the property's type cannot hold (a negative number, one
+    /// past <c>uint.MaxValue</c>) names no version this row could have, so the tag is reported as not
+    /// matching — the request fails its precondition (412) instead of the server failing (500).
+    /// </para>
     /// </remarks>
-    private void AlignToReadType(ETag etag)
+    /// <returns><see langword="false"/> when a value cannot be the property's type.</returns>
+    private bool AlignToReadType(ETag etag)
     {
         var model = Request.GetModel();
         var source = Request.ODataFeature().Path?.NavigationSource();
-        if (model is null || source is null) return;
+        if (model is null || source is null) return true;
 
         foreach (var edmProperty in model.GetConcurrencyProperties(source))
         {
             var value = etag[edmProperty.Name];
             var clr = typeof(TRead).GetProperty(edmProperty.Name)?.PropertyType;
-            if (value is not null && clr is not null) etag[edmProperty.Name] = ToClrType(value, clr);
+            if (value is null || clr is null) continue;
+            try
+            {
+                etag[edmProperty.Name] = ToClrType(value, clr);
+            }
+            catch (Exception ex) when (ex is OverflowException or FormatException or InvalidCastException)
+            {
+                return false;
+            }
         }
+        return true;
     }
 
     private static object ToClrType(object value, Type clrType)

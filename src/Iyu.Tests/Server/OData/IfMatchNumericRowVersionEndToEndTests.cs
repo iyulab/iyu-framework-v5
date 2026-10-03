@@ -154,6 +154,24 @@ public class IfMatchNumericRowVersionEndToEndTests
         Assert.Equal("theirs", (await StoredAsync(host))!.Memo);
     }
 
+    /// <summary>
+    /// The ETag is the client's text. One carrying a number the property's type cannot hold names no
+    /// version this row could have — a precondition that fails, not a server error.
+    /// </summary>
+    [Theory]
+    [InlineData("1099511627776")]   // above uint.MaxValue
+    [InlineData("-1")]
+    public async Task An_ETag_naming_a_version_outside_the_type_is_refused_with_412(string version)
+    {
+        await using var host = await StartAsync();
+        var etag = $"W/\"{Convert.ToBase64String(Encoding.UTF8.GetBytes(version))}\"";
+
+        using var res = await host.Http.SendAsync(Patch(new { Memo = "mine" }, etag));
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, res.StatusCode);
+        Assert.Equal("first", (await StoredAsync(host))!.Memo);
+    }
+
     [Fact]
     public async Task A_body_carrying_only_the_token_is_refused()
     {

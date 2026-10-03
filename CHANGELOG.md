@@ -38,7 +38,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   comparison behind `If-Match` then put a `uint` property against a `long` value — an expression .NET
   refuses to build. A `PATCH` or `DELETE` naming the current version is now applied and one naming an
   older version is refused with `412`, as for a `byte[]` row version. Sets without `If-Match`, and
-  `byte[]` or `[ConcurrencyCheck]` tokens, behave as before. README «Optimistic concurrency» also states
+  `byte[]` or `[ConcurrencyCheck]` tokens, behave as before. An `If-Match` whose value the version's type
+  cannot hold (negative, or past `uint.MaxValue`) is a precondition that fails — `412`, not `500`. README «Optimistic concurrency» also states
   that ETags are an OData-surface feature — the GraphQL endpoint carries none.
 
 ## [0.35.0] - 2026-10-01
