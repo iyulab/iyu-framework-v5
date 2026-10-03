@@ -27,6 +27,20 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`
+
+### Fixed
+
+- 🔇 **`Iyu.Server.OData`: `If-Match` on a set whose row version is a `uint` failed with `500`.** EF maps
+  PostgreSQL's `xmin` row version to `[Timestamp] uint`; OData publishes it as a 64-bit integer, and the
+  comparison behind `If-Match` then put a `uint` property against a `long` value — an expression .NET
+  refuses to build. A `PATCH` or `DELETE` naming the current version is now applied and one naming an
+  older version is refused with `412`, as for a `byte[]` row version. Sets without `If-Match`, and
+  `byte[]` or `[ConcurrencyCheck]` tokens, behave as before. README «Optimistic concurrency» also states
+  that ETags are an OData-surface feature — the GraphQL endpoint carries none.
+
 ## [0.35.0] - 2026-10-01
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`

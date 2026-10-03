@@ -698,6 +698,11 @@ is refused with `412` `PreconditionFailed` and nothing is written — read the r
   dropped; sent alone it is refused with `400` `UnwritableProperty`. (A `rowversion` column would refuse
   an explicit value anyway.) With distinct read and write types, give the token the same name on both —
   the ETag is built from the read type and the save check runs on the write type.
+- **Either row-version shape works.** SQL Server's `[Timestamp] byte[]` and the `[Timestamp] uint` EF maps
+  to PostgreSQL's `xmin` both round-trip: OData has no unsigned 32-bit type, so a `uint` version is published
+  as a 64-bit integer, and `If-Match` is compared in the property's own type.
+- **OData only.** The GraphQL endpoint carries no ETag — it emits reads only (see below), so writes, and
+  with them `If-Match`, go through the OData set.
 
 ### The namespace the model is published under
 

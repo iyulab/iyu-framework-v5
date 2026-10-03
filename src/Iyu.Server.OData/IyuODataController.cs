@@ -384,17 +384,52 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         foreach (var tag in ifMatch)
         {
             var etag = Request.GetETag<TRead>(tag);
-            if (etag is not { IsWellFormed: true } || !await etag.ApplyTo(row).AnyAsync(ct)) continue;
+            if (etag is not { IsWellFormed: true }) continue;
+            AlignToReadType(etag);
+            if (!await etag.ApplyTo(row).AnyAsync(ct)) continue;
 
             var entry = Context.Entry(write);
             foreach (var property in entry.Properties.Where(p => p.Metadata.IsConcurrencyToken))
             {
                 var value = etag[property.Metadata.Name];
-                if (value is not null) property.OriginalValue = value;
+                if (value is not null) property.OriginalValue = ToClrType(value, property.Metadata.ClrType);
             }
             return new Precondition(Failed: false, Conditional: true);
         }
         return new Precondition(Failed: true, Conditional: true);
+    }
+
+    /// <summary>
+    /// Gives each value an ETag carries the CLR type of the read type's property it stands for.
+    /// </summary>
+    /// <remarks>
+    /// An ETag value comes back typed by the EDM, which widens what it cannot represent — a
+    /// <c>uint</c> row version (how EF maps PostgreSQL's <c>xmin</c>) becomes <c>Edm.Int64</c>, so the
+    /// value is a <c>long</c>. <c>ETag.ApplyTo</c> then compares the <c>uint</c> property with a
+    /// <c>long</c> constant, an expression .NET refuses to build, and the request failed with 500.
+    /// Converting here is the comparison the ETag meant; the same value then seeds the write type's
+    /// original value, whose type is the read type's.
+    /// </remarks>
+    private void AlignToReadType(ETag etag)
+    {
+        var model = Request.GetModel();
+        var source = Request.ODataFeature().Path?.NavigationSource();
+        if (model is null || source is null) return;
+
+        foreach (var edmProperty in model.GetConcurrencyProperties(source))
+        {
+            var value = etag[edmProperty.Name];
+            var clr = typeof(TRead).GetProperty(edmProperty.Name)?.PropertyType;
+            if (value is not null && clr is not null) etag[edmProperty.Name] = ToClrType(value, clr);
+        }
+    }
+
+    private static object ToClrType(object value, Type clrType)
+    {
+        var target = Nullable.GetUnderlyingType(clrType) ?? clrType;
+        return target.IsInstanceOfType(value) || value is not IConvertible
+            ? value
+            : Convert.ChangeType(value, target, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private bool HasConcurrencyProperties()
