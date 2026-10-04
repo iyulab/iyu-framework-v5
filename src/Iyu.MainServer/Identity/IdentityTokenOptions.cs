@@ -34,6 +34,40 @@ public sealed class IdentityTokenOptions
     public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(30);
 
     /// <summary>
+    /// How long after a refresh token is exchanged the same token may be presented again without
+    /// ending the sign-in (<see cref="UserTokenService"/>). <see cref="TimeSpan.Zero"/>, the default,
+    /// is strict rotation: any second presentation revokes every token of the sign-in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For clients on unreliable networks. A refresh that reaches the server and rotates the token
+    /// but whose response is lost leaves the client holding only the old token; its retry is, to the
+    /// server, a reuse, and under strict rotation it signs the person out, often exactly where the
+    /// network is poor. Within this interval the retry is answered with a new pair instead, and the
+    /// pair the lost response carried is retired, so the sign-in still has one live refresh token.
+    /// </para>
+    /// <para>
+    /// The cost is detection: for this long after a legitimate refresh, whoever else holds a copy of
+    /// the old token can exchange it as well (and the client that refreshed is then signed out at its
+    /// next refresh, by reuse). Keep it to the seconds a retry takes. Outside the interval, and for a
+    /// token whose replacement has already been used, a second presentation revokes the sign-in as
+    /// before.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is negative.</exception>
+    public TimeSpan RefreshTokenReuseInterval
+    {
+        get => _refreshTokenReuseInterval;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, TimeSpan.Zero);
+            _refreshTokenReuseInterval = value;
+        }
+    }
+
+    private TimeSpan _refreshTokenReuseInterval = TimeSpan.Zero;
+
+    /// <summary>
     /// The lifetime of a person's access token issued with a refresh token (<see cref="UserTokenService"/>);
     /// <c>null</c> uses <see cref="Lifetime"/>.
     /// </summary>

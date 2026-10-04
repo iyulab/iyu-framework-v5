@@ -48,6 +48,25 @@ onward; earlier entries state the same consequence in prose where it applies.
   instead of passing it as if the set were open. With the model fix above it is not reachable; it keeps
   "no set" from ever meaning "no policy".
 
+### Added
+
+- **`Iyu.MainServer`: `IdentityTokenOptions.RefreshTokenReuseInterval` — a retried refresh whose response was
+  lost no longer has to sign the person out.** Within the interval after a refresh token is exchanged, the
+  same token presented again gets a new pair, and the pair the lost response carried is retired (one live
+  refresh token per sign-in). Outside it, or once that pair has been used, a second presentation revokes the
+  sign-in as before. Default `TimeSpan.Zero`: strict rotation, unchanged. Negative values are refused where
+  they are set. README «Refresh tokens».
+
+### Changed
+
+- **`Iyu.MainServer`: refresh-token stores record lineage.** `RefreshTokenRecord` gains `ParentId` (the token a
+  token was issued in exchange for; `null` for a sign-in's first), and `IRefreshTokenStore` gains
+  `FindLatestChildAsync(Guid parentId, CancellationToken)` — the newest token with that parent. **Migration:**
+  add a nullable `ParentId` column (indexed), persist the record's value on insert and return it on read,
+  and implement the method. A store that implements the method but does not persist `ParentId` behaves as before
+  with the interval at zero, and turns every retry into a reuse once it is set — persist it before turning
+  the interval on.
+
 ## [0.35.1] - 2026-10-04
 
 **Packages affected:** `Iyu.Server.OData`

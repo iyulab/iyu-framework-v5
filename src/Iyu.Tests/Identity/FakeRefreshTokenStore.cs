@@ -40,6 +40,12 @@ public sealed class FakeRefreshTokenStore : IRefreshTokenStore
         }
     }
 
+    public Task<RefreshTokenRecord?> FindLatestChildAsync(Guid parentId, CancellationToken ct)
+    {
+        lock (_gate)
+            return Task.FromResult(_tokens.Where(t => t.ParentId == parentId).OrderBy(t => t.IssuedAt).LastOrDefault());
+    }
+
     public Task RevokeFamilyAsync(Guid familyId, DateTimeOffset revokedAt, CancellationToken ct)
     {
         Revoke(t => t.FamilyId == familyId, revokedAt);

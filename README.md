@@ -186,8 +186,15 @@ next access token and the refresh token that replaces the one it sent. What the 
 
 - **Each refresh token works once.** Presenting one a second time revokes every token descended from
   that sign-in — the server cannot tell the client from whoever copied the token. A client must keep
-  the newest refresh token it received; one that retries a refresh whose response it lost is signed
-  out.
+  the newest refresh token it received; by default, one that retries a refresh whose response it lost
+  is signed out.
+- **A lost response can be retried, if you allow it.** `IdentityTokenOptions.RefreshTokenReuseInterval`
+  (default `TimeSpan.Zero` — strict) lets a used refresh token be presented again for that long after
+  it was exchanged: the retry gets a new pair and the pair the lost response carried is retired, so the
+  sign-in still has one live refresh token. Once that lost pair has been used, or after the interval,
+  a second presentation revokes the sign-in as before. The price is that for those seconds a copy of
+  the old token works too — set it to the time a retry takes (a few seconds), for clients on networks
+  that drop responses.
 - **Every refresh asks `IUserTokenClaimsSource` again.** A deactivated person (the source answers
   `null`) cannot refresh, and a narrowed permission set reaches the next access token — within one
   access-token lifetime. Set `IdentityTokenOptions.UserAccessTokenLifetime` (e.g. 15 minutes) to keep a
@@ -199,7 +206,9 @@ next access token and the refresh token that replaces the one it sent. What the 
   refresh — a client used at least that often stays signed in.
 - **The store** keeps only the token's hash (`UserTokenService.HashRefreshToken`) and must make
   `TryMarkUsedAsync` one conditional write (`… WHERE Id = @id AND UsedAt IS NULL`), so two requests
-  racing with one token cannot both win.
+  racing with one token cannot both win. It also stores `ParentId` — the token each one was issued in
+  exchange for — and answers `FindLatestChildAsync(parentId)` (the newest token with that parent; index
+  the column), which the reuse interval uses to find the pair a lost response carried.
 
 Without the two ports, `grant_type=refresh_token` answers `unsupported_grant_type` and nothing else changes.
 With only one of them, a refresh request fails with an exception naming the missing one.

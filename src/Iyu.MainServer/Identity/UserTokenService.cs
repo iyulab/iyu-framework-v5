@@ -29,7 +29,8 @@ public sealed record UserTokenPair(bool Ok, string? Error, string? AccessToken, 
 /// The consuming app still authenticates the person (password, external identity provider) and
 /// then calls <see cref="IssueAsync"/>. From there: each refresh token is accepted once and replaced
 /// (rotation); a token presented a second time revokes every token descended from the same sign-in,
-/// because the server cannot tell the legitimate client from whoever copied it; and each refresh
+/// because the server cannot tell the legitimate client from whoever copied it (unless it is a retry
+/// within <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/>, off by default); and each refresh
 /// asks <see cref="IUserTokenClaimsSource"/> again, so deactivation or a narrowed permission set
 /// reaches the person's tokens at the next refresh.
 /// </para>
@@ -70,7 +71,7 @@ public sealed class UserTokenService
     public Task<UserTokenPair> IssueAsync(string subject, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
-        return IssuePairAsync(subject, Guid.NewGuid(), ct);
+        return IssuePairAsync(subject, Guid.NewGuid(), parentId: null, ct);
     }
 
     /// <summary>
@@ -89,11 +90,11 @@ public sealed class UserTokenService
         var now = _clock.GetUtcNow();
         if (token is null) return Reject(null, "no such refresh token");
         if (token.RevokedAt is not null) return Reject(token, "refresh token was revoked");
-        if (token.UsedAt is not null) return await ReuseAsync(token, now, ct);
+        if (token.UsedAt is { } usedAt) return await PresentedAgainAsync(token, usedAt, now, ct);
         if (token.ExpiresAt <= now) return Reject(token, "refresh token has expired");
         if (!await _store.TryMarkUsedAsync(token.Id, now, ct)) return await ReuseAsync(token, now, ct);
 
-        return await IssuePairAsync(token.Subject, token.FamilyId, ct);
+        return await IssuePairAsync(token.Subject, token.FamilyId, token.Id, ct);
     }
 
     /// <summary>Ends the sign-in a refresh token belongs to (sign-out on one device). Unknown tokens are ignored.</summary>
@@ -124,7 +125,7 @@ public sealed class UserTokenService
         return Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
     }
 
-    private async Task<UserTokenPair> IssuePairAsync(string subject, Guid familyId, CancellationToken ct)
+    private async Task<UserTokenPair> IssuePairAsync(string subject, Guid familyId, Guid? parentId, CancellationToken ct)
     {
         var claims = await _claims.GetClaimsAsync(subject, ct);
         var now = _clock.GetUtcNow();
@@ -138,8 +139,38 @@ public sealed class UserTokenService
         var access = _tokens.IssueUserToken(claims, _opts.UserAccessTokenLifetime);
         var refresh = Base64Url(RandomNumberGenerator.GetBytes(32));
         await _store.InsertAsync(new RefreshTokenRecord(Guid.NewGuid(), familyId, subject, HashRefreshToken(refresh),
-            now, now.Add(_opts.RefreshTokenLifetime)), ct);
+            now, now.Add(_opts.RefreshTokenLifetime), ParentId: parentId), ct);
         return new(true, null, access.AccessToken, access.ExpiresInSeconds, refresh, access.Permissions);
+    }
+
+    /// <summary>
+    /// A used token, presented again. A retry within <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/>,
+    /// the replacement it was exchanged for not yet used, gets a new pair, and that replacement is retired
+    /// so the sign-in keeps one live refresh token. Anything else is reuse.
+    /// </summary>
+    /// <remarks>
+    /// The replacement cannot be handed back: only its hash is stored. It is retired with the same
+    /// conditional used-mark an exchange takes, so two retries racing for it cannot both succeed, and a
+    /// replacement that was already used (the client did receive it and moved on) means this
+    /// presentation is a copy.
+    /// </remarks>
+    private async Task<UserTokenPair> PresentedAgainAsync(
+        RefreshTokenRecord token, DateTimeOffset usedAt, DateTimeOffset now, CancellationToken ct)
+    {
+        var interval = _opts.RefreshTokenReuseInterval;
+        if (interval <= TimeSpan.Zero || now - usedAt > interval) return await ReuseAsync(token, now, ct);
+
+        // The conditional used-mark is the whole test: it fails for a replacement already used (the
+        // client received it and moved on) and for the loser of two retries racing for it. A revoked
+        // replacement cannot get here — revocation takes the family, and the presented token with it.
+        var replacement = await _store.FindLatestChildAsync(token.Id, ct);
+        if (replacement is null || !await _store.TryMarkUsedAsync(replacement.Id, now, ct))
+            return await ReuseAsync(token, now, ct);
+
+        _log.LogInformation(
+            "refresh token presented again within the reuse interval for {Subject} (family {FamilyId}); its unused replacement is retired",
+            token.Subject, token.FamilyId);
+        return await IssuePairAsync(token.Subject, token.FamilyId, token.Id, ct);
     }
 
     private async Task<UserTokenPair> ReuseAsync(RefreshTokenRecord token, DateTimeOffset now, CancellationToken ct)

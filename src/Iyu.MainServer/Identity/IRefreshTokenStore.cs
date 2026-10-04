@@ -14,6 +14,11 @@ namespace Iyu.MainServer.Identity;
 /// <param name="ExpiresAt">When it stops being accepted.</param>
 /// <param name="UsedAt">When it was exchanged; a used token is never accepted again.</param>
 /// <param name="RevokedAt">When it was revoked, by sign-out, by reuse of a token in its family, or by the claims source refusing.</param>
+/// <param name="ParentId">
+/// The token this one was issued in exchange for; <c>null</c> for the first token of a sign-in. Lets a
+/// retried refresh within <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/> find, and retire,
+/// the replacement its lost response carried.
+/// </param>
 public sealed record RefreshTokenRecord(
     Guid Id,
     Guid FamilyId,
@@ -22,7 +27,8 @@ public sealed record RefreshTokenRecord(
     DateTimeOffset IssuedAt,
     DateTimeOffset ExpiresAt,
     DateTimeOffset? UsedAt = null,
-    DateTimeOffset? RevokedAt = null);
+    DateTimeOffset? RevokedAt = null,
+    Guid? ParentId = null);
 
 /// <summary>
 /// Where refresh tokens are kept. The concrete implementation lives in the consuming app, like
@@ -49,6 +55,16 @@ public interface IRefreshTokenStore
     /// loser is treated as a reuse, which is what a stolen copy racing the real client looks like.
     /// </remarks>
     Task<bool> TryMarkUsedAsync(Guid id, DateTimeOffset usedAt, CancellationToken ct);
+
+    /// <summary>
+    /// The most recently issued token whose <see cref="RefreshTokenRecord.ParentId"/> is
+    /// <paramref name="parentId"/>, whatever its state; <c>null</c> when none was.
+    /// </summary>
+    /// <remarks>
+    /// Asked only when a used token is presented again within
+    /// <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/>. Index <c>ParentId</c>.
+    /// </remarks>
+    Task<RefreshTokenRecord?> FindLatestChildAsync(Guid parentId, CancellationToken ct);
 
     /// <summary>Revokes every not-yet-revoked token in the family.</summary>
     Task RevokeFamilyAsync(Guid familyId, DateTimeOffset revokedAt, CancellationToken ct);
