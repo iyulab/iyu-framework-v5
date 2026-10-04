@@ -339,7 +339,11 @@ public sealed class IyuEdmModelBuilder
 
         ApplyPaging();
         ApplyEnumMemberNames();
-        _modelBuilder.OnModelCreating = ApplyNamespace;
+        _modelBuilder.OnModelCreating = builder =>
+        {
+            DropNavigationsToUnservedTypes(builder);
+            ApplyNamespace(builder);
+        };
         var edmModel = _modelBuilder.GetEdmModel();
 
         // ODataConventionModelBuilder always hands back a mutable EdmModel — verified
@@ -487,6 +491,45 @@ public sealed class IyuEdmModelBuilder
             new EdmRecordExpression(new EdmPropertyConstructor(propertyName, new EdmBooleanConstant(false))));
         annotation.SetSerializationLocation(model, EdmVocabularyAnnotationSerializationLocation.Inline);
         model.AddVocabularyAnnotation(annotation);
+    }
+
+    /// <summary>
+    /// Removes every navigation whose target no registered entity set serves, and the entity types
+    /// that were in the model only because such a navigation reached them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The convention builder follows navigation properties on its own: a registered read type that
+    /// points at a type the application never registered pulls that type into the model, and
+    /// <c>$expand</c> then serves its rows — rows no set serves, under no read policy, because no
+    /// set exists to declare one on. <c>$metadata</c> describes the type as well. Measured: a target
+    /// kept off the API was returned in full through the navigation of an open set.
+    /// </para>
+    /// <para>
+    /// The model is the boundary, not the authorization filter. A navigation to a served type is
+    /// bound to that type's set, and the filter applies that set's read policy; a navigation to an
+    /// unserved type has no set to take a policy from, so the only coherent answer is that it is not
+    /// part of the API. The CLR property is untouched — application code still traverses it.
+    /// </para>
+    /// <para>
+    /// A type is kept when a set serves it, when it is a base of a served type (the builder maps the
+    /// hierarchy), or when a served type derives from it — only the types nothing served needs are
+    /// dropped.
+    /// </para>
+    /// </remarks>
+    private void DropNavigationsToUnservedTypes(ODataConventionModelBuilder builder)
+    {
+        var served = Registry.All.Select(p => p.ReadType).ToHashSet();
+
+        foreach (var type in builder.StructuralTypes.ToList())
+            foreach (var navigation in type.NavigationProperties.ToList())
+                if (!served.Contains(navigation.RelatedClrType))
+                    type.RemoveProperty(navigation.PropertyInfo);
+
+        bool Needed(Type clr) => served.Any(s => s == clr || s.IsAssignableTo(clr) || clr.IsAssignableTo(s));
+        foreach (var type in builder.StructuralTypes.OfType<EntityTypeConfiguration>().ToList())
+            if (!Needed(type.ClrType))
+                builder.RemoveStructuralType(type.ClrType);
     }
 
     /// <summary>

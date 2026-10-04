@@ -27,6 +27,27 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`
+
+### Fixed
+
+- 🔇 **`Iyu.Server.OData`: a read type's navigation to a type no entity set serves exposed that type's rows
+  through `$expand`.** The model builder follows navigation properties on its own, so a registered read type
+  pointing at a model the application never registered (kept off the API) pulled that model into the EDM:
+  `$metadata` described it, and `$expand` returned its rows with no read policy applied — there was no set
+  to declare one on. Such navigations, and the types only they reached, are now left out of the model;
+  `$expand` naming one is `400` like any unknown property. Navigations to registered types are unchanged
+  (bound to their set, its read policy applied by the `$expand` check). The CLR property stays —
+  application code still traverses it. README «OData — every set an `$expand` reaches is checked».
+- 🔇 **`Iyu.Server.GraphQL`: the same navigations were fields of the schema**, and the target an object type
+  introspection described. Fields whose type is an entity no query field exposes are now left out, and with
+  them the type. Navigations to exposed types stay.
+- **`Iyu.MainServer`: the `$expand` check now refuses an expand that reaches no registered set** (`400`)
+  instead of passing it as if the set were open. With the model fix above it is not reachable; it keeps
+  "no set" from ever meaning "no policy".
+
 ## [0.35.1] - 2026-10-04
 
 **Packages affected:** `Iyu.Server.OData`

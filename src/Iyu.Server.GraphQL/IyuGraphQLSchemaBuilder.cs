@@ -184,14 +184,39 @@ public sealed class IyuGraphQLSchemaBuilder
         // field today, because the resolver hands over a bare IQueryable with no projection
         // middleware, so this is a guard placed ahead of the change that would make it reachable
         // rather than after it.
-        _typeAuthorizers.Add(executorBuilder =>
+        //
+        // The same configuration keeps out every field whose type is an entity no query field exposes
+        // — a navigation to a model the application keeps off the API. HotChocolate infers an object
+        // field from a reference property and, with it, an object type for the target, so the schema
+        // would describe a type nothing serves, under no policy: the boundary the OData model draws
+        // (IyuEdmModelBuilder drops navigations to unserved types), drawn here too. It has to be the
+        // type's own configuration — ignoring the field from a type extension leaves the target type
+        // already discovered, an orphan still described by introspection, and an extension binds
+        // fields implicitly, which re-adds a field an earlier Exclude removed. Read at schema
+        // construction, so a target registered after this pair still counts as exposed.
+        _typeAuthorizers.Add(executorBuilder => executorBuilder.AddObjectType<TRead>(d =>
         {
-            if (_authorizePolicies[queryName] is { } policy)
-                executorBuilder.AddObjectType<TRead>(d => d.Authorize(policy));
-        });
+            if (_authorizePolicies[queryName] is { } policy) d.Authorize(policy);
+            foreach (var property in typeof(TRead).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                if (EntityTypeOf(property.PropertyType) is { } target && !_exposedTypes.ContainsKey(target))
+                    d.Field(property).Ignore();
+        }));
 
         ApplyPropertyDescriptions<TRead>();
         return this;
+    }
+
+    /// <summary>The entity a property navigates to — itself, or a collection's element — or null.</summary>
+    private static Type? EntityTypeOf(Type type)
+    {
+        if (type.IsAssignableTo(typeof(IyuEntity))) return type;
+        if (type == typeof(string)) return null;
+        var element = type.IsArray
+            ? type.GetElementType()
+            : type.GetInterfaces().Append(type)
+                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                ?.GetGenericArguments()[0];
+        return element is not null && element.IsAssignableTo(typeof(IyuEntity)) ? element : null;
     }
 
     /// <summary>

@@ -84,7 +84,21 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
 
         foreach (var target in expanded)
         {
-            var policy = registry.Find(target)?.ReadPolicy;
+            // Every navigation the model keeps is bound to a registered set — navigations to types no
+            // set serves are dropped when the model is built. One that still reaches no registered set
+            // has no read policy to apply, and allowing it would serve rows nothing declared a policy
+            // for; refuse it rather than treating "no set" like "an open set".
+            if (registry.Find(target) is not { } pair)
+            {
+                context.Result = new ObjectResult(new ODataError
+                {
+                    Code = ODataErrorCodes.InvalidQuery,
+                    Message = "The $expand expression reaches data no entity set of this API serves and was refused.",
+                })
+                { StatusCode = StatusCodes.Status400BadRequest };
+                return;
+            }
+            var policy = pair.ReadPolicy;
             if (policy is null) continue;
 
             var result = await authorization.AuthorizeAsync(context.HttpContext.User, policy);
@@ -142,7 +156,9 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
 
         foreach (var item in clause.SelectedItems.OfType<ExpandedReferenceSelectItem>())
         {
-            if (item.NavigationSource is { } source) into.Add(source.Name);
+            // An unbound navigation has no set; recorded as an empty name, which no set has, so the
+            // caller refuses it instead of skipping it.
+            into.Add(item.NavigationSource?.Name ?? "");
             if (item is ExpandedNavigationSelectItem navigation) Walk(navigation.SelectAndExpand, into);
         }
     }

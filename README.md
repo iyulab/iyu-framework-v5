@@ -435,6 +435,13 @@ If `Customers` carries a `readPolicy` the caller does not satisfy, the request i
 though `Orders` is open — `401` without an identity, `403` with one, the same split `Customers`
 produces on its own route. The check runs before the action, so a refusal costs no query.
 
+**Only what a set serves is reachable.** A read type may carry a navigation to a type no entity set
+serves — a model the application keeps off its API. Such a navigation is not part of the model: it
+is left out of `$metadata`, `$expand` naming it is `400`, and the GraphQL schema leaves the field out
+too. There is no set to take a read policy from, so being reachable would mean being unprotected.
+The CLR property is untouched, for your own code. Register the target as an entity pair to expose
+it through the navigation, with that pair's read policy.
+
 The policy that failed is handed on: `HttpContext.Features.Get<IIyuAuthorizationFailureFeature>()`
 carries its `Policy` and `EntitySet`. A host that words its own 401/403 should read it before the
 endpoint's authorization metadata, which names `Orders`' policy — one this caller may already hold.
