@@ -213,6 +213,24 @@ next access token and the refresh token that replaces the one it sent. What the 
 Without the two ports, `grant_type=refresh_token` answers `unsupported_grant_type` and nothing else changes.
 With only one of them, a refresh request fails with an exception naming the missing one.
 
+### Second factors, tenants and devices — where each one goes
+
+Identity has no built-in sign-in, so the questions that hang off signing a person in are answered
+by the seams above, not by more types in this package:
+
+- **A second factor** belongs in your sign-in endpoint, between the credential check and
+  `SignInAsync` / `UserTokenService.IssueAsync`: nothing is signed in until your code says so, so a
+  TOTP check, a mailed code or a hardware key is one more condition there. The token and cookie
+  surfaces do not change.
+- **Tenant scoping** is a column your models carry and two rules: a global query filter on your
+  `IyuDbContext` (`HasQueryFilter(e => e.TenantId == currentTenant)`) — every read surface, OData and
+  GraphQL alike, queries through it — and a write rule that stamps or checks the column on the generic
+  write path (see «Rules on the generic write path»). Which claim names the tenant is your token's
+  content (`IUserTokenClaimsSource`).
+- **A device** is already a sign-in: each refresh token belongs to one, `RevokeAsync` ends it, and
+  `RevokeAllAsync` ends every one. A list of trusted devices, push endpoints and the like is a model of
+  your own, keyed by the person.
+
 ### Diagnosing a service client that stopped working
 
 `ServiceClientSummary` — what `ListServiceClientsAsync` returns to an owner — carries two
@@ -1071,6 +1089,14 @@ Deciding which templates exist and where they live, recording who generated what
 when, and exposing report generation over HTTP are all consumer-application concerns —
 `Iyu.Report` only turns a template stream plus data into an output stream, and stops there by
 design, not by omission.
+
+The parts a registry and a history are made of are already here. A template is a file —
+`Iyu.FileServer` stores it, and an admin replacing it is an upload. Which template a document
+uses is a row of your own model (document code → attachment, active flag, version), and so is
+each generated output (who, when, which template, the output's attachment) — declared like any
+other entity, it gets the same read/write API and policies as the rest of your data. Rendering is
+the glue between them: open the active template's stream, load it as a recipe and `CookDish()` it with
+your data (above), save the result as an attachment, insert the history row.
 
 For everything past `AddIyuReport()` — template syntax, binding rules, supported formats —
 see [DocuChef's own documentation](https://github.com/iyulab/DocuChef); this package
