@@ -59,6 +59,13 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- 🔇 **`Iyu.Server.GraphQL`: a navigation in a selection now resolves.** Query fields used to hand
+  HotChocolate the set as it was, with nothing that loads related rows, so every navigation field answered
+  `null` — for an authorized caller too. Each query field now projects its selection onto the query
+  (`UseProjection`): requested columns only, and a navigation is loaded by the same query (`null` when the
+  reference is empty). The read policy on the navigation's type (see «GraphQL — the policy is on the object
+  type») refuses a caller without it at that field's path. Registers `AddProjections()` on the schema when
+  any query field exists. README «GraphQL navigations resolve».
 - **`Iyu.MainServer`: refresh-token stores record lineage.** `RefreshTokenRecord` gains `ParentId` (the token a
   token was issued in exchange for; `null` for a sign-in's first), and `IRefreshTokenStore` gains
   `FindLatestChildAsync(Guid parentId, CancellationToken)` — the newest token with that parent. **Migration:**

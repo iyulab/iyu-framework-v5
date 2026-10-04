@@ -173,6 +173,10 @@ public sealed class IyuGraphQLSchemaBuilder
                     MaxPageSize = maxPageSize,
                     DefaultPageSize = defaultPageSize,
                 })
+                // The selection becomes the query's projection: requested columns only, and a
+                // navigation in the selection is loaded by the same query instead of answering null.
+                // Paging runs outside it, so a page is still a slice of the key ordering below.
+                .UseProjection()
                 .Resolve(ResolveQueryable<TRead>);
             if (_authorizePolicies[queryName] is { } policy) field.Authorize(policy);
         });
@@ -180,10 +184,9 @@ public sealed class IyuGraphQLSchemaBuilder
         // And on the object type, not only on the root field. A policy protects the data, and a
         // field on some other type that returns this one reaches it without the root field's
         // resolver being involved -- the same structural gap that let an OData $expand walk past a
-        // set's read policy (IyuExpandAuthorizationFilter, Iyu.MainServer). Nothing resolves such a
-        // field today, because the resolver hands over a bare IQueryable with no projection
-        // middleware, so this is a guard placed ahead of the change that would make it reachable
-        // rather than after it.
+        // set's read policy (IyuExpandAuthorizationFilter, Iyu.MainServer). Query fields project
+        // their selection, so a navigation in a selection is loaded; this is what keeps a caller
+        // without the target's policy from receiving the rows it loads.
         //
         // The same configuration keeps out every field whose type is an entity no query field exposes
         // — a navigation to a model the application keeps off the API. HotChocolate infers an object
@@ -374,6 +377,9 @@ public sealed class IyuGraphQLSchemaBuilder
             throw new InvalidOperationException($"{nameof(DefaultPageSize)} must be positive and not exceed {nameof(MaxPageSize)}.");
         _applied = true;
         var fieldBuilders = _fieldBuilders.ToArray(); // capture snapshot
+        // Every query field resolves through UseProjection; the projection conventions are
+        // registered once for the schema.
+        if (fieldBuilders.Length > 0) executorBuilder.AddProjections();
         executorBuilder.AddQueryType(descriptor =>
         {
             descriptor.Name("Query");

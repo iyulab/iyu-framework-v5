@@ -124,31 +124,49 @@ public class GraphQLProjectionAuthorizationTests
     }
 
     /// <summary>
-    /// Half two, and the one that decides whether half three means anything: what a selection
-    /// through that field actually returns for a caller who holds the target's policy. The
-    /// resolver hands HotChocolate a bare <c>IQueryable</c> with no projection middleware and no
-    /// <c>Include</c>, so this is where it becomes visible whether the navigation is populated at
-    /// all — and therefore whether an unauthorized caller could have received anything.
+    /// Half two, and the one that decides whether half three means anything: a selection through
+    /// the navigation returns the related row to a caller who holds the target's policy. Query
+    /// fields project the selection onto the query (HotChocolate projections), so the navigation is
+    /// loaded by the same database query rather than left null — which is what makes the guard in
+    /// half three a guard over a payload that really can carry the protected value.
     /// </summary>
     [Fact]
-    public async Task What_an_authorized_caller_receives_through_the_navigation_is_recorded_here()
+    public async Task An_authorized_caller_receives_the_related_row_through_the_navigation()
     {
         await using var sp = await BuildAsync(
-            nameof(What_an_authorized_caller_receives_through_the_navigation_is_recorded_here));
+            nameof(An_authorized_caller_receives_the_related_row_through_the_navigation));
         SetCurrentUser(sp, ("perm", SecretPolicy));
         var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
 
         var json = (await executor.ExecuteAsync("{ projOrders { nodes { name secret { code } } } }")).ToJson();
 
-        // The contrast that validates the harness itself: this caller really is authorized, so an
-        // absent value below is about the navigation, not about the caller.
-        var rootJson = (await executor.ExecuteAsync("{ projSecrets { nodes { code } } }")).ToJson();
-        Assert.Contains(SecretCode, rootJson, StringComparison.Ordinal);
-        // Whether the value is there is the measurement. Asserted as null, because that is what the
-        // resolver's bare IQueryable produces with no projection or include configured: nothing
-        // loads the related row. If this ever fails, GraphQL navigation has started to resolve and
-        // the guard the next test pins must be re-verified against a payload that can carry data.
-        Assert.Contains("\"secret\":null", new string(json.Where(c => !char.IsWhiteSpace(c)).ToArray()), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"errors\"", json, StringComparison.Ordinal);
+        Assert.Contains(SecretCode, json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A row whose reference is empty answers <c>null</c> for the navigation instead of failing the
+    /// selection — the projection has to carry the optionality of the key.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_reference_answers_null_without_an_error()
+    {
+        await using var sp = await BuildAsync(nameof(An_empty_reference_answers_null_without_an_error));
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<ProjContext>();
+            ctx.Orders.Add(new ProjOrder { Id = Guid.NewGuid(), Name = "no secret", SecretId = null });
+            await ctx.SaveChangesAsync();
+        }
+        SetCurrentUser(sp, ("perm", SecretPolicy));
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+
+        var json = (await executor.ExecuteAsync("{ projOrders { nodes { name secret { code } } } }")).ToJson();
+        var dense = new string(json.Where(c => !char.IsWhiteSpace(c)).ToArray());
+
+        Assert.DoesNotContain("\"errors\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"name\":\"nosecret\",\"secret\":null", dense, StringComparison.Ordinal);
+        Assert.Contains(SecretCode, json, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -476,6 +476,13 @@ returns the protected type reaches the data without the root field's resolver be
 selection through such a field is refused at that field's own path rather than answering `null`. A
 caller that holds the policy is unaffected either way.
 
+**GraphQL navigations resolve.** Every query field projects its selection onto the database query
+(HotChocolate projections): only the requested columns are read, and a navigation in the selection —
+`{ orders { nodes { number customer { name } } } }` — is loaded by that same query. A row whose
+reference is empty answers `null` for the navigation. Paging is applied around the projection, so a
+page is still a slice of the key ordering. The policy on the navigation's type, above, is what keeps a
+caller without it from receiving the rows that query loads.
+
 For the same reason a read type may be exposed **once**. `AddEntityPair` throws if the type already
 backs another query field: two fields are two doors to the same data, each with its own
 `authorizePolicy`, so the door without one would decide what the door with one protects. Expose it
