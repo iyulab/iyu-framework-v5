@@ -22,19 +22,63 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
     {
         ArgumentNullException.ThrowIfNull(content);
         var path = Resolve(storageKey);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var staged = await StageAsync(content, path, ct).ConfigureAwait(false);
+        File.Move(staged, path, overwrite: true);
+        return storageKey;
+    }
+
+    public async Task<bool> TryCreateAsync(Stream content, string storageKey, string? contentType, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var path = Resolve(storageKey);
+        // Cheap early answer for the common case; the move below is what decides a race.
+        if (File.Exists(path)) return false;
+
+        var staged = await StageAsync(content, path, ct).ConfigureAwait(false);
         try
         {
-            await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+            File.Move(staged, path, overwrite: false);
+            return true;
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            TryDelete(staged);
+            return false;
+        }
+    }
+
+    /// <summary>The stored file itself — no copy. Disposing the result leaves it in place.</summary>
+    public Task<LocalAttachmentFile?> OpenLocalFileAsync(string storageKey, CancellationToken ct = default)
+    {
+        var path = Resolve(storageKey);
+        return Task.FromResult(File.Exists(path) ? LocalAttachmentFile.Stored(path) : null);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="content"/> to a temporary file beside <paramref name="path"/> and returns its path,
+    /// for the caller to move into place.
+    /// </summary>
+    /// <remarks>
+    /// Writing beside the object and moving it is what keeps a write from damaging the object: a reader never
+    /// sees a half-written file, and a write that fails (too large, cancelled, the connection dropped) leaves the
+    /// object that was there untouched — before, the bytes went into the object's own file and a failure deleted
+    /// it. Same directory, so the move is a rename on one volume.
+    /// </remarks>
+    private static async Task<string> StageAsync(Stream content, string path, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var staged = $"{path}.{Guid.NewGuid():N}.partial";
+        try
+        {
+            await using var fs = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             await content.CopyToAsync(fs, ct).ConfigureAwait(false);
         }
         catch
         {
-            // Don't leave a truncated/partial object behind on a failed (e.g. too-large / cancelled) upload.
-            TryDelete(path);
+            TryDelete(staged);
             throw;
         }
-        return storageKey;
+        return staged;
     }
 
     public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken ct = default)

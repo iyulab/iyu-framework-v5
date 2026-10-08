@@ -29,9 +29,29 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.Server.OData`
+
+### Fixed
+
+- 🔇 **`Iyu.FileServer`: a failed overwrite deleted the stored object.** The filesystem backend wrote into the
+  object's own file and, when the write failed part-way (too large, cancelled, the connection dropped), deleted
+  that file — so a cut-off upload over an existing key destroyed what was stored there, and a reader during a
+  write saw a half-written file. It now writes beside the object and moves the result into place; a failed
+  write leaves the object as it was. README «File gateway».
+
+### Changed
+
+- **`Iyu.Core`: `IAttachmentStorage` gains `TryCreateAsync`.** A backend you implement yourself must add it
+  (write only if nothing is stored at the key; return `false`, writing nothing, otherwise — atomically). The two
+  built-in backends implement it.
 
 ### Added
+
+- **`Iyu.Core`: `IAttachmentStorage.TryCreateAsync` — write an object once.** Of concurrent writers for one key,
+  exactly one gets `true`; the rest write nothing. Filesystem: a no-replace move; Azure Blob: `If-None-Match: *`.
+- **`Iyu.Core`: `IAttachmentStorage.OpenLocalFileAsync` — an object as a file path** for tools that open paths.
+  A default implementation copies to a temporary file deleted on dispose, so every backend has it; the filesystem
+  backend hands out the stored file itself. `LocalAttachmentFile` is the disposable handle. README «File gateway».
 
 - 🔇 **`Iyu.Server.OData`: every `details[]` entry of a refusal carries a `code`.** One `InvalidBody` covers two
   causes — a value that could not be read as its type (the framework's sentence) and a value a model rule

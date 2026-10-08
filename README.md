@@ -986,6 +986,22 @@ Behaviour worth knowing before deploying it:
   default limit is sized for document attachments rather than bulk media.
 - **A missing object is 404, not 500.** Absence is a normal state — a key can be
   deleted while a still-valid token is in flight.
+- **A write never damages the object it replaces.** The filesystem backend writes
+  beside the object and moves the result into place, so a reader never sees a
+  half-written file and an upload that fails part-way leaves what was stored there.
+
+`IAttachmentStorage` beyond the gateway, for code that stores bytes itself:
+
+- **`TryCreateAsync`** writes only if nothing is stored at the key and returns
+  `false` otherwise, having written nothing — one step in the backend
+  (`If-None-Match: *` on Blob), so of two concurrent writers exactly one wins. This
+  is the write for an object that must not change once stored: a content-addressed
+  key, or one another process may already be reading.
+- **`OpenLocalFileAsync`** gives the object as a file path, for a tool that opens a
+  path rather than a stream (a converter, a renderer, a scanner run as a process).
+  The filesystem backend hands out the stored file itself, with no copy; any other
+  backend gets a temporary copy by default. Dispose the result — a copy is deleted
+  then, the stored file is not. Read the file; do not change it.
 - Every rejection is logged under the category `Iyu.FileServer.FileGateway`
   (`FileGatewayExtensions.LogCategory`) so it can be filtered independently.
   Tokens are never logged. Successful transfers are not logged either — that is

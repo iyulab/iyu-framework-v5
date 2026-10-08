@@ -21,6 +21,13 @@ public sealed class FakeAttachmentStorage : IAttachmentStorage
     public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken ct = default) =>
         Task.FromResult<Stream?>(Objects.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes) : null);
 
+    public async Task<bool> TryCreateAsync(Stream content, string storageKey, string? contentType, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        await content.CopyToAsync(ms, ct);
+        return Objects.TryAdd(storageKey, ms.ToArray());
+    }
+
     public Task DeleteAsync(string storageKey, CancellationToken ct = default)
     {
         Objects.TryRemove(storageKey, out _);

@@ -31,6 +31,31 @@ public sealed class AzureBlobAttachmentStorage : IAttachmentStorage
         return storageKey;
     }
 
+    public async Task<bool> TryCreateAsync(Stream content, string storageKey, string? contentType, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrEmpty(storageKey);
+
+        await EnsureContainerAsync(ct).ConfigureAwait(false);
+        var blob = _container.GetBlobClient(storageKey);
+        var headers = string.IsNullOrEmpty(contentType) ? null : new BlobHttpHeaders { ContentType = contentType };
+        try
+        {
+            // If-None-Match: * — the service refuses the write when a blob exists, so the check and the write are
+            // one request and two concurrent callers cannot both succeed.
+            await blob.UploadAsync(content, new BlobUploadOptions
+            {
+                HttpHeaders = headers,
+                Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All },
+            }, ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (RequestFailedException ex) when (ex.Status is 409 or 412)
+        {
+            return false;
+        }
+    }
+
     public async Task<Stream?> OpenReadAsync(string storageKey, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(storageKey);
