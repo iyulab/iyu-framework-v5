@@ -164,7 +164,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         // success for it is what let a caller conclude the field was locked rather than
         // absent from the write model.
         if (writable.Count == 0)
-            return Invalid(UnwritablePropertiesModelState(unwritable), ODataErrorCodes.UnwritableProperty);
+            return Invalid(UnwritableDetails(unwritable), ODataErrorCodes.UnwritableProperty);
 
         CopySelectedProperties(readProjection, write, writable, excludedFromWrite);
         if (!await SaveUnderPreconditionAsync(precondition, ct)) return PreconditionFailed();
@@ -246,12 +246,8 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// it adds is the distinction they could not otherwise draw: a value refused because
     /// it is derived, versus one refused because a policy locked it.
     /// </remarks>
-    private static ModelStateDictionary UnwritablePropertiesModelState(IReadOnlyDictionary<string, string> unwritable)
-    {
-        var state = new ModelStateDictionary();
-        foreach (var (name, reason) in unwritable) state.AddModelError(name, reason);
-        return state;
-    }
+    private static IReadOnlyList<RefusalDetail> UnwritableDetails(IReadOnlyDictionary<string, string> unwritable)
+        => unwritable.Select(u => new RefusalDetail(u.Key, u.Value, ODataErrorDetailCodes.UnwritableProperty)).ToList();
 
     /// <summary>
     /// Validates a partial update: the annotations on <typeparamref name="TRead"/>
@@ -511,13 +507,14 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
 
         if (key == Guid.Empty)
         {
-            var state = new ModelStateDictionary();
-            state.AddModelError(
-                nameof(IyuEntity.Id),
-                $"The key is required: entity set '{pair.SetName}' shares its key with "
-                + $"'{principalSet}', so the key identifies which row of '{principalSet}' this "
-                + "belongs to and cannot be assigned by the server.");
-            return Invalid(state, ODataErrorCodes.SharedKeyRequired);
+            return Invalid(
+                [new RefusalDetail(
+                    nameof(IyuEntity.Id),
+                    $"The key is required: entity set '{pair.SetName}' shares its key with "
+                    + $"'{principalSet}', so the key identifies which row of '{principalSet}' this "
+                    + "belongs to and cannot be assigned by the server.",
+                    ODataErrorDetailCodes.SharedKeyRequired)],
+                ODataErrorCodes.SharedKeyRequired);
         }
 
         if (registry.Find(principalSet) is not { } principal)
@@ -552,15 +549,33 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     private static ObjectResult MissingBody()
         => Refusal(StatusCodes.Status400BadRequest, ODataErrorCodes.InvalidBody, "The request has no body.");
 
+    /// <summary>One <c>details</c> entry of a refusal: what it is about, what it says, and why.</summary>
+    /// <param name="Target">The property the entry is about — the entry's <c>target</c>.</param>
+    /// <param name="Message">What the entry says — the entry's <c>message</c>.</param>
+    /// <param name="Code">
+    /// The entry's own code, from <see cref="ODataErrorDetailCodes"/> — the refusal's code where the refusal has
+    /// one cause, the entry's cause where one refusal carries several (<see cref="ODataErrorCodes.InvalidBody"/>).
+    /// </param>
+    private sealed record RefusalDetail(string Target, string Message, string Code);
+
     /// <summary>
-    /// A <c>400</c> carrying the per-property messages of <paramref name="state"/> as the error's
-    /// <c>details</c>, each with its <c>target</c> — the shape OData gives a model-state
-    /// <c>400</c> already, with <paramref name="code"/> in place of the empty code it leaves.
+    /// A <c>400</c> carrying <paramref name="details"/> as the error's <c>details</c>, each with its
+    /// <c>target</c> and its own <c>code</c> — the shape OData gives a model-state <c>400</c> already, with
+    /// <paramref name="code"/> in place of the empty code it leaves and a code on every entry, so a caller
+    /// tells one entry's cause from another's without reading the message.
     /// </summary>
-    private static ObjectResult Invalid(ModelStateDictionary state, string code)
+    private static ObjectResult Invalid(IReadOnlyList<RefusalDetail> details, string code)
     {
+        var state = new ModelStateDictionary();
+        foreach (var detail in details) state.AddModelError(detail.Target, detail.Message);
+
+        // OData's own conversion keeps the message and detail shape a client already parses; the entry
+        // codes are matched back by what each entry is about and says.
         var error = new SerializableError(state).CreateODataError();
         error.Code = code;
+        var codes = details.ToLookup(d => (d.Target, d.Message), d => d.Code);
+        foreach (var entry in error.Details ?? [])
+            entry.Code = codes[(entry.Target, entry.Message)].FirstOrDefault();
         return new ObjectResult(error) { StatusCode = StatusCodes.Status400BadRequest };
     }
 
@@ -609,18 +624,23 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
         LogBindingFailure();
         var findings = HttpContext is null ? WriteBodyFindings.None : await WriteBodyInspector.InspectAsync(Request, ct);
 
-        var state = new ModelStateDictionary();
         if (findings.Undeclared.Count > 0)
         {
-            foreach (var name in findings.Undeclared)
-                state.AddModelError(name, $"The property '{name}' is not declared by this entity set's type.");
-            return Invalid(state, ODataErrorCodes.UnknownProperty);
+            return Invalid(
+                findings.Undeclared
+                    .Select(name => new RefusalDetail(
+                        name, $"The property '{name}' is not declared by this entity set's type.",
+                        ODataErrorDetailCodes.UnknownProperty))
+                    .ToList(),
+                ODataErrorCodes.UnknownProperty);
         }
         if (findings.Unconvertible.Count > 0)
         {
-            foreach (var value in findings.Unconvertible)
-                state.AddModelError(value.Path, value.Message);
-            return Invalid(state, ODataErrorCodes.InvalidBody);
+            return Invalid(
+                findings.Unconvertible
+                    .Select(value => new RefusalDetail(value.Path, value.Message, ODataErrorDetailCodes.Unconvertible))
+                    .ToList(),
+                ODataErrorCodes.InvalidBody);
         }
         return Invalid(SanitizedModelState(), ODataErrorCodes.InvalidBody);
     }
@@ -663,7 +683,7 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// renames the parameter is covered too.
     /// </para>
     /// </remarks>
-    private ModelStateDictionary SanitizedModelState()
+    private IReadOnlyList<RefusalDetail> SanitizedModelState()
     {
         var bodyParameters = (ControllerContext.ActionDescriptor?.Parameters ?? [])
             .Where(p => p.BindingInfo?.BindingSource == BindingSource.Body)
@@ -671,16 +691,16 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
             .ToHashSet(StringComparer.Ordinal);
         var otherErrors = ModelState.Any(e => !bodyParameters.Contains(e.Key) && e.Value is { Errors.Count: > 0 });
 
-        var sanitized = new ModelStateDictionary();
+        var sanitized = new List<RefusalDetail>();
         foreach (var (key, entry) in ModelState)
         {
             if (entry is null) continue;
             if (otherErrors && bodyParameters.Contains(key)) continue;
             foreach (var error in entry.Errors)
             {
-                sanitized.AddModelError(key, error.Exception is not null
-                    ? "The value could not be converted to its expected type."
-                    : error.ErrorMessage);
+                sanitized.Add(error.Exception is not null
+                    ? new RefusalDetail(key, "The value could not be converted to its expected type.", ODataErrorDetailCodes.Unconvertible)
+                    : new RefusalDetail(key, error.ErrorMessage, ODataErrorDetailCodes.ValidationFailed));
             }
         }
         return sanitized;

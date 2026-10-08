@@ -716,6 +716,13 @@ code from `ODataErrorCodes` — branch on the code, not on the message text:
 | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row |
 | `412` | `PreconditionFailed` | a `PATCH` or `DELETE` sent `If-Match` naming a version the row no longer has (below) |
 
+Each `details[]` entry carries its own `code` from `ODataErrorDetailCodes`. Where a refusal has one cause,
+that is the refusal's code (`UnknownProperty`, `UnwritableProperty`, `SharedKeyRequired`). `InvalidBody`
+has two, told apart by the entry: `Unconvertible` — the value could not be read as the property's type, and
+the message is this framework's own sentence — and `ValidationFailed` — the value was read but a rule the
+model declares refuses it, and the message is the model's. A client that shows refusals in its own language
+replaces the first and keeps the second, without reading either text.
+
 The two query-layer answers come from `IyuEnableQueryAttribute`, which the generic `Get` actions carry
 in place of `[EnableQuery]`; a controller that overrides `Get` puts `[IyuEnableQuery]` on the override
 to keep them. Authorization refusals (`401`/`403`) and the database errors `IyuWriteExceptionHandler`

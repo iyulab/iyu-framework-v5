@@ -27,6 +27,20 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.OData`
+
+### Added
+
+- 🔇 **`Iyu.Server.OData`: every `details[]` entry of a refusal carries a `code`.** One `InvalidBody` covers two
+  causes — a value that could not be read as its type (the framework's sentence) and a value a model rule
+  refuses (the model's message) — and the entries could only be told apart by their text. Entries now carry
+  `Unconvertible` or `ValidationFailed`; a refusal with one cause carries that cause on each entry
+  (`UnknownProperty`, `UnwritableProperty`, `SharedKeyRequired`). The closed set is `ODataErrorDetailCodes`.
+  Additive — the refusal's own `code`, `message`, and each entry's `target` and `message` are unchanged.
+  README «Error responses».
+
 ## [0.36.0] - 2026-10-04
 
 **Packages affected:** `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`

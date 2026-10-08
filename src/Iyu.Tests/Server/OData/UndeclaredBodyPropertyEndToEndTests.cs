@@ -110,6 +110,12 @@ public class UndeclaredBodyPropertyEndToEndTests
             var detail = Assert.Single(refusal.Details);
             Assert.Equal("Nmae", detail.Target);
             Assert.Contains("'Nmae'", detail.Message, StringComparison.Ordinal);
+            // A refusal of one cause carries that cause on every entry, too.
+            using (var doc = JsonDocument.Parse(refusal.Raw))
+            {
+                var entry = Assert.Single(doc.RootElement.GetProperty("error").GetProperty("details").EnumerateArray());
+                Assert.Equal(ODataErrorDetailCodes.UnknownProperty, entry.GetProperty("code").GetString());
+            }
             Assert.DoesNotContain(nameof(BindingWidgetExt), refusal.Raw, StringComparison.Ordinal);
             Assert.DoesNotContain("required", refusal.Raw, StringComparison.OrdinalIgnoreCase);
         }

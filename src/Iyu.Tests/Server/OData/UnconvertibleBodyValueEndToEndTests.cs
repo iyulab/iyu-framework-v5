@@ -35,6 +35,7 @@ public sealed class TypedWidgetExt : IyuEntity
     public bool Flag { get; set; }
     public DateTimeOffset At { get; set; }
     public TypedWidgetKind Kind { get; set; }
+    [System.ComponentModel.DataAnnotations.StringLength(8, ErrorMessage = "Label is too long.")]
     public string Label { get; set; } = "";
 }
 
@@ -96,7 +97,7 @@ public class UnconvertibleBodyValueEndToEndTests
 
     private static StringContent Json(string json) => new(json, Encoding.UTF8, "application/json");
 
-    private sealed record Refusal(HttpStatusCode Status, string Code, IReadOnlyList<(string? Target, string Message)> Details, string Raw);
+    private sealed record Refusal(HttpStatusCode Status, string Code, IReadOnlyList<(string? Target, string Message, string? Code)> Details, string Raw);
 
     private static async Task<Refusal> ReadAsync(HttpResponseMessage resp)
     {
@@ -105,7 +106,10 @@ public class UnconvertibleBodyValueEndToEndTests
         var error = doc.RootElement.GetProperty("error");
         var details = error.TryGetProperty("details", out var d)
             ? d.EnumerateArray()
-                .Select(e => (e.TryGetProperty("target", out var t) ? t.GetString() : null, e.GetProperty("message").GetString()!))
+                .Select(e => (
+                    e.TryGetProperty("target", out var t) ? t.GetString() : null,
+                    e.GetProperty("message").GetString()!,
+                    e.TryGetProperty("code", out var c) ? c.GetString() : null))
                 .ToList()
             : [];
         return new Refusal(resp.StatusCode, error.GetProperty("code").GetString()!, details, raw);
@@ -131,6 +135,7 @@ public class UnconvertibleBodyValueEndToEndTests
             var detail = Assert.Single(refusal.Details);
             Assert.Equal(target, detail.Target);
             Assert.Equal($"The value could not be converted to {edmType}.", detail.Message);
+            Assert.Equal(ODataErrorDetailCodes.Unconvertible, detail.Code);
             // The value the caller sent is not echoed back, and neither is the reader's own text or
             // the EDM namespace the sanitizer has always kept out of this answer.
             Assert.DoesNotContain("Edm.", refusal.Raw, StringComparison.Ordinal);
@@ -209,6 +214,35 @@ public class UnconvertibleBodyValueEndToEndTests
                 $$"""{"TemplateId":"{{Guid.NewGuid()}}","Seq":7,"Flag":true,"At":"2026-08-19T10:00:00+09:00","Kind":"Fancy","Label":"x"}"""));
 
             Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// One <c>InvalidBody</c> code covers two causes — a value the framework could not read, and a value the
+    /// model's own rules refuse. Each entry carries its own code, so a client that localizes refusals replaces
+    /// the framework's sentence and keeps the model's, without matching either text.
+    /// </summary>
+    [Fact]
+    public async Task Each_entry_says_whether_the_value_was_unreadable_or_refused_by_the_model()
+    {
+        var (app, _) = await StartAsync();
+        try
+        {
+            var client = app.GetTestServer().CreateClient();
+
+            using var unreadable = await client.PostAsync("/$data/TypedWidgets", Json("""{"Seq":"x","Label":"x"}"""));
+            var unread = await ReadAsync(unreadable);
+            Assert.Equal(ODataErrorCodes.InvalidBody, unread.Code);
+            Assert.Equal(ODataErrorDetailCodes.Unconvertible, Assert.Single(unread.Details).Code);
+
+            using var refused = await client.PostAsync("/$data/TypedWidgets", Json("""{"Label":"far too long"}"""));
+            var rule = await ReadAsync(refused);
+            Assert.Equal(ODataErrorCodes.InvalidBody, rule.Code);
+            var detail = Assert.Single(rule.Details);
+            Assert.Equal("Label", detail.Target);
+            Assert.Equal("Label is too long.", detail.Message);
+            Assert.Equal(ODataErrorDetailCodes.ValidationFailed, detail.Code);
         }
         finally { await app.DisposeAsync(); }
     }
