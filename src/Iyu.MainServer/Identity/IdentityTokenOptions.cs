@@ -77,4 +77,15 @@ public sealed class IdentityTokenOptions
     /// should not shorten every service client's.
     /// </remarks>
     public TimeSpan? UserAccessTokenLifetime { get; set; }
+
+    /// <summary>
+    /// Lets the host start in a container, outside Development, with no Data Protection key repository
+    /// configured — cookie sessions then end with the container. Off by default: such a host is refused at
+    /// startup, because a redeploy would sign every web user out.
+    /// </summary>
+    /// <remarks>
+    /// For a deployment that knows and accepts it (a throwaway demo). Everything else persists the key ring —
+    /// <c>PersistKeysToDbContext</c> or <c>PersistKeysToFileSystem</c> on a volume.
+    /// </remarks>
+    public bool AllowContainerLocalKeyRing { get; set; }
 }

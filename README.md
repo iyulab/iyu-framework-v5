@@ -93,6 +93,23 @@ the same way the generic OData controller leaves business validation to the cons
 framework's job stops at making the cookie scheme, the policies, and `IIdentityStore` available
 to build on.
 
+**A cookie lasts as long as the key ring that sealed it.** Cookie sessions are protected by ASP.NET Core
+Data Protection, and where its keys live is the application's choice — the framework does not pick a store.
+With none configured, the keys stay in the process's own profile directory; inside a container that directory
+goes with the container, and every redeploy signs every web user out. So a host that would run that way —
+outside Development, no key repository, `DOTNET_RUNNING_IN_CONTAINER` set — **is refused at startup**. Persist
+the ring and fix the application name:
+
+```csharp
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext<AppDbContext>()      // Microsoft.AspNetCore.DataProtection.EntityFrameworkCore
+    .SetApplicationName("my-app");              // or PersistKeysToFileSystem(...) on a mounted volume
+```
+
+A deployment that accepts sessions ending with the container sets
+`IdentityTokenOptions.AllowContainerLocalKeyRing`. Outside a container the default store (user profile or
+registry) outlives the process, so nothing is refused there.
+
 Two recipes for that composition — same seam, same shape, only the credential check differs:
 
 **Local username/password:**

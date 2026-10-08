@@ -2,8 +2,10 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Iyu.MainServer.Identity;
@@ -43,6 +45,11 @@ public static class IyuIdentityServiceCollectionExtensions
         services.AddScoped<ServiceClientService>();
         services.AddMemoryCache();
         services.AddScoped<ServiceClientTokenValidator>();
+
+        // Cookie sessions are only as durable as the Data Protection key ring that seals them — refuse to start
+        // where that ring would be lost with the container. See CookieKeyRingValidator.
+        services.AddSingleton<IValidateOptions<KeyManagementOptions>, CookieKeyRingValidator>();
+        services.AddOptions<KeyManagementOptions>().ValidateOnStart();
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(tokenOptions.SigningKey));
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)

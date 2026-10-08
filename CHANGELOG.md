@@ -29,9 +29,18 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.OData`
 
 ### Fixed
+
+- **`Iyu.MainServer`: a host whose cookie sessions would end with its container is refused at startup.**
+  `AddIyuIdentity` turns on cookie sessions, sealed by Data Protection keys; with no key repository configured,
+  a container keeps them inside itself and every redeploy signs every web user out — and the host started anyway,
+  with two warning lines. Outside Development, in a container (`DOTNET_RUNNING_IN_CONTAINER`), with no repository,
+  startup now fails with an `OptionsValidationException` naming the fix (`PersistKeysToDbContext`,
+  `PersistKeysToFileSystem` on a volume). **Upgrading a containerized host without a persisted key ring stops
+  it from starting** — persist the ring, or set `IdentityTokenOptions.AllowContainerLocalKeyRing` to keep the old
+  behaviour knowingly. README «Identity».
 
 - 🔇 **`Iyu.FileServer`: a failed overwrite deleted the stored object.** The filesystem backend wrote into the
   object's own file and, when the write failed part-way (too large, cancelled, the connection dropped), deleted
