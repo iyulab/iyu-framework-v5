@@ -56,13 +56,21 @@ public sealed class IyuMainServerOptions
     /// </remarks>
     public IyuMainServerOptions Authorize<TRead>(string? read = null, string? write = null, string? delete = null)
         where TRead : class
+        => Authorize(typeof(TRead), read, write, delete);
+
+    /// <summary>
+    /// <see cref="Authorize{TRead}"/> for a read type known only at run time — a loop over a generated map of
+    /// read types to policies, for one.
+    /// </summary>
+    public IyuMainServerOptions Authorize(Type readType, string? read = null, string? write = null, string? delete = null)
     {
+        ArgumentNullException.ThrowIfNull(readType);
         if (read is not null) ArgumentException.ThrowIfNullOrWhiteSpace(read);
         if (write is not null) ArgumentException.ThrowIfNullOrWhiteSpace(write);
         if (delete is not null) ArgumentException.ThrowIfNullOrWhiteSpace(delete);
-        if (!_entityPolicies.TryAdd(typeof(TRead), new EntityPolicy(read, write, delete)))
+        if (!_entityPolicies.TryAdd(readType, new EntityPolicy(read, write, delete)))
             throw new InvalidOperationException(
-                $"Authorization for '{typeof(TRead).FullName}' is already declared. Declare an entity's policies once.");
+                $"Authorization for '{readType.FullName}' is already declared. Declare an entity's policies once.");
         return this;
     }
 

@@ -66,6 +66,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   ```
 
   A declaration for a type no surface serves, or a second one for the same type, stops the host at startup.
+  `options.Authorize(Type readType, …)` takes the read type at run time — for a loop over a generated map of read
+  types to policies.
   `IAuthorizationSurfaceReport` is unchanged and reports what the declarations attached. Optional surfaces receive
   the declarations through `IIyuMainServerSurface.ConfigureServices(services, options)` and say which types they
   serve through `Serves(Type)`. README «Per-entity authorization».

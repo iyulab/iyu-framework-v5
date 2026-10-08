@@ -142,6 +142,24 @@ public class EntityPolicyEndToEndTests
         Assert.Contains(nameof(PolicyWidgetExt), refused.Message);
     }
 
+    /// <summary>A map of read types to policies — what a generator emits — declares through the non-generic form.</summary>
+    [Fact]
+    public async Task A_read_type_known_at_run_time_declares_the_same_way()
+    {
+        var map = new Dictionary<Type, (string Read, string Write)> { [typeof(PolicyWidgetExt)] = (ReadPolicy, WritePolicy) };
+        var app = await StartAsync(options =>
+        {
+            options.ODataModel.AddEntityPair<PolicyWidgetExt, PolicyWidget>("PolicyWidgets");
+            foreach (var (type, (read, write)) in map) options.Authorize(type, read: read, write: write);
+        });
+        try
+        {
+            var (odata, _) = await ReadBothAsync(app.GetTestServer().CreateClient(), perm: "something.else");
+            Assert.Equal(HttpStatusCode.Forbidden, odata);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
     [Fact]
     public void A_second_declaration_for_one_type_is_refused()
     {
