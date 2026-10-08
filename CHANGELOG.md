@@ -9,7 +9,7 @@ record written after the fact can describe something that did not happen.
 
 ## How to read a release here
 
-**Every `Iyu.*` package shares one version number.** A release publishes all ten at the
+**Every `Iyu.*` package shares one version number.** A release publishes all of them at the
 new number whether or not each one changed, so the version alone cannot tell you if the
 code you depend on moved. Each entry below therefore opens with **Packages affected** —
 if your dependency is not listed, that release changed nothing you consume, and upgrading
@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` (new), `Iyu.Server.OData`
 
 ### Fixed
 
@@ -50,6 +50,14 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **`Iyu.MainServer` no longer brings GraphQL; `Iyu.MainServer.GraphQL` does.** The composite host referenced the
+  GraphQL surface unconditionally, so a host that serves only OData shipped HotChocolate and the IDE package it
+  depends on (`ChilliCream.Nitro.App`, ChilliCream License 1.0 — not OSI, with a notice obligation). A host that
+  serves GraphQL now adds `PackageReference Include="Iyu.MainServer.GraphQL"`; `options.GraphQL` is an extension
+  property in the `Iyu.MainServer` namespace, so registration code — hand-written or generated — compiles
+  unchanged. Without the package it fails to compile with `CS1061` on `GraphQL`. A host that serves only OData
+  changes nothing and loses the dependency. Optional surfaces join through `IIyuMainServerSurface` /
+  `IyuMainServerOptions.Surface<T>()`. README «Minimum consumer».
 - **`Iyu.Core`: `IAttachmentStorage` gains `TryCreateAsync`.** A backend you implement yourself must add it
   (write only if nothing is stored at the key; return `false`, writing nothing, otherwise — atomically). The two
   built-in backends implement it.

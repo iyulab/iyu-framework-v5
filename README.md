@@ -7,7 +7,7 @@ generator-produced entities, plus optional modules for identity, attachments,
 chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
-Targets .NET 10. All ten projects share one version and ship as separate
+Targets .NET 10. All eleven projects share one version and ship as separate
 NuGet packages.
 
 ## Role in the stack
@@ -28,7 +28,8 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
 | `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder (searches `[Searchable]` properties when a type declares any, otherwise every string property), `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix, authorizePolicy)` (HotChocolate-based) |
-| `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients) |
+| `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients). Serves OData; carries no GraphQL dependency |
+| `Iyu.MainServer.GraphQL` | The GraphQL surface for `AddIyuMainServer` — `options.GraphQL`, `/graphql`. Reference it only if the host serves GraphQL (below) |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
@@ -74,6 +75,13 @@ var app = builder.Build();
 app.UseIyuMainServer();
 app.Run();
 ```
+
+**GraphQL is its own package.** `options.GraphQL` comes from `Iyu.MainServer.GraphQL` — reference it and the line
+above compiles as written (the property is an extension in the `Iyu.MainServer` namespace); a host that serves only
+OData references `Iyu.MainServer` alone and carries none of the GraphQL stack. Serving GraphQL brings HotChocolate,
+whose `HotChocolate.AspNetCore` depends on `ChilliCream.Nitro.App` — distributed under the ChilliCream License 1.0,
+not an OSI license, with a notice obligation for whoever ships it. A host that never touches `options.GraphQL`
+maps no `/graphql`.
 
 Resulting endpoints:
 - `GET /$data/$metadata` — OData EDM document
@@ -1179,7 +1187,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All ten `Iyu.*` packages share one version, so a new number does not by itself mean the
+All eleven `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking

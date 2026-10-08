@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Iyu.MainServer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Iyu.MainServer\Iyu.MainServer.csproj" />
+    <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />
+  </ItemGroup>
+
+</Project>

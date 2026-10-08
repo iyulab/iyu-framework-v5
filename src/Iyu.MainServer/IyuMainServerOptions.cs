@@ -1,22 +1,38 @@
 using System.Collections.Generic;
 using System.Reflection;
-using Iyu.Server.GraphQL;
 using Iyu.Server.OData;
 
 namespace Iyu.MainServer;
 
 /// <summary>
-/// Configuration surface for <c>AddIyuMainServer</c>. Consumers populate OData
-/// and GraphQL registrations here via the two fluent builders; the composite
+/// Configuration surface for <c>AddIyuMainServer</c>. Consumers populate OData registrations here via
+/// <see cref="ODataModel"/>, and any further surface through <see cref="Surface{TSurface}"/>; the composite
 /// extension then wires them into the ASP.NET Core pipeline.
 /// </summary>
+/// <remarks>
+/// GraphQL is such a surface, in its own package: reference <c>Iyu.MainServer.GraphQL</c> and
+/// <c>options.GraphQL</c> is there — an extension property in this namespace, so registration code reads the same.
+/// </remarks>
 public sealed class IyuMainServerOptions
 {
+    private readonly Dictionary<Type, IIyuMainServerSurface> _surfaces = new();
+
     /// <summary>OData EDM model + entity pair registry.</summary>
     public IyuEdmModelBuilder ODataModel { get; } = new();
 
-    /// <summary>GraphQL schema builder (HotChocolate).</summary>
-    public IyuGraphQLSchemaBuilder GraphQL { get; } = new();
+    /// <summary>
+    /// The host's instance of an optional surface — created the first time it is asked for, the same one after.
+    /// A surface nobody asked for is not composed in.
+    /// </summary>
+    public TSurface Surface<TSurface>() where TSurface : class, IIyuMainServerSurface, new()
+    {
+        if (!_surfaces.TryGetValue(typeof(TSurface), out var surface))
+            _surfaces[typeof(TSurface)] = surface = new TSurface();
+        return (TSurface)surface;
+    }
+
+    /// <summary>The surfaces asked for, in the order they were first asked for.</summary>
+    internal IEnumerable<IIyuMainServerSurface> Surfaces => _surfaces.Values;
 
     /// <summary>
     /// OData route prefix. Defaults to <c>"$data"</c> per the design spec

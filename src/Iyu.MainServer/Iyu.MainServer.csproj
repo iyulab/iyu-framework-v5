@@ -12,7 +12,8 @@
     <ProjectReference Include="..\Iyu.Core\Iyu.Core.csproj" />
     <ProjectReference Include="..\Iyu.Data\Iyu.Data.csproj" />
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />
-    <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />
+    <!-- GraphQL is not referenced here: it is an optional surface, composed in by Iyu.MainServer.GraphQL, so a host
+         that serves only OData carries none of the GraphQL stack (HotChocolate and its IDE package). -->
   </ItemGroup>
 
   <ItemGroup>

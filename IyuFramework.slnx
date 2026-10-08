@@ -7,6 +7,7 @@
   <Project Path="src/Iyu.Server.OData/Iyu.Server.OData.csproj" />
   <Project Path="src/Iyu.Server.GraphQL/Iyu.Server.GraphQL.csproj" />
   <Project Path="src/Iyu.MainServer/Iyu.MainServer.csproj" />
+  <Project Path="src/Iyu.MainServer.GraphQL/Iyu.MainServer.GraphQL.csproj" />
   <Project Path="src/Iyu.Server.Chat/Iyu.Server.Chat.csproj" />
   <Project Path="src/Iyu.VaultAi/Iyu.VaultAi.csproj" />
   <Project Path="src/Iyu.FileServer/Iyu.FileServer.csproj" />

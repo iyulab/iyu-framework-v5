@@ -11,7 +11,7 @@ namespace Iyu.MainServer;
 
 /// <summary>
 /// Composite bootstrap for the Iyu runtime — a single entry point that wires
-/// EF Core, OData, and GraphQL into an ASP.NET Core host. Consumers register
+/// EF Core, OData, and any optional surface (GraphQL — <c>Iyu.MainServer.GraphQL</c>) into an ASP.NET Core host. Consumers register
 /// entity pairs via the configuration callback, then call
 /// <see cref="UseIyuMainServer"/> once the app is built.
 /// </summary>
@@ -21,7 +21,7 @@ public static class MainServerExtensions
     /// Registers the Iyu runtime services. The <paramref name="configure"/>
     /// callback receives an <see cref="IyuMainServerOptions"/> onto which
     /// consumers (or generator-emitted registration classes) register OData
-    /// and GraphQL entity pairs.
+    /// entity pairs, and those of any optional surface.
     /// </summary>
     /// <typeparam name="TContext">The concrete <see cref="IyuDbContext"/> the application uses.</typeparam>
     /// <param name="services">The DI container.</param>
@@ -76,13 +76,11 @@ public static class MainServerExtensions
 
         // Authorization surface report — lets a consumer pin "no registered entity is exposed
         // without a policy" as a contract test instead of standing up an unauthorized caller per
-        // (entity, surface) pair by hand. Both providers are registered unconditionally: a surface
-        // with nothing on it simply contributes no entries, and enumerating providers from DI is
-        // what lets a third surface join without this method learning its name.
+        // (entity, surface) pair by hand. OData's provider is registered here; every other surface
+        // registers its own (IIyuMainServerSurface.ConfigureServices), and enumerating providers from
+        // DI is what lets a surface join without this method learning its name.
         services.AddSingleton<Iyu.Core.Authorization.IAuthorizationSurfaceProvider>(
             _ => new Iyu.Server.OData.ODataAuthorizationSurfaceProvider(options.ODataModel.Registry));
-        services.AddSingleton<Iyu.Core.Authorization.IAuthorizationSurfaceProvider>(
-            _ => new Iyu.Server.GraphQL.GraphQLAuthorizationSurfaceProvider(options.GraphQL));
         services.AddSingleton<Iyu.Core.Authorization.IAuthorizationSurfaceReport, AuthorizationSurfaceReport>();
 
         var mvc = services.AddControllers()
@@ -139,8 +137,8 @@ public static class MainServerExtensions
         RegisterControllerParts(mvc.PartManager, CandidateControllerAssemblies(typeof(TContext), configure, options));
 
         // Wire OData per-set authorization only when some registered pair actually uses
-        // RestrictPolicy — the same "only pay for what you use" gate options.GraphQL.ApplyTo
-        // applies for its own authorization bridge (_usesAuthorization). AddAuthorizationCore
+        // RestrictPolicy — the same "only pay for what you use" gate the GraphQL surface applies for
+        // its own authorization bridge. AddAuthorizationCore
         // guarantees a working IAuthorizationService even for a consumer that calls
         // RestrictPolicy without ever calling AddIyuIdentity.
         if (options.ODataModel.Registry.All.Any(p => p.ReadPolicy is not null || p.WritePolicy is not null))
@@ -150,16 +148,9 @@ public static class MainServerExtensions
                 new IyuODataAuthorizationConvention(options.ODataModel.Registry)));
         }
 
-        // HotChocolate rejects a schema whose Query type has zero fields at host
-        // startup (RequestExecutorWarmupService eagerly builds it) — a consumer that
-        // registered no GraphQL entity pairs would otherwise crash the whole host, not
-        // just the GraphQL surface. Only wire GraphQL when there is something to expose;
-        // UseIyuMainServer makes the matching call on the read side (MapGraphQL).
-        if (options.GraphQL.QueryNames.Count > 0)
-        {
-            var gql = services.AddGraphQLServer();
-            options.GraphQL.ApplyTo(gql);
-        }
+        // Optional surfaces (GraphQL — Iyu.MainServer.GraphQL) wire themselves; UseIyuMainServer maps them.
+        foreach (var surface in options.Surfaces)
+            surface.ConfigureServices(services);
 
         // Stash the options so UseIyuMainServer can finish the pipeline wiring.
         services.AddSingleton(options);
@@ -169,7 +160,7 @@ public static class MainServerExtensions
 
     /// <summary>
     /// Completes the Iyu runtime pipeline: routing, controllers (OData), and
-    /// the GraphQL endpoint at <c>/graphql</c>. Call once in <c>Program.cs</c>
+    /// the endpoints of any optional surface (GraphQL at <c>/graphql</c>). Call once in <c>Program.cs</c>
     /// after <c>var app = builder.Build();</c>.
     /// </summary>
     public static WebApplication UseIyuMainServer(this WebApplication app)
@@ -185,10 +176,8 @@ public static class MainServerExtensions
         app.MapControllers();
 
         var options = app.Services.GetRequiredService<IyuMainServerOptions>();
-        if (options.GraphQL.QueryNames.Count > 0)
-        {
-            app.MapGraphQL();
-        }
+        foreach (var surface in options.Surfaces)
+            surface.MapEndpoints(app);
         return app;
     }
 

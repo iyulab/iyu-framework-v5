@@ -8,7 +8,7 @@ namespace Iyu.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every release here bumps all ten packages, so a reader upgrades across entries they did
+/// Every release here bumps every package, so a reader upgrades across entries they did
 /// not go looking for. Among those entries, one kind is self-announcing — a signature or a
 /// record's shape stops their build — and one kind is not: what a request answers changes,
 /// nothing refuses to compile, and the difference surfaces in production. The changelog used
