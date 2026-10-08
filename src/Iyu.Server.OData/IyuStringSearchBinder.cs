@@ -46,19 +46,25 @@ namespace Iyu.Server.OData;
 /// <b>One step into a reference.</b> A <see cref="SearchableAttribute"/> on a reference navigation (a single
 /// related read type, not a collection) searches that type's searched string properties too — a list shown
 /// with its reference's name is found by that name. One step only: the related type's own navigations are not
-/// followed. A navigation to a type no entity set serves is not searched, and neither is one the request has
-/// been refused for (<see cref="ExcludedNavigationsItem"/>) — a caller who may not read the related set must not
-/// learn its rows by filtering on them.
+/// followed. A navigation to a type no entity set serves is not searched. One whose set carries a read policy is
+/// searched only when the request lists it as allowed (<see cref="AllowedNavigationsItem"/>, which the host's
+/// authorization fills) — denied by default, so a caller who may not read the related set cannot learn its rows by
+/// filtering on them however the search reached this binder. What was left out is named in
+/// <see cref="ExcludedHeader"/>.
 /// </para>
 /// </remarks>
 public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null, IHttpContextAccessor? httpContext = null)
     : ISearchBinder
 {
     /// <summary>
-    /// The <see cref="HttpContext.Items"/> key under which a request lists, as a set of property names, the
-    /// searchable navigations it may not search — set by the host's authorization before the query is bound.
+    /// The <see cref="HttpContext.Items"/> key under which a request lists, as a set of property names, the searchable
+    /// navigations to a policy-protected set that its caller may search — filled by the host's authorization before
+    /// the query is bound. A protected navigation not listed is left out.
     /// </summary>
-    public const string ExcludedNavigationsItem = "Iyu.Search.ExcludedNavigations";
+    public const string AllowedNavigationsItem = "Iyu.Search.AllowedNavigations";
+
+    /// <summary>The response header naming the searchable navigations a search left out for this caller.</summary>
+    public const string ExcludedHeader = "Iyu-Search-Excluded";
 
     private static readonly MethodInfo ContainsMethod =
         typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
@@ -77,11 +83,19 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
         // The whole clause is bound into a single body over one shared parameter, then
         // wrapped in exactly one lambda — nesting lambdas per node would not be
         // EF-Core translatable.
-        var excluded = httpContext?.HttpContext?.Items[ExcludedNavigationsItem] as IReadOnlySet<string>;
-        var navigations = SearchedNavigations(context.ElementClrType)
-            .Where(n => registry?.FindByReadType(n.PropertyType) is not null)
-            .Where(n => excluded is null || !excluded.Contains(n.Name))
-            .ToList();
+        var http = httpContext?.HttpContext;
+        var allowed = http?.Items[AllowedNavigationsItem] as IReadOnlySet<string>;
+        var navigations = new List<PropertyInfo>();
+        var excluded = new List<string>();
+        foreach (var navigation in SearchedNavigations(context.ElementClrType))
+        {
+            if (registry?.FindByReadType(navigation.PropertyType) is not { } target) continue;
+            if (target.ReadPolicy is null || allowed?.Contains(navigation.Name) == true) navigations.Add(navigation);
+            else excluded.Add(navigation.Name);
+        }
+        if (excluded.Count > 0 && http is { Response.HasStarted: false })
+            http.Response.Headers[ExcludedHeader] = string.Join(", ", excluded.Order(StringComparer.Ordinal));
+
         var body = BindNode(searchClause.Expression, parameter, context.ElementClrType, navigations);
 
         return Expression.Lambda(body, parameter);

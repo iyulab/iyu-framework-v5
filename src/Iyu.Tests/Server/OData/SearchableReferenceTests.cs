@@ -60,16 +60,18 @@ public sealed class RefCustomersController(RefContext ctx) : IyuODataController<
 /// </summary>
 public class SearchableReferenceTests
 {
-    private static Func<RefOrderExt, bool> Bind(string term, bool registerCustomers, ISet<string>? excluded = null)
+    private static Func<RefOrderExt, bool> Bind(
+        string term, bool registerCustomers, bool protectCustomers = false, ISet<string>? allowed = null, bool withRequest = true)
     {
         var builder = new IyuEdmModelBuilder();
         builder.AddEntityPair<RefOrderExt, RefOrder>("RefOrders");
         if (registerCustomers) builder.AddEntityPair<RefCustomerExt, RefCustomer>("RefCustomers");
+        if (protectCustomers) builder.RestrictPolicy("RefCustomers", readPolicy: "customers.read");
         var context = new QueryBinderContext(builder.GetEdmModel(), new ODataQuerySettings(), typeof(RefOrderExt));
 
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
-        if (excluded is not null)
-            accessor.HttpContext.Items[IyuStringSearchBinder.ExcludedNavigationsItem] = new HashSet<string>(excluded);
+        var accessor = new HttpContextAccessor { HttpContext = withRequest ? new DefaultHttpContext() : null };
+        if (allowed is not null)
+            accessor.HttpContext!.Items[IyuStringSearchBinder.AllowedNavigationsItem] = new HashSet<string>(allowed);
 
         var binder = new IyuStringSearchBinder(builder.Registry, accessor);
         var lambda = Assert.IsAssignableFrom<LambdaExpression>(
@@ -98,9 +100,15 @@ public class SearchableReferenceTests
     public void A_reference_to_a_type_no_set_serves_is_not_searched()
         => Assert.False(Bind("acme", registerCustomers: false)(OrderOf("ACME Corp")));
 
+    /// <summary>Deny by default: a reference to a protected set is searched only when the request allows it.</summary>
     [Fact]
-    public void A_reference_the_request_was_refused_is_not_searched()
-        => Assert.False(Bind("acme", registerCustomers: true, excluded: new HashSet<string> { "Customer" })(OrderOf("ACME Corp")));
+    public void A_reference_to_a_protected_set_is_not_searched_unless_the_request_allows_it()
+    {
+        Assert.False(Bind("acme", registerCustomers: true, protectCustomers: true)(OrderOf("ACME Corp")));
+        Assert.False(Bind("acme", registerCustomers: true, protectCustomers: true, withRequest: false)(OrderOf("ACME Corp")));
+        Assert.True(Bind("acme", registerCustomers: true, protectCustomers: true,
+            allowed: new HashSet<string> { "Customer" })(OrderOf("ACME Corp")));
+    }
 
     // ---- through the host: the caller's read policy on the referenced set decides ----
 
@@ -137,9 +145,10 @@ public class SearchableReferenceTests
         return app;
     }
 
-    private static async Task<(HttpStatusCode Status, string Body, string? Excluded)> SearchAsync(WebApplication app, string? perm)
+    private static async Task<(HttpStatusCode Status, string Body, string? Excluded)> SearchAsync(
+        WebApplication app, string? perm, string query = "$search=acme")
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, "/$data/RefOrders?$search=acme");
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/$data/RefOrders?" + query);
         req.Headers.Add("X-Test-Perm", perm ?? "anyone");
         using var resp = await app.GetTestServer().CreateClient().SendAsync(req);
         var excluded = resp.Headers.TryGetValues("Iyu-Search-Excluded", out var v) ? string.Join(",", v) : null;
@@ -167,6 +176,21 @@ public class SearchableReferenceTests
         try
         {
             var (status, body, excluded) = await SearchAsync(app, perm: null);
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.DoesNotContain("\"plain\"", body, StringComparison.Ordinal);
+            Assert.Equal("Customer", excluded);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>The search option without its dollar sign reaches the same binder — and the same denial.</summary>
+    [Fact]
+    public async Task The_dollar_less_search_option_is_held_to_the_same_policy()
+    {
+        var app = await StartAsync();
+        try
+        {
+            var (status, body, excluded) = await SearchAsync(app, perm: null, query: "search=acme");
             Assert.Equal(HttpStatusCode.OK, status);
             Assert.DoesNotContain("\"plain\"", body, StringComparison.Ordinal);
             Assert.Equal("Customer", excluded);
