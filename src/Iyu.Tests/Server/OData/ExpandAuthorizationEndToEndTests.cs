@@ -257,8 +257,9 @@ public class ExpandAuthorizationEndToEndTests
             using var resp = await app.GetTestServer().CreateClient()
                 .SendAsync(Request($"/$data/{OrdersSet}?expand=Secret", perm: "something.else"));
             var body = await resp.Content.ReadAsStringAsync();
+            // The protected row's value first: it is what a bypass would carry, and the status alone would not say.
+            Assert.DoesNotContain(SecretCode, body, StringComparison.Ordinal);
             Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
-            Assert.DoesNotContain("Secret", body, StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
     }
