@@ -44,8 +44,8 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
 
         await AllowReadableSearchReferencesAsync(context.HttpContext);
 
-        var raw = context.HttpContext.Request.Query["$expand"].ToString();
-        if (string.IsNullOrWhiteSpace(raw))
+        var expands = OptionValues(context.HttpContext.Request, "expand");
+        if (expands.Count == 0)
         {
             await next();
             return;
@@ -69,7 +69,11 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
         IReadOnlyCollection<string> expanded;
         try
         {
-            expanded = ExpandedSetNames(model, setName, raw, context.HttpContext.Request.GetRouteServices());
+            var routeServices = context.HttpContext.Request.GetRouteServices();
+            expanded = expands
+                .SelectMany(raw => ExpandedSetNames(model, setName, raw, routeServices))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
         }
         catch (ODataException)
         {
@@ -121,6 +125,22 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
 
         await next();
     }
+
+    /// <summary>
+    /// Every value the request gives the query option <paramref name="name"/>, under every spelling the OData query
+    /// pipeline accepts: with or without the <c>$</c>, in any letter case.
+    /// </summary>
+    /// <remarks>
+    /// The check has to see what the pipeline will apply. Reading only the literal <c>$expand</c> parameter let
+    /// <c>expand=Secret</c> — which the pipeline applies just the same — carry a protected set's rows past it.
+    /// </remarks>
+    internal static IReadOnlyList<string> OptionValues(HttpRequest request, string name)
+        => request.Query
+            .Where(q => string.Equals(q.Key.TrimStart('$'), name, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(q => q.Value)
+            .OfType<string>()
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToList();
 
     /// <summary>
     /// A search also matches the text of each searchable reference (<c>IyuStringSearchBinder</c>), so a caller who may

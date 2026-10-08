@@ -33,6 +33,11 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Fixed
 
+- 🔇 **`Iyu.MainServer`: `expand=` without the dollar sign bypassed the `$expand` read-policy check.** The check that
+  applies each reached set's read policy read only the literal `$expand` parameter, while the query pipeline also
+  applies the option spelled `expand` (and in any letter case). `?expand=Secret` therefore returned a protected set's
+  rows inline to a caller the same request with `$expand` refused. The check now reads the option under every spelling
+  the pipeline accepts. Security fix — upgrade if any set carries a read policy.
 - **`Iyu.MainServer`: a host whose cookie sessions would end with its container is refused at startup.**
   `AddIyuIdentity` turns on cookie sessions, sealed by Data Protection keys; with no key repository configured,
   a container keeps them inside itself and every redeploy signs every web user out — and the host started anyway,

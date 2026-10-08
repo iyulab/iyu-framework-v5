@@ -244,6 +244,26 @@ public class ExpandAuthorizationEndToEndTests
     }
 
     /// <summary>
+    /// OData accepts its query options without the <c>$</c> as well. The expand check has to see that spelling too —
+    /// a check keyed on the literal <c>$expand</c> parameter would let <c>expand=Secret</c> carry the protected rows
+    /// past it.
+    /// </summary>
+    [Fact]
+    public async Task The_dollar_less_expand_option_is_held_to_the_same_policy()
+    {
+        var app = await StartAsync();
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .SendAsync(Request($"/$data/{OrdersSet}?expand=Secret", perm: "something.else"));
+            var body = await resp.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            Assert.DoesNotContain("Secret", body, StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
     /// The contrast that makes the next test a finding rather than a guess: the same anonymous
     /// caller cannot reach the protected set by its own route.
     /// </summary>
