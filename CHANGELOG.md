@@ -86,6 +86,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- 🔇 **`Iyu.Server.OData`: `$search` follows a `[Searchable]` reference one step.** A reference navigation on a read
+  type marked `[Searchable]` makes a search match the referenced type's searched text as well, so a list shown with its
+  reference's name is found by that name. A reference to a type no set serves is not searched; one whose set the
+  caller may not read is left out of that request's search, and the response names it in `Iyu-Search-Excluded`
+  (`Iyu.MainServer`). The search binder's constructor now takes the pair registry and the request accessor — a host
+  built with `AddIyuMainServer` wires both. README «How far a read policy reaches».
 - **`Iyu.Core`: `IAttachmentStorage.TryCreateAsync` — write an object once.** Of concurrent writers for one key,
   exactly one gets `true`; the rest write nothing. Filesystem: a no-replace move; Azure Blob: `If-None-Match: *`.
 - **`Iyu.Core`: `IAttachmentStorage.OpenLocalFileAsync` — an object as a file path** for tools that open paths.

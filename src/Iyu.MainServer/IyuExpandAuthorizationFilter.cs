@@ -42,6 +42,9 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
 
+        if (!string.IsNullOrWhiteSpace(context.HttpContext.Request.Query["$search"].ToString()))
+            await ExcludeUnreadableSearchReferencesAsync(context.HttpContext);
+
         var raw = context.HttpContext.Request.Query["$expand"].ToString();
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -118,6 +121,40 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
         }
 
         await next();
+    }
+
+    /// <summary>The response header that names the searchable references a <c>$search</c> left out for this caller.</summary>
+    internal const string SearchExcludedHeader = "Iyu-Search-Excluded";
+
+    /// <summary>
+    /// A <c>$search</c> also matches the text of each searchable reference (<c>IyuStringSearchBinder</c>) — so a caller
+    /// who may not read the referenced set would learn its rows by filtering on them. Such references are left out of
+    /// this request's search, and the response names them in <see cref="SearchExcludedHeader"/> rather than answering
+    /// as if they had been searched.
+    /// </summary>
+    /// <remarks>
+    /// Left out, not refused: unlike <c>$expand</c>, which names the set it reaches, a searchable reference is the
+    /// server's declaration — refusing the whole search would take search away from everyone who may not read one
+    /// referenced set.
+    /// </remarks>
+    private async Task ExcludeUnreadableSearchReferencesAsync(HttpContext http)
+    {
+        var services = http.RequestServices;
+        if (services.GetService<IyuEntityPairRegistry>() is not { } registry
+            || services.GetService<IAuthorizationService>() is not { } authorization
+            || registry.Find(setName) is not { } addressed) return;
+
+        var excluded = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var navigation in IyuStringSearchBinder.SearchedNavigations(addressed.ReadType))
+        {
+            if (registry.FindByReadType(navigation.PropertyType) is not { ReadPolicy: { } policy }) continue;
+            if (!(await authorization.AuthorizeAsync(http.User, policy)).Succeeded)
+                excluded.Add(navigation.Name);
+        }
+        if (excluded.Count == 0) return;
+
+        http.Items[IyuStringSearchBinder.ExcludedNavigationsItem] = excluded;
+        http.Response.Headers[SearchExcludedHeader] = string.Join(", ", excluded.Order(StringComparer.Ordinal));
     }
 
     /// <summary>

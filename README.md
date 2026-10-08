@@ -26,7 +26,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 |---|---|
 | `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`), identity contracts, and the attachment contracts (`IAttachmentStorage`, `FileAccessToken`, `FileAccessTokenService`) |
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
-| `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder (searches `[Searchable]` properties when a type declares any, otherwise every string property), `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
+| `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder (searches `[Searchable]` properties when a type declares any, otherwise every string property; a `[Searchable]` reference navigation searches the referenced type's text, one step), `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients). Serves OData; carries no GraphQL dependency |
 | `Iyu.MainServer.GraphQL` | The GraphQL surface for `AddIyuMainServer` — `options.GraphQL`, `/graphql`. Reference it only if the host serves GraphQL (below) |
@@ -498,6 +498,15 @@ already holds the type.
 > selection can traverse between read types and there is nothing for either check to refuse. Set the
 > policies before that property exists rather than after — an expand path is not visible in a
 > response that succeeded.
+
+**`$search` — a searchable reference is searched only for a caller who may read it.** Marking a reference
+navigation `[Searchable]` (a single related read type, not a collection) makes `$search` match that type's searched
+text too — a list shown with its reference's name is found by that name. One step: the related type's own
+navigations are not followed, and a reference to a type no set serves is not searched. When the caller may not read
+the referenced set, that reference is **left out** of the search rather than refusing it — the reference is the
+server's declaration, so refusing would take search away from everyone outside that one set — and the response says
+which references were left out in an `Iyu-Search-Excluded` header, so a client does not mistake a narrower search
+for an empty result.
 
 ### Checking that nothing was left unprotected
 

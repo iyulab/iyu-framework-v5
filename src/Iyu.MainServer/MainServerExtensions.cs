@@ -50,6 +50,9 @@ public static class MainServerExtensions
         // 409 ProblemDetails instead of a bare 500 — see IyuWriteExceptionHandler. Wired
         // unconditionally: it costs nothing for a consumer that never hits it, matching this
         // extension's own AddDbContext line just above.
+        // The search binder runs inside the OData query pipeline, which hands it no request; the accessor is
+        // how it reads what the request was refused (see IyuStringSearchBinder).
+        services.AddHttpContextAccessor();
         services.AddExceptionHandler<IyuWriteExceptionHandler>();
         services.AddProblemDetails();
 
@@ -107,9 +110,11 @@ public static class MainServerExtensions
                     options.ODataRoutePrefix,
                     options.ODataModel.GetEdmModel(),
                     routeServices => routeServices
-                        .AddSingleton<
-                            Microsoft.AspNetCore.OData.Query.Expressions.ISearchBinder,
-                            Iyu.Server.OData.IyuStringSearchBinder>()
+                        // The binder reads the registry (a searchable reference counts only if its type is served)
+                        // and the request (the references this caller may not search — IyuExpandAuthorizationFilter).
+                        .AddSingleton<Microsoft.AspNetCore.OData.Query.Expressions.ISearchBinder>(
+                            _ => new Iyu.Server.OData.IyuStringSearchBinder(
+                                options.ODataModel.Registry, new Microsoft.AspNetCore.Http.HttpContextAccessor()))
                         // $filter's `in` must resolve [EnumMember] wire values the way `eq` does;
                         // the stock binder does not for collection constants (see IyuFilterBinder).
                         .AddSingleton<
