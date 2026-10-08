@@ -58,7 +58,7 @@ public class GraphQLProjectionAuthorizationTests
         // Orders is open; Secrets carries the policy. The caller is meant to be allowed to read
         // Orders, so anything it learns about a Secret it learned through the Order.
         graphql.AddEntityPair<ProjOrder, ProjOrder>("projOrders", "projOrder");
-        graphql.AddEntityPair<ProjSecret, ProjSecret>("projSecrets", "projSecret", authorizePolicy: SecretPolicy);
+        graphql.AddEntityPair<ProjSecret, ProjSecret>("projSecrets", "projSecret").Restrict("projSecrets", SecretPolicy);
 
         var services = new ServiceCollection();
         services.AddDbContext<ProjContext>(o => o.UseInMemoryDatabase(dbName));

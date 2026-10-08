@@ -120,7 +120,7 @@ public sealed class IyuEntityPairRegistry
     /// and this is the same discrimination on the authorization axis.
     /// </param>
     /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
-    public void RestrictPolicy(string setName, string? readPolicy, string? writePolicy, string? deletePolicy = null)
+    internal void RestrictPolicy(string setName, string? readPolicy, string? writePolicy, string? deletePolicy = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(setName);
         if (readPolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(readPolicy);

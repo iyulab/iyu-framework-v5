@@ -119,24 +119,17 @@ public sealed class IyuGraphQLSchemaBuilder
     /// </summary>
     /// <param name="queryName">The GraphQL query field name.</param>
     /// <param name="mutationPrefix">Recorded for future mutation generation; not used yet.</param>
-    /// <param name="authorizePolicy">
-    /// An ASP.NET Core authorization policy name (e.g. one registered by
-    /// <c>Iyu.MainServer.Identity.AddIyuIdentity</c>'s permission catalog) required to read this
-    /// field. <see langword="null"/> (the default) leaves the field covered by whatever
-    /// <c>FallbackPolicy</c> is configured — the same posture every field had before this
-    /// parameter existed. Passing a policy is how a GraphQL query field reaches the same
-    /// per-entity authorization OData's <c>IyuODataController</c> gets for free from ASP.NET Core
-    /// MVC's convention pipeline; <see cref="ApplyTo"/> wires the bridge handler that enforces it
-    /// automatically the first time any pair uses this parameter.
-    /// </param>
-    public IyuGraphQLSchemaBuilder AddEntityPair<TRead, TWrite>(
-        string queryName, string mutationPrefix, string? authorizePolicy = null)
+    /// <remarks>
+    /// Authorization is not declared here. A host built with <c>AddIyuMainServer</c> declares an entity's policies
+    /// once (<c>IyuMainServerOptions.Authorize&lt;TRead&gt;</c>) and this surface enforces the read policy on the
+    /// field — a policy belongs to the data, not to one of the surfaces it is served on.
+    /// </remarks>
+    public IyuGraphQLSchemaBuilder AddEntityPair<TRead, TWrite>(string queryName, string mutationPrefix)
         where TRead : class
         where TWrite : IyuEntity
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationPrefix);
-        if (authorizePolicy is not null) ArgumentException.ThrowIfNullOrWhiteSpace(authorizePolicy);
         if (!_queryNames.Add(queryName))
             throw new InvalidOperationException($"GraphQL query field '{queryName}' is already registered.");
         // Two query fields over one read type would be two doors to the same data, and each door
@@ -153,8 +146,7 @@ public sealed class IyuGraphQLSchemaBuilder
                 + "would decide what the other protects. Expose it once and restrict that field.");
         _mutationPrefixes[queryName] = mutationPrefix;
         _exposedTypes[typeof(TRead)] = queryName;
-        _authorizePolicies[queryName] = authorizePolicy;
-        if (authorizePolicy is not null) _usesAuthorization = true;
+        _authorizePolicies[queryName] = null;
 
         // Reads _authorizePolicies at build time (deferred to ApplyTo's AddQueryType callback,
         // which HotChocolate does not invoke until schema construction) rather than closing over
@@ -247,7 +239,7 @@ public sealed class IyuGraphQLSchemaBuilder
     /// <paramref name="queryName"/> was never registered via <see cref="AddEntityPair{TRead,TWrite}"/>,
     /// or this is called after <see cref="ApplyTo"/>.
     /// </exception>
-    public IyuGraphQLSchemaBuilder Restrict(string queryName, string authorizePolicy)
+    internal IyuGraphQLSchemaBuilder Restrict(string queryName, string authorizePolicy)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
         ArgumentException.ThrowIfNullOrWhiteSpace(authorizePolicy);
@@ -401,6 +393,10 @@ public sealed class IyuGraphQLSchemaBuilder
 
     /// <summary>Snapshot of all registered query field names.</summary>
     public IReadOnlyCollection<string> QueryNames => _queryNames.ToList();
+
+    /// <summary>The query field that exposes <paramref name="readType"/>, or <c>null</c> if none does.</summary>
+    public string? QueryNameOf(Type readType)
+        => readType is not null && _exposedTypes.TryGetValue(readType, out var queryName) ? queryName : null;
 
     /// <summary>
     /// The authorization policy recorded for a query field — <c>null</c> when the field is

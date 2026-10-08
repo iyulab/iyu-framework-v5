@@ -100,7 +100,7 @@ public class RestrictPolicyEndToEndTests
             {
                 options.ControllerAssemblies.Add(typeof(PolicyWidgetsController).Assembly);
                 options.ODataModel.AddEntityPair<PolicyWidgetExt, PolicyWidget>(Set);
-                options.ODataModel.RestrictPolicy(Set, readPolicy: ReadPolicy, writePolicy: WritePolicy);
+                options.Authorize<PolicyWidgetExt>(read: ReadPolicy, write: WritePolicy);
             });
 
         var app = builder.Build();

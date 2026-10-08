@@ -259,7 +259,7 @@ public class IyuGraphQLSchemaBuilderTests
     public async Task Field_with_authorize_policy_rejects_a_caller_without_the_claim()
     {
         var graphql = new IyuGraphQLSchemaBuilder();
-        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget").Restrict("widgets", "widgets.read");
 
         await using var sp = BuildServices(
             nameof(Field_with_authorize_policy_rejects_a_caller_without_the_claim), graphql,
@@ -286,7 +286,7 @@ public class IyuGraphQLSchemaBuilderTests
     public async Task Field_with_authorize_policy_allows_a_caller_with_the_claim()
     {
         var graphql = new IyuGraphQLSchemaBuilder();
-        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget").Restrict("widgets", "widgets.read");
 
         await using var sp = BuildServices(
             nameof(Field_with_authorize_policy_allows_a_caller_with_the_claim), graphql,
@@ -317,7 +317,7 @@ public class IyuGraphQLSchemaBuilderTests
     public async Task Field_with_an_unregistered_authorize_policy_fails_closed()
     {
         var graphql = new IyuGraphQLSchemaBuilder();
-        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget").Restrict("widgets", "widgets.read");
 
         await using var sp = BuildServices(
             nameof(Field_with_an_unregistered_authorize_policy_fails_closed), graphql,
@@ -483,7 +483,7 @@ public class IyuGraphQLSchemaBuilderTests
     public void Exposing_one_read_type_under_two_query_fields_is_refused()
     {
         var graphql = new IyuGraphQLSchemaBuilder();
-        graphql.AddEntityPair<Widget, Widget>("widgets", "widget", authorizePolicy: "widgets.read");
+        graphql.AddEntityPair<Widget, Widget>("widgets", "widget").Restrict("widgets", "widgets.read");
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
             graphql.AddEntityPair<Widget, Widget>("openWidgets", "openWidget"));

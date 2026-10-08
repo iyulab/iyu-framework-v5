@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` (new), `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` (new), `Iyu.Server.GraphQL`, `Iyu.Server.OData`
 
 ### Fixed
 
@@ -50,12 +50,32 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- 🔴 **An entity's authorization is declared once, and every surface enforces it — the per-surface declarations
+  are gone.** `options.Authorize<TRead>(read:, write:, delete:)` (`Iyu.MainServer`) replaces
+  `options.ODataModel.RestrictPolicy(setName, …)`, `options.GraphQL.Restrict(queryName, …)` and
+  `AddEntityPair(…, authorizePolicy:)` on GraphQL: the OData set enforces read/write/delete, the GraphQL query field
+  enforces read. Declared per surface, a second surface was a second place to forget a policy, and the forgotten one
+  stayed open under the fallback policy. Migration — one line per entity, keyed by its read type:
+
+  ```csharp
+  // before
+  options.ODataModel.RestrictPolicy("Orders", readPolicy: "orders.read", writePolicy: "orders.write");
+  options.GraphQL.Restrict("orders", "orders.read");
+  // after
+  options.Authorize<OrderExt>(read: "orders.read", write: "orders.write");
+  ```
+
+  A declaration for a type no surface serves, or a second one for the same type, stops the host at startup.
+  `IAuthorizationSurfaceReport` is unchanged and reports what the declarations attached. Optional surfaces receive
+  the declarations through `IIyuMainServerSurface.ConfigureServices(services, options)` and say which types they
+  serve through `Serves(Type)`. README «Per-entity authorization».
 - **`Iyu.MainServer` no longer brings GraphQL; `Iyu.MainServer.GraphQL` does.** The composite host referenced the
   GraphQL surface unconditionally, so a host that serves only OData shipped HotChocolate and the IDE package it
   depends on (`ChilliCream.Nitro.App`, ChilliCream License 1.0 — not OSI, with a notice obligation). A host that
   serves GraphQL now adds `PackageReference Include="Iyu.MainServer.GraphQL"`; `options.GraphQL` is an extension
   property in the `Iyu.MainServer` namespace, so registration code — hand-written or generated — compiles
-  unchanged. Without the package it fails to compile with `CS1061` on `GraphQL`. A host that serves only OData
+  unchanged. Without the package it fails to compile with `CS1061` on `GraphQL`. The property is a C# 14 extension
+  member — the default language version on .NET 10; a project that pins an older `LangVersion` raises it. A host that serves only OData
   changes nothing and loses the dependency. Optional surfaces join through `IIyuMainServerSurface` /
   `IyuMainServerOptions.Surface<T>()`. README «Minimum consumer».
 - **`Iyu.Core`: `IAttachmentStorage` gains `TryCreateAsync`.** A backend you implement yourself must add it

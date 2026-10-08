@@ -34,6 +34,41 @@ public sealed class IyuMainServerOptions
     /// <summary>The surfaces asked for, in the order they were first asked for.</summary>
     internal IEnumerable<IIyuMainServerSurface> Surfaces => _surfaces.Values;
 
+    private readonly Dictionary<Type, EntityPolicy> _entityPolicies = new();
+
+    /// <summary>
+    /// Declares, once, the authorization policies for the entity whose read type is <typeparamref name="TRead"/> —
+    /// and every surface that serves it enforces them: the OData set (<paramref name="read"/> for <c>GET</c> and
+    /// <c>$expand</c>, <paramref name="write"/> for <c>POST</c>/<c>PATCH</c>, <paramref name="delete"/> for
+    /// <c>DELETE</c>, which falls back to <paramref name="write"/>), and the GraphQL query field (<paramref name="read"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A policy belongs to the data, not to the transport it travels over. Declared per surface, a second
+    /// surface is a second place to forget it — and the one forgotten is open under the fallback policy. Declared
+    /// here, a surface added later enforces what is already declared.
+    /// </para>
+    /// <para>
+    /// The read type is the key because it is what every surface registers. A type no surface serves is refused
+    /// when the host is built, as is a second declaration for one type — a typo or a conflict, not a choice.
+    /// <c>null</c> for a policy leaves that access under the host's fallback policy.
+    /// </para>
+    /// </remarks>
+    public IyuMainServerOptions Authorize<TRead>(string? read = null, string? write = null, string? delete = null)
+        where TRead : class
+    {
+        if (read is not null) ArgumentException.ThrowIfNullOrWhiteSpace(read);
+        if (write is not null) ArgumentException.ThrowIfNullOrWhiteSpace(write);
+        if (delete is not null) ArgumentException.ThrowIfNullOrWhiteSpace(delete);
+        if (!_entityPolicies.TryAdd(typeof(TRead), new EntityPolicy(read, write, delete)))
+            throw new InvalidOperationException(
+                $"Authorization for '{typeof(TRead).FullName}' is already declared. Declare an entity's policies once.");
+        return this;
+    }
+
+    /// <summary>The policies declared with <see cref="Authorize{TRead}"/>, by read type.</summary>
+    public IReadOnlyDictionary<Type, EntityPolicy> EntityPolicies => _entityPolicies;
+
     /// <summary>
     /// OData route prefix. Defaults to <c>"$data"</c> per the design spec
     /// (resulting URLs of the form <c>/$data/{EntitySet}</c>).

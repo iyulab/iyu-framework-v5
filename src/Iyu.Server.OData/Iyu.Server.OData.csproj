@@ -17,4 +17,11 @@
     <ProjectReference Include="..\Iyu.Data\Iyu.Data.csproj" />
   </ItemGroup>
 
+  <!-- Applying a policy to a set or field is the composition layer's act (IyuMainServerOptions.Authorize):
+       declared once per entity, enforced by every surface. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.MainServer" />
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
 </Project>

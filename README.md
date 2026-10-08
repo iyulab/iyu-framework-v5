@@ -27,7 +27,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`), identity contracts, and the attachment contracts (`IAttachmentStorage`, `FileAccessToken`, `FileAccessTokenService`) |
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
 | `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder (searches `[Searchable]` properties when a type declares any, otherwise every string property), `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
-| `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix, authorizePolicy)` (HotChocolate-based) |
+| `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients). Serves OData; carries no GraphQL dependency |
 | `Iyu.MainServer.GraphQL` | The GraphQL surface for `AddIyuMainServer` — `options.GraphQL`, `/graphql`. Reference it only if the host serves GraphQL (below) |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
@@ -402,71 +402,33 @@ with `$filter=startswith(...)`.
 
 ### Per-entity authorization
 
-Beyond authentication, a caller may need a specific claim to touch a given set/field at all — both
-surfaces below take an ASP.NET Core authorization policy name, the same ones `AddIyuIdentity`'s
-`permissionCatalog` registers.
-
-**OData** — `IyuODataController<TRead,TWrite>` is a plain MVC controller, so this rides ASP.NET
-Core's standard `IControllerModelConvention` mechanism rather than anything OData-specific:
+Beyond authentication, a caller may need a specific claim to touch an entity at all. Declare the
+entity's policies **once**, and every surface that serves it enforces them — ASP.NET Core authorization
+policy names, the same ones `AddIyuIdentity`'s `permissionCatalog` registers:
 
 ```csharp
-options.ODataModel.AddEntityPair<OrderExt, Order>("orders");
-options.ODataModel.RestrictPolicy("orders", readPolicy: "orders.read", writePolicy: "orders.write");
+RegisterGeneratedEntities(options);   // OData sets and GraphQL fields — generated or yours
+
+options.Authorize<OrderExt>(read: "orders.read", write: "orders.write", delete: "orders.delete");
 ```
 
-GET requires `readPolicy`, POST/PATCH/DELETE require `writePolicy`; either may be left `null` (the
-default) to leave that side unrestricted by this mechanism. The first call that uses either wires
-the `AuthorizeFilter` automatically — no separate registration step. A distinct method from
-`Restrict` (verbs, below) to avoid `params` overload ambiguity; both read the registry's live state,
-so `RestrictPolicy` may run before or after `AddEntityPair`, in either order relative to `Restrict`.
+| Policy | OData set | GraphQL query field |
+|---|---|---|
+| `read` | `GET`, and every `$expand` that reaches it | the field, and the object type wherever it is selected |
+| `write` | `POST`, `PATCH` — and `DELETE` when `delete` is not given | — (GraphQL serves reads only) |
+| `delete` | `DELETE`, when deleting is a different permission from editing | — |
 
-When "may edit" and "may delete" are different permissions, name the third one:
+A policy belongs to the data, not to the transport it travels over. Declared per surface, a second
+surface was a second place to forget it, and the forgotten one was open under the fallback policy — so
+there is no per-surface declaration. The read type is the key because it is what every surface registers;
+the declaration may come before or after the registration. A declaration for a type no surface serves, or
+a second declaration for one type, stops the host at startup. A policy left `null` leaves that access under
+the host's `FallbackPolicy`.
 
-```csharp
-options.ODataModel.RestrictPolicy("orders",
-    readPolicy: "orders.read", writePolicy: "orders.write", deletePolicy: "orders.delete");
-```
-
-`deletePolicy` governs DELETE alone; omitting it — the default — leaves DELETE under `writePolicy`,
-so an app that does not separate the two never sees the parameter. This is the same per-verb
-discrimination `Restrict` already offers on the *availability* axis (it can withdraw `Delete` by
-itself), applied to authorization.
-
-**GraphQL** — query fields have no attribute-based equivalent (they are built by a fluent descriptor
-API, not resolved through MVC), so `AddEntityPair`'s third parameter is the counterpart:
-
-```csharp
-options.GraphQL.AddEntityPair<OrderExt, Order>("orders", "order", authorizePolicy: "orders.read");
-```
-
-`authorizePolicy` is an ASP.NET Core authorization policy name — the same ones
-`AddIyuIdentity`'s `permissionCatalog` registers for OData/MVC. Passing it applies the field
-the same way `[Authorize(Policy = "...")]` would; omitting it (the default) leaves the field
-exactly as before this parameter existed, covered only by whatever `FallbackPolicy` is
-configured. The first `AddEntityPair` call that uses this parameter also wires the bridge
-HotChocolate needs to evaluate that policy against `IAuthorizationService` — HotChocolate ships
-the `.Authorize(policy)` descriptor extension but no default handler that checks it against
-ASP.NET Core's own authorization services, so without this a policy name on a field would have
-nothing to enforce it. No separate registration call is needed; a schema that never passes
-`authorizePolicy` never pays for it.
-
-**When the registration is not yours to edit**, e.g. a single generated file that calls
-`AddEntityPair(queryName, mutationPrefix)` once per pair with no per-call-site control, apply the
-policy afterward instead of at registration:
-
-```csharp
-RegisterGeneratedEntities(options);   // registration you may not own
-
-options.GraphQL.Restrict("orders", "orders.read");
-```
-
-`Restrict` requires the field to already be registered via `AddEntityPair` — it throws if it is
-not — and reaches the schema identically to declaring `authorizePolicy` at `AddEntityPair` time,
-since both read the same live state rather than a value captured at registration. Unlike
-`options.ODataModel.Restrict`, this one **must run before `ApplyTo`** — `ApplyTo` decides
-synchronously, during service configuration, whether to wire the authorization handler into DI, so
-a `Restrict` call made afterward throws rather than silently registering a policy nothing will
-ever enforce.
+The first declaration wires what enforces it — the MVC `AuthorizeFilter` on the OData controllers, and the
+bridge HotChocolate needs to evaluate a policy against `IAuthorizationService` (HotChocolate ships the
+`.Authorize(policy)` descriptor but no handler that checks it against ASP.NET Core's authorization) — so a
+host that declares nothing pays for neither.
 
 ### How far a read policy reaches
 
@@ -474,7 +436,7 @@ A read policy protects the **data**, not the one route you declared it on. Both 
 that way, and both did not always — the paragraphs below describe what the framework does now,
 because the difference is invisible from a successful response.
 
-**OData — every set an `$expand` reaches is checked.** `RestrictPolicy` is enforced by an
+**OData — every set an `$expand` reaches is checked.** A set's read policy is enforced by an
 `AuthorizeFilter` on the restricted set's own controller action, and an expand is served by the
 *addressed* set's action without ever entering the other one. So the check runs separately, against
 each set the expand reaches, at any depth:
@@ -513,7 +475,7 @@ Authorization does not rest on that number either way: the check walks an expand
 a set is authorized however deep it is reached, and raising the ceiling does not widen what a
 caller can see without the policy.
 
-**GraphQL — the policy is on the object type, not only on the root field.** `authorizePolicy`
+**GraphQL — the policy is on the object type, not only on the root field.** The read policy
 attaches to the query field *and* to the read type it returns. A field on some other type that
 returns the protected type reaches the data without the root field's resolver being involved, so a
 selection through such a field is refused at that field's own path rather than answering `null`. A
@@ -527,9 +489,9 @@ page is still a slice of the key ordering. The policy on the navigation's type, 
 caller without it from receiving the rows that query loads.
 
 For the same reason a read type may be exposed **once**. `AddEntityPair` throws if the type already
-backs another query field: two fields are two doors to the same data, each with its own
-`authorizePolicy`, so the door without one would decide what the door with one protects. Expose it
-once and restrict that field — the exception names the field that already holds the type.
+backs another query field: two fields are two doors to the same data, and a reader of the schema could
+not tell which one the entity's policy guards. Expose it once — the exception names the field that
+already holds the type.
 
 > **When this starts to matter.** Both paths open the moment a read type carries a navigation
 > property to another read type, whether you wrote it or a generator emitted it. Until then no
@@ -542,9 +504,9 @@ once and restrict that field — the exception names the field that already hold
 Attaching a policy per entity is one thing; knowing you attached it **everywhere** is another, and
 the two look identical from outside. An entity set with no policy and one whose policy the caller
 happens to satisfy both answer `200` — the difference only shows when someone stands up a caller
-who *should* be refused. Surfaces make that worse: a pair registers successfully on OData and
-GraphQL independently, so protecting one and forgetting the other fails silently, and a surface
-added later is not covered by any check written before it.
+who *should* be refused. An entity declared with `options.Authorize` is protected on every surface
+that serves it; the report is what catches the entity that was never declared at all — including one a
+new registration added since the last time anyone looked.
 
 `IAuthorizationSurfaceReport` answers it from the registrations themselves:
 
@@ -564,14 +526,14 @@ A delete row reports the policy that actually runs: a set with no `deletePolicy`
 deletes on this set" rather than leaving the reader to infer it.
 
 > 🔴 **`null` means "not attached through this framework", not "reachable by anyone."**
-> The report sees what `RestrictPolicy` (OData) and `AddEntityPair`/`Restrict` (GraphQL) attached.
+> The report sees what `options.Authorize` declared.
 > A policy applied some other way — an `[Authorize]` attribute on a hand-written controller, an MVC
 > convention over controller models, endpoint metadata, a gateway in front — is **invisible here**.
 >
 > So an app that authorizes through a controller convention will see *every* entry come back
 > `null`. That is not a finding, and reading it as one leads somewhere worse than not looking:
 > a report that cries wolf gets ignored. **To make this report mean something, attach policies
-> where the framework can see them** — `RestrictPolicy` / `Restrict`. Doing so also removes the
+> where the framework can see them** — `options.Authorize`. Doing so also removes the
 > parallel entity→policy map such a convention needs, since the registration becomes the one place
 > that knows.
 

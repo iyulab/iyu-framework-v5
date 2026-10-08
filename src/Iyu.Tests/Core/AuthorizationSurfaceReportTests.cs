@@ -126,7 +126,7 @@ public class AuthorizationSurfaceReportTests
     public void A_graphql_field_reports_one_read_entry_and_no_write_entry()
     {
         var builder = new IyuGraphQLSchemaBuilder();
-        builder.AddEntityPair<SurfaceWidgetExt, SurfaceWidget>("widgets", "widget", "widgets.read");
+        builder.AddEntityPair<SurfaceWidgetExt, SurfaceWidget>("widgets", "widget").Restrict("widgets", "widgets.read");
 
         var entries = new GraphQLAuthorizationSurfaceProvider(builder).Describe();
 
@@ -156,7 +156,7 @@ public class AuthorizationSurfaceReportTests
     {
         var builder = new IyuGraphQLSchemaBuilder();
         builder.AddEntityPair<SurfaceWidgetExt, SurfaceWidget>("widgets", "widget");
-        builder.AddEntityPair<SurfaceGadgetExt, SurfaceGadget>("gadgets", "gadget", "gadgets.read");
+        builder.AddEntityPair<SurfaceGadgetExt, SurfaceGadget>("gadgets", "gadget").Restrict("gadgets", "gadgets.read");
 
         Assert.Equal("gadgets.read", builder.GetAuthorizePolicy("gadgets"));
         Assert.Null(builder.GetAuthorizePolicy("widgets"));

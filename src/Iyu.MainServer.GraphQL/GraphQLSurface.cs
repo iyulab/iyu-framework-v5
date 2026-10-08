@@ -16,9 +16,22 @@ public sealed class GraphQLSurface : IIyuMainServerSurface
     public IyuGraphQLSchemaBuilder Schema { get; } = new();
 
     /// <inheritdoc />
-    public void ConfigureServices(IServiceCollection services)
+    public bool Serves(Type readType) => Schema.QueryNameOf(readType) is not null;
+
+    /// <inheritdoc />
+    public void ConfigureServices(IServiceCollection services, IyuMainServerOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(options);
+
+        // The query field is a read, so it enforces the entity's read policy. GraphQL carries no mutations, so
+        // write and delete have nothing here to guard.
+        foreach (var (readType, policy) in options.EntityPolicies)
+        {
+            if (policy.Read is { } read && Schema.QueryNameOf(readType) is { } queryName)
+                Schema.Restrict(queryName, read);
+        }
+
         services.AddSingleton<IAuthorizationSurfaceProvider>(_ => new GraphQLAuthorizationSurfaceProvider(Schema));
 
         // HotChocolate rejects a schema whose Query type has zero fields at host startup

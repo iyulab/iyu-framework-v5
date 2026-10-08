@@ -15,12 +15,18 @@ namespace Iyu.MainServer;
 /// </remarks>
 public interface IIyuMainServerSurface
 {
+    /// <summary>Whether this surface serves the entity whose read type is <paramref name="readType"/>.</summary>
+    /// <remarks>An entity policy (<see cref="IyuMainServerOptions.Authorize{TRead}"/>) for a type no surface serves is refused.</remarks>
+    bool Serves(Type readType);
+
     /// <summary>
     /// Registers the surface's services — called once by <c>AddIyuMainServer</c>, after the registration
-    /// callback has run, so every entity pair is known. A surface with nothing registered on it registers nothing.
-    /// It registers its own <c>IAuthorizationSurfaceProvider</c> so the authorization surface report covers it.
+    /// callback has run, so every entity pair and every <see cref="IyuMainServerOptions.EntityPolicies"/> entry is
+    /// known. The surface enforces the entity policies for the types it serves, and registers its own
+    /// <c>IAuthorizationSurfaceProvider</c> so the authorization surface report covers it. A surface with
+    /// nothing registered on it registers nothing.
     /// </summary>
-    void ConfigureServices(IServiceCollection services);
+    void ConfigureServices(IServiceCollection services, IyuMainServerOptions options);
 
     /// <summary>Maps the surface's endpoints — called once by <c>UseIyuMainServer</c>.</summary>
     void MapEndpoints(IEndpointRouteBuilder endpoints);

@@ -206,7 +206,7 @@ public sealed class IyuEdmModelBuilder
     /// </para>
     /// </remarks>
     /// <exception cref="InvalidOperationException"><paramref name="setName"/> is not registered.</exception>
-    public IyuEdmModelBuilder RestrictPolicy(
+    internal IyuEdmModelBuilder RestrictPolicy(
         string setName, string? readPolicy = null, string? writePolicy = null, string? deletePolicy = null)
     {
         Registry.RestrictPolicy(setName, readPolicy, writePolicy, deletePolicy);

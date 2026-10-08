@@ -44,6 +44,7 @@ public static class MainServerExtensions
 
         var options = new IyuMainServerOptions();
         configure(options);
+        ApplyEntityPolicies(options);
 
         // Maps write-path DbUpdateException (unique/FK/concurrency violations, ...) to a structured
         // 409 ProblemDetails instead of a bare 500 — see IyuWriteExceptionHandler. Wired
@@ -148,14 +149,34 @@ public static class MainServerExtensions
                 new IyuODataAuthorizationConvention(options.ODataModel.Registry)));
         }
 
-        // Optional surfaces (GraphQL — Iyu.MainServer.GraphQL) wire themselves; UseIyuMainServer maps them.
+        // Optional surfaces (GraphQL — Iyu.MainServer.GraphQL) wire themselves, entity policies included;
+        // UseIyuMainServer maps them.
         foreach (var surface in options.Surfaces)
-            surface.ConfigureServices(services);
+            surface.ConfigureServices(services, options);
 
         // Stash the options so UseIyuMainServer can finish the pipeline wiring.
         services.AddSingleton(options);
 
         return services;
+    }
+
+    /// <summary>
+    /// Refuses an entity policy no surface can enforce, then hands each declared one to the OData set that serves
+    /// its type. Optional surfaces apply theirs in <see cref="IIyuMainServerSurface.ConfigureServices"/>.
+    /// </summary>
+    private static void ApplyEntityPolicies(IyuMainServerOptions options)
+    {
+        var registry = options.ODataModel.Registry;
+        foreach (var (readType, policy) in options.EntityPolicies)
+        {
+            var set = registry.FindByReadType(readType);
+            if (set is null && !options.Surfaces.Any(s => s.Serves(readType)))
+                throw new InvalidOperationException(
+                    $"Authorization is declared for '{readType.FullName}', but no surface serves it. Register its "
+                    + "entity pair (options.ODataModel.AddEntityPair, or a surface's own) or remove the declaration.");
+            if (set is not null)
+                registry.RestrictPolicy(set.SetName, policy.Read, policy.Write, policy.Delete);
+        }
     }
 
     /// <summary>
