@@ -85,23 +85,36 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
         // EF-Core translatable.
         var http = httpContext?.HttpContext;
         var allowed = http?.Items[AllowedNavigationsItem] as IReadOnlySet<string>;
-        var navigations = new List<PropertyInfo>();
-        var excluded = new List<string>();
-        foreach (var navigation in SearchedNavigations(context.ElementClrType))
-        {
-            if (registry?.FindByReadType(navigation.PropertyType) is not { } target) continue;
-            if (target.ReadPolicy is null || allowed?.Contains(navigation.Name) == true) navigations.Add(navigation);
-            else excluded.Add(navigation.Name);
-        }
+        var (navigations, excluded) = Partition(registry, context.ElementClrType, allowed);
         if (excluded.Count > 0 && http is { Response.HasStarted: false })
-            http.Response.Headers[ExcludedHeader] = string.Join(", ", excluded.Order(StringComparer.Ordinal));
+            http.Response.Headers[ExcludedHeader] = string.Join(", ", excluded);
 
         var body = BindNode(searchClause.Expression, parameter, context.ElementClrType, navigations);
 
         return Expression.Lambda(body, parameter);
     }
 
-    private static Expression BindNode(
+    /// <summary>
+    /// The searchable navigations of <paramref name="elementType"/> a search follows, and the names of those it leaves
+    /// out (ordinal order): a navigation to a type no set serves is neither; one to a set with a read policy is followed
+    /// only when <paramref name="allowed"/> lists it — denied by default.
+    /// </summary>
+    internal static (IReadOnlyList<PropertyInfo> Followed, IReadOnlyList<string> Excluded) Partition(
+        IyuEntityPairRegistry? registry, Type elementType, IReadOnlySet<string>? allowed)
+    {
+        var followed = new List<PropertyInfo>();
+        var excluded = new List<string>();
+        foreach (var navigation in SearchedNavigations(elementType))
+        {
+            if (registry?.FindByReadType(navigation.PropertyType) is not { } target) continue;
+            if (target.ReadPolicy is null || allowed?.Contains(navigation.Name) == true) followed.Add(navigation);
+            else excluded.Add(navigation.Name);
+        }
+        excluded.Sort(StringComparer.Ordinal);
+        return (followed, excluded);
+    }
+
+    internal static Expression BindNode(
         QueryNode? node, ParameterExpression parameter, Type elementClrType, IReadOnlyList<PropertyInfo> navigations)
         => node switch
         {

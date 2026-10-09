@@ -27,6 +27,24 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+
+### Added
+
+- **`Iyu.Server.OData`: `IyuSearch` — a list's `$search` rule for endpoints outside OData.** `CreateFilterAsync<TRead>(search,
+  user)` returns the predicate the same search text selects on the read type (OData's `$search` grammar, the
+  `[Searchable]` properties, one step into each searchable reference) and the references left out because the caller
+  may not read their set. An export, a template download or a bulk action can now select «the rows the list shows»
+  without a second search implementation. Registered by `AddIyuMainServer`. README «How far a read policy reaches».
+
+### Changed
+
+- **`Iyu.MainServer`: the `$search` reference allowance is decided by `IyuSearch`.** The `$expand` authorization filter
+  asks `IyuSearch.AllowedNavigationsAsync` which searchable references the caller may search, so a list and an
+  endpoint outside OData cannot disagree. No behaviour change.
+
 ## [0.37.0] - 2026-10-09
 
 **Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` (new), `Iyu.Server.GraphQL`, `Iyu.Server.OData`

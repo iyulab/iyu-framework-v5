@@ -164,17 +164,12 @@ internal sealed class IyuExpandAuthorizationFilter(string setName) : IAsyncActio
     {
         var services = http.RequestServices;
         if (services.GetService<IyuEntityPairRegistry>() is not { } registry
-            || services.GetService<IAuthorizationService>() is not { } authorization
+            || services.GetService<IyuSearch>() is not { } search
             || registry.Find(setName) is not { } addressed) return;
 
-        HashSet<string>? allowed = null;
-        foreach (var navigation in IyuStringSearchBinder.SearchedNavigations(addressed.ReadType))
-        {
-            if (registry.FindByReadType(navigation.PropertyType) is not { ReadPolicy: { } policy }) continue;
-            if ((await authorization.AuthorizeAsync(http.User, policy)).Succeeded)
-                (allowed ??= new HashSet<string>(StringComparer.Ordinal)).Add(navigation.Name);
-        }
-        if (allowed is not null) http.Items[IyuStringSearchBinder.AllowedNavigationsItem] = allowed;
+        // The same decision IyuSearch makes for an endpoint outside OData — one home for «which references may this
+        // caller search».
+        http.Items[IyuStringSearchBinder.AllowedNavigationsItem] = await search.AllowedNavigationsAsync(addressed.ReadType, http.User);
     }
 
     /// <summary>

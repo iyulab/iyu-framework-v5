@@ -77,6 +77,9 @@ public static class MainServerExtensions
         // constructor injection — adding a constructor parameter would break every
         // generated controller subclass, which calls only `base(context)`.
         services.AddSingleton(options.ODataModel.Registry);
+        // The $search rule for endpoints outside OData (and the reference allowance the OData binder reads).
+        services.AddTransient(sp => new Iyu.Server.OData.IyuSearch(
+            options.ODataModel.Registry, sp.GetService<Microsoft.AspNetCore.Authorization.IAuthorizationService>()));
 
         // Authorization surface report — lets a consumer pin "no registered entity is exposed
         // without a policy" as a contract test instead of standing up an unauthorized caller per

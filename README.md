@@ -508,6 +508,24 @@ server's declaration, so refusing would take search away from everyone outside t
 which references were left out in an `Iyu-Search-Excluded` header, so a client does not mistake a narrower search
 for an empty result.
 
+**The same search outside OData — `IyuSearch`.** An endpoint that starts from «the rows the list shows for this
+search» — an export, a template download, a report, a bulk action — takes the search text the list sends and asks the
+host's `IyuSearch` for the same selection, instead of writing a second search that drifts from the declarations:
+
+```csharp
+app.MapGet("/api/assets/export", async (string? search, ClaimsPrincipal user, IyuSearch iyuSearch, AppDbContext db) =>
+{
+    var filter = await iyuSearch.CreateFilterAsync<AssetExt>(search, user);   // ArgumentException if not valid $search
+    var rows = await db.Set<AssetExt>().Where(filter.Predicate).ToListAsync();
+    // filter.ExcludedNavigations: the references left out for this caller — what the list names in Iyu-Search-Excluded
+    ...
+});
+```
+
+The grammar is OData's `$search` (words, quoted phrases, `AND` / `OR` / `NOT`, juxtaposition as `AND`), the
+properties and the reference step are the binder's, and a reference the caller may not read is left out exactly as
+in the list. It filters; it does not authorize — access to the read type itself is the endpoint's to enforce.
+
 ### Checking that nothing was left unprotected
 
 Attaching a policy per entity is one thing; knowing you attached it **everywhere** is another, and
