@@ -49,6 +49,8 @@ public static class IdentityEndpointRouteExtensions
     /// <c>GET /api/auth/external/{provider}?returnUrl=…</c> sends the browser to the provider behind that handler, and
     /// <c>GET /api/auth/external/complete</c> — where the handler sends it back — opens the application's session for the
     /// account <see cref="IExternalLoginResolver"/> names. Both are anonymous: there is no session yet.
+    /// <c>POST /api/auth/sign-out?returnUrl=…</c> ends the session — and the person's session at the provider that
+    /// opened it, where that provider's handler can sign out (<see cref="UserSessionService.SignOutAsync"/>).
     /// </summary>
     public static IEndpointRouteBuilder MapIyuExternalSignIn(this IEndpointRouteBuilder app)
     {
@@ -59,6 +61,8 @@ public static class IdentityEndpointRouteExtensions
         external.MapGet("/{provider}", (string provider, string? returnUrl, HttpContext http,
                 IAuthenticationSchemeProvider schemes)
             => ExternalSignInHandlers.ChallengeAsync(provider, returnUrl, http, schemes));
+        app.MapPost("/api/auth/sign-out", (string? returnUrl, HttpContext http, UserSessionService sessions)
+            => ExternalSignInHandlers.SignOutAsync(returnUrl, http, sessions)).AllowAnonymous();
         return app;
     }
 

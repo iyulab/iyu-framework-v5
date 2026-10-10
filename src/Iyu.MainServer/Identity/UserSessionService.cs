@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Iyu.MainServer.Identity;
@@ -36,6 +37,9 @@ public sealed class UserSessionService
 {
     /// <summary>Where a session cookie records when the source last answered for it.</summary>
     private const string ValidatedAtKey = ".iyu.validated";
+
+    /// <summary>Where a session opened through an external provider records which one (its authentication scheme).</summary>
+    internal const string ProviderKey = ".iyu.provider";
 
     private readonly IUserClaimsSource _claims;
     private readonly TimeProvider _clock;
@@ -74,6 +78,37 @@ public sealed class UserSessionService
         MarkValidated(properties, _clock.GetUtcNow());
         await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, properties);
         return true;
+    }
+
+    /// <summary>
+    /// Ends the session cookie — and, for a session opened through an external provider whose handler can sign out
+    /// (OpenID Connect's RP-initiated logout), the person's session at that provider too.
+    /// </summary>
+    /// <param name="http">The request being answered.</param>
+    /// <param name="properties">
+    /// Passed to the provider's sign-out: its <see cref="AuthenticationProperties.RedirectUri"/> is where the provider
+    /// sends the browser back to afterwards. Optional.
+    /// </param>
+    /// <returns>
+    /// <c>true</c> when the response now sends the browser to the provider — the caller writes no response of its own;
+    /// <c>false</c> when only the application's session was ended.
+    /// </returns>
+    public async Task<bool> SignOutAsync(HttpContext http, AuthenticationProperties? properties = null)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+
+        var session = await http.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        var provider = session.Properties?.Items.TryGetValue(ProviderKey, out var name) == true ? name : null;
+        var schemes = http.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
+        var signOutAtProvider = provider is not null
+                                && await schemes.GetSchemeAsync(provider) is { } scheme
+                                && typeof(IAuthenticationSignOutHandler).IsAssignableFrom(scheme.HandlerType);
+
+        // The application's session ends first, whatever the provider's handler then does. That handler still finds the
+        // identity token it names the session with (id_token_hint): it reads the cookie the request carried.
+        await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        if (signOutAtProvider) await http.SignOutAsync(provider, properties ?? new AuthenticationProperties());
+        return signOutAtProvider;
     }
 
     /// <summary>

@@ -55,8 +55,14 @@ onward; earlier entries state the same consequence in prose where it applies.
   account's session through `UserSessionService`, discards the provider's answer, and returns to `returnUrl` (a path on
   the application only). Linking and provisioning stay the application's, in the resolver. A host that turns this on
   without a resolver is refused at startup. With it on, a `HttpContext.SignInAsync(principal)` that names no scheme
-  lands in the external cookie, not the session. README «External OIDC / AD federation» is rewritten on it; the
-  hand-written completion endpoint the earlier recipe showed still works.
+  lands in the external cookie, not the session; a `SignOutAsync()` that names none still ends the session. README
+  «External OIDC / AD federation» is rewritten on it; the hand-written completion endpoint the earlier recipe showed
+  still works.
+- **`Iyu.MainServer`: `UserSessionService.SignOutAsync(http, properties?)` and `POST /api/auth/sign-out?returnUrl=…`
+  (mapped by `MapIyuExternalSignIn`).** The session cookie ends; a session opened through a provider whose handler can
+  sign out (OpenID Connect's RP-initiated logout) also sends the browser to the provider's end-session endpoint, with
+  the identity token the provider issued as `id_token_hint` when the handler keeps its tokens (`SaveTokens`), and from
+  there back to `returnUrl` (local only). The session records the provider that opened it, and keeps across re-issue.
 
 ### Changed — identity
 

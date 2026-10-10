@@ -33,18 +33,23 @@ internal sealed class OidcStandIn : HttpMessageHandler
     /// <summary>The nonce the handler sent with the challenge, which the ID token must echo.</summary>
     public string Nonce { get; set; } = "";
 
-    /// <summary>Points an OpenID Connect handler at this provider.</summary>
+    /// <summary>The ID token the token endpoint last answered with.</summary>
+    public string? LastIdToken { get; private set; }
+
+    /// <summary>Points an OpenID Connect handler at this provider, keeping the tokens it receives (<c>SaveTokens</c>).</summary>
     public void Configure(OpenIdConnectOptions options)
     {
         options.ClientId = ClientId;
         options.ClientSecret = "secret";
         options.ResponseType = OpenIdConnectResponseType.Code;
         options.RequireHttpsMetadata = false;
+        options.SaveTokens = true;
         options.Configuration = new OpenIdConnectConfiguration
         {
             Issuer = Issuer,
             AuthorizationEndpoint = Issuer + "/authorize",
             TokenEndpoint = Issuer + "/token",
+            EndSessionEndpoint = Issuer + "/end-session",
         };
         options.Configuration.SigningKeys.Add(_key);
         options.BackchannelHttpHandler = this;
@@ -67,6 +72,7 @@ internal sealed class OidcStandIn : HttpMessageHandler
             },
             SigningCredentials = new SigningCredentials(_key, SecurityAlgorithms.RsaSha256),
         });
+        LastIdToken = idToken;
         var json = $$"""{"access_token":"opaque","token_type":"Bearer","expires_in":300,"id_token":"{{idToken}}"}""";
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {

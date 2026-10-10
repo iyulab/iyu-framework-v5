@@ -13,6 +13,28 @@ internal static class ExternalSignInHandlers
     /// <summary>The key a remote handler records its own scheme name under in the properties it signs in with.</summary>
     private const string AuthSchemeKey = ".AuthScheme";
 
+    /// <summary>The name an OpenID Connect handler stores the provider's identity token under (with <c>SaveTokens</c>).</summary>
+    private const string IdTokenName = "id_token";
+
+    /// <summary>
+    /// <c>POST /api/auth/sign-out?returnUrl=…</c> — ends the session, and for a session opened through a provider that
+    /// supports it, the person's session at the provider too (<see cref="UserSessionService.SignOutAsync"/>). The browser
+    /// then comes back to <c>returnUrl</c> (local only — 400 otherwise), or to the application root.
+    /// </summary>
+    /// <remarks>
+    /// A <c>POST</c>: the session cookie is not sent on a cross-site <c>POST</c> (<c>SameSite=Lax</c>), so another site
+    /// cannot sign a person out by sending them here.
+    /// </remarks>
+    public static async Task<IResult> SignOutAsync(string? returnUrl, HttpContext http, UserSessionService sessions)
+    {
+        if (returnUrl is not null && !IsLocalUrl(returnUrl)) return Results.BadRequest();
+
+        var back = returnUrl ?? "/";
+        return await sessions.SignOutAsync(http, new AuthenticationProperties { RedirectUri = back })
+            ? Results.Empty                                                    // the provider's handler wrote the redirect
+            : Results.LocalRedirect(back);
+    }
+
     /// <summary>
     /// <c>GET /api/auth/external/{provider}?returnUrl=…</c> — sends the browser to the provider behind a remote handler
     /// (OpenID Connect, OAuth); it comes back to <see cref="CompleteAsync"/>.
@@ -71,8 +93,15 @@ internal static class ExternalSignInHandlers
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
+            // The session remembers which provider opened it — and the identity token the provider issued, when its
+            // handler kept one (SaveTokens) — so signing out can end the person's session there too.
+            var session = new AuthenticationProperties();
+            session.Items[UserSessionService.ProviderKey] = provider;
+            if (external.Properties?.GetTokenValue(IdTokenName) is { Length: > 0 } idToken)
+                session.StoreTokens([new AuthenticationToken { Name = IdTokenName, Value = idToken }]);
+
             // UserSessionService logs its own refusal (the claims source declined the account).
-            if (!await sessions.SignInAsync(http, subject, ct: http.RequestAborted))
+            if (!await sessions.SignInAsync(http, subject, session, http.RequestAborted))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             return Results.LocalRedirect(returnUrl ?? "/");

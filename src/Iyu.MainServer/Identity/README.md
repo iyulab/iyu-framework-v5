@@ -28,6 +28,9 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    `SignInScheme` 이 된다 — `GET /api/auth/external/complete` 가 리졸버에게 «어느 로컬 계정인가»(`Provider` + `ProviderKey`)를 물어
    `UserSessionService` 로 그 계정의 세션을 연다. 공급자가 보낸 것은 세션에 들어가지 않는다. 연결·프로비저닝 정책은 리졸버(앱)의 것.
    리졸버 없이 켜면 **기동이 거부된다**. 시작은 `GET /api/auth/external/{provider}?returnUrl=…`(`returnUrl` 은 이 앱의 경로만).
+   로그아웃은 `POST /api/auth/sign-out?returnUrl=…`(= `UserSessionService.SignOutAsync`) — 세션 쿠키를 끝내고, 그 세션을 연 공급자의
+   핸들러가 로그아웃을 지원하면(OIDC — RP 주도 로그아웃) 공급자 세션도 끝낸다. `id_token_hint` 는 핸들러가 토큰을 보관할 때
+   (`SaveTokens = true`) 세션에 함께 실린다. 외부 로그인을 켠 호스트에서도 스킴 이름 없는 `SignOutAsync()` 는 세션을 끝낸다.
    핸들러가 세션 쿠키에 직접 로그인하는 구성(격리 스킴 없음)은 여전히 **기동이 거부된다** — 공급자의 주체를 그대로 세션으로
    쓰려는 앱만 `IdentityTokenOptions.AllowExternalIdentityAsSession`(리포 README `## Identity` 의 «External OIDC / AD federation»).
 

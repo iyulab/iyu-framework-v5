@@ -154,6 +154,8 @@ public static class IyuIdentityServiceCollectionExtensions
     /// <para>
     /// The same default means a <c>HttpContext.SignInAsync(principal)</c> that names no scheme lands there too, not in the
     /// session. A person's session is opened by <see cref="UserSessionService.SignInAsync"/>, which names its scheme.
+    /// Signing out keeps the session cookie as its default, so a <c>SignOutAsync()</c> that names no scheme still ends
+    /// the session.
     /// </para>
     /// <para>
     /// The external cookie lives five minutes — long enough to come back from the provider — and is removed by the
@@ -162,7 +164,13 @@ public static class IyuIdentityServiceCollectionExtensions
     /// </remarks>
     public static IServiceCollection AddIyuExternalSignIn(this IServiceCollection services)
     {
-        services.AddAuthentication(o => o.DefaultSignInScheme = IyuExternalSignInDefaults.AuthenticationScheme)
+        services.AddAuthentication(o =>
+            {
+                o.DefaultSignInScheme = IyuExternalSignInDefaults.AuthenticationScheme;
+                // Signing out falls back to the sign-in default when it has none of its own — without this, an
+                // application's SignOutAsync() that names no scheme would end the external cookie and leave the session.
+                o.DefaultSignOutScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            })
             .AddCookie(IyuExternalSignInDefaults.AuthenticationScheme, o =>
             {
                 o.Cookie.Name = ".Iyu.External";

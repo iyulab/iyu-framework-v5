@@ -176,7 +176,8 @@ app.MapPost("/api/auth/login", async (LoginRequest req, IIdentityStore store, Us
 }).AllowAnonymous();
 ```
 
-Sign-out is the cookie scheme's own: `await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme)`.
+Sign-out: `await sessions.SignOutAsync(http)` — it also ends the person's session at an external provider
+that opened this one (below); for a session opened as above it is the cookie scheme's own sign-out.
 
 **External OIDC / AD federation** (a customer-hosted IdP — common in on-premises deployments
 where each site brings its own directory):
@@ -227,6 +228,16 @@ provisioned or must already be linked, and which of its claims fill which local 
 the person's identifier at that provider (its `sub`) and is unique only together with `Provider` — key
 links on the pair. A host that calls `AddIyuExternalSignIn` without registering a resolver is refused at
 startup.
+
+**Signing out** of a session the provider opened ends it at the provider too. `MapIyuExternalSignIn`
+also maps `POST /api/auth/sign-out?returnUrl=…`, which calls `UserSessionService.SignOutAsync`: the
+session cookie ends, and when the provider's handler can sign out (OpenID Connect does — RP-initiated
+logout) the browser goes to the provider's end-session endpoint with the identity token the provider
+issued (`id_token_hint`), then back to `returnUrl`. That token is kept in the session when the handler
+keeps its tokens — set `SaveTokens = true` on it; without it the provider is asked to sign out without
+knowing which session. A session with no provider behind it simply ends, and the browser goes to
+`returnUrl` (or `/`). Use a form `POST`, not a fetch: the response is a redirect for the browser to follow.
+With external sign-in on, a `SignOutAsync()` that names no scheme still ends the session cookie.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
 session verifies the user by whichever means the app already uses (the local check above, or an
