@@ -130,6 +130,17 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   answers an identifier naming someone else is an error, not a sign-in.
 - **A host with no `IUserClaimsSource` is refused at startup.** An application that signs no person in
   registers one that answers `null`.
+- **The source is asked again while a cookie session lives** — every
+  `IdentityTokenOptions.SessionRevalidationInterval` (default five minutes; `TimeSpan.Zero` asks on every
+  request). A person the source now refuses is signed out; a narrowed permission set replaces the one in the
+  cookie, which is re-issued. That is what a refresh does for an access token, and the interval is the longest
+  a deactivation or a withdrawn permission takes to reach the cookie. A request inside the interval costs a
+  timestamp comparison.
+- **A session cookie written by hand is not exempt.** One an endpoint signed in itself, without
+  `UserSessionService`, is re-assembled from the source the first time it is presented, by the identifier it
+  carries (`ClaimTypes.NameIdentifier` or `sub`): claims the endpoint added and the source does not answer are
+  gone, and a cookie carrying no identifier is signed out. The one exception is a host that set
+  `AllowExternalIdentityAsSession` (below) — there such a cookie is the provider's identity and is left as it is.
 
 **A cookie lasts as long as the key ring that sealed it.** Cookie sessions are protected by ASP.NET Core
 Data Protection, and where its keys live is the application's choice — the framework does not pick a store.

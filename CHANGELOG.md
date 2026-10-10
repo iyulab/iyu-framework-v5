@@ -67,6 +67,17 @@ onward; earlier entries state the same consequence in prose where it applies.
     naming someone other than the subject asked about now fails the sign-in with an `InvalidOperationException` instead
     of issuing that token.
   - **New `IyuIdentityClaims.FindSubject(principal)`** reads the identifier on either form of session.
+  - 🔇 **A cookie session is re-read from the source while it lives** — every
+    `IdentityTokenOptions.SessionRevalidationInterval` (new; default five minutes, `TimeSpan.Zero` on every request).
+    A person the source now refuses is signed out at their next request after the interval, and a narrowed
+    permission set replaces the cookie's. Before, a deactivation or a withdrawn permission reached a person's access
+    token at its next refresh and never reached their cookie.
+  - 🔇 **A session cookie signed in by hand is re-assembled from the source the first time it is presented**, by the
+    identifier it carries (`ClaimTypes.NameIdentifier` or `sub`). Sessions open at the moment of the upgrade continue
+    when the source answers for that identifier, with the source's claims in place of the hand-built ones; **a cookie
+    whose principal carries neither identifier claim is signed out** — an endpoint that wrote the account under
+    another claim type moves to `UserSessionService.SignInAsync`. A host with `AllowExternalIdentityAsSession` leaves
+    such cookies as they are.
   - `IdentityTokenService.IssueUserToken` is unchanged: it signs exactly the claims it is handed and asks no source.
   - README `## Identity` — «What the framework does own is the step after», and both sign-in recipes.
 

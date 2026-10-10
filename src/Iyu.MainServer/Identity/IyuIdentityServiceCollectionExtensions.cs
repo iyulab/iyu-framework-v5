@@ -35,6 +35,11 @@ public static class IyuIdentityServiceCollectionExtensions
             throw new ArgumentException(
                 "IdentityTokenOptions.SigningKey must be at least 32 bytes (256 bits) for HS256.",
                 nameof(tokenOptions));
+        if (tokenOptions.SessionRevalidationInterval < TimeSpan.Zero)
+            throw new ArgumentException(
+                "IdentityTokenOptions.SessionRevalidationInterval cannot be negative. TimeSpan.Zero re-reads a "
+                + "session's claims on every request.",
+                nameof(tokenOptions));
 
         tokenOptions.PermissionClaimType = permissionClaimType;
         services.AddSingleton(tokenOptions);
@@ -69,6 +74,11 @@ public static class IyuIdentityServiceCollectionExtensions
                 opts.SlidingExpiration = true;
                 opts.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
                 opts.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+                // A session is re-read from the claims source while it lives — see UserSessionService. Whether one
+                // is due is decided from the cookie alone; the scoped service is resolved only when it is.
+                opts.Events.OnValidatePrincipal = ctx => UserSessionService.IsRevalidationDue(ctx, tokenOptions)
+                    ? ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>().RevalidateAsync(ctx)
+                    : Task.CompletedTask;
             })
             .AddJwtBearer(opts =>
             {

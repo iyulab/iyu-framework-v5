@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -8,7 +9,7 @@ namespace Iyu.MainServer.Identity;
 
 /// <summary>
 /// Opens the session cookie for a person the application has authenticated — the cookie counterpart of
-/// <see cref="UserTokenService.IssueAsync"/>.
+/// <see cref="UserTokenService.IssueAsync"/> — and keeps it true to the account for as long as it lives.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,15 +23,27 @@ namespace Iyu.MainServer.Identity;
 /// Nothing here checks a credential, and nothing from the caller's current identity is carried over —
 /// the session is the source's answer and nothing else.
 /// </para>
+/// <para>
+/// <b>The source is asked again while the session lives</b>, every
+/// <see cref="IdentityTokenOptions.SessionRevalidationInterval"/>: a person deactivated since is signed
+/// out, and a narrowed permission set replaces the one in the cookie — what a refresh does for an access
+/// token. A session cookie this service did not open (a principal an endpoint built and signed in by
+/// hand) is re-assembled from the source the first time it is presented, by the identifier it carries;
+/// one that carries none is signed out.
+/// </para>
 /// </remarks>
 public sealed class UserSessionService
 {
+    /// <summary>Where a session cookie records when the source last answered for it.</summary>
+    private const string ValidatedAtKey = ".iyu.validated";
+
     private readonly IUserClaimsSource _claims;
+    private readonly TimeProvider _clock;
     private readonly ILogger<UserSessionService> _log;
 
-    public UserSessionService(IUserClaimsSource claims, ILogger<UserSessionService> log)
+    public UserSessionService(IUserClaimsSource claims, TimeProvider clock, ILogger<UserSessionService> log)
     {
-        _claims = claims; _log = log;
+        _claims = claims; _clock = clock; _log = log;
     }
 
     /// <summary>
@@ -57,8 +70,57 @@ public sealed class UserSessionService
             return false;
         }
 
+        properties ??= new AuthenticationProperties();
+        MarkValidated(properties, _clock.GetUtcNow());
         await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, properties);
         return true;
+    }
+
+    /// <summary>
+    /// Whether the session cookie being validated is due for the source to be asked again. The common
+    /// case — it is not — is decided here, from the cookie alone, before anything scoped is resolved.
+    /// </summary>
+    internal static bool IsRevalidationDue(CookieValidatePrincipalContext context, IdentityTokenOptions options)
+    {
+        if (ValidatedAt(context.Properties) is not { } validatedAt)
+        {
+            // Not opened by this service. Where the application has said an external provider's identity is its
+            // session, that is what such a cookie is, and no account stands behind it to ask about.
+            return !options.AllowExternalIdentityAsSession;
+        }
+
+        var now = (context.Options.TimeProvider ?? TimeProvider.System).GetUtcNow();
+        return now - validatedAt >= options.SessionRevalidationInterval;
+    }
+
+    /// <summary>
+    /// Asks the source again for the session being validated: replaces its claims with the answer, or
+    /// ends it when the source refuses the subject or the cookie names none.
+    /// </summary>
+    internal async Task RevalidateAsync(CookieValidatePrincipalContext context)
+    {
+        var subject = context.Principal is null ? null : IyuIdentityClaims.FindSubject(context.Principal);
+        var principal = subject is null
+            ? null
+            : await CreatePrincipalAsync(subject, context.HttpContext.RequestAborted);
+
+        if (principal is null)
+        {
+            _log.LogInformation(
+                "session ended for {Subject}: {Reason}", subject ?? "(no identifier)",
+                subject is null ? "the cookie names no subject" : "the claims source declined the subject");
+            context.RejectPrincipal();
+            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return;
+        }
+
+        var now = _clock.GetUtcNow();
+        MarkValidated(context.Properties, now);
+        context.ReplacePrincipal(principal);
+        context.ShouldRenew = true;
+        // Renewal re-issues the cookie from IssuedUtc; without sliding expiration that must not push the
+        // session's end further out than the sign-in set it.
+        if (!context.Options.SlidingExpiration) context.Properties.IssuedUtc = now;
     }
 
     /// <summary>
@@ -74,4 +136,13 @@ public sealed class UserSessionService
             IyuIdentityClaims.ForSubject(answered, subject, ClaimTypes.NameIdentifier),
             CookieAuthenticationDefaults.AuthenticationScheme));
     }
+
+    private static void MarkValidated(AuthenticationProperties properties, DateTimeOffset at)
+        => properties.Items[ValidatedAtKey] = at.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset? ValidatedAt(AuthenticationProperties properties)
+        => properties.Items.TryGetValue(ValidatedAtKey, out var value)
+           && DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
+            ? at
+            : null;
 }

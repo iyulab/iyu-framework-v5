@@ -16,6 +16,10 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    `ClaimsPrincipal` 을 손으로 짓지 않는다 — 권한 클레임을 빠뜨리면 서비스 클라이언트(JWT)는 정상인데 사람만 전 정책에서 403 을 받던 함정이 그 자리였다.
    식별자는 프레임워크가 주체로부터 쓴다(쿠키 `ClaimTypes.NameIdentifier` · 토큰 `sub`). 읽을 때는 `IyuIdentityClaims.FindSubject(user)`.
    원천이 다른 사람을 가리키는 식별자 클레임을 답하면 로그인이 아니라 오류다.
+   **쿠키 세션은 사는 동안 원천에 다시 묻는다** — `IdentityTokenOptions.SessionRevalidationInterval`(기본 5분, `TimeSpan.Zero` = 매 요청)마다.
+   원천이 `null` 을 답하면 로그아웃되고, 줄어든 권한은 쿠키의 것을 대체한다(쿠키 재발급). 액세스 토큰의 리프레시가 하는 일의 쿠키판이다.
+   **손으로 지은 쿠키도 예외가 아니다** — `UserSessionService` 를 거치지 않은 세션 쿠키는 처음 제시될 때 그것이 싣고 있는 식별자로 원천에서 다시
+   조립된다(끝점이 스스로 더한 클레임은 사라진다). 식별자가 없는 쿠키는 로그아웃된다. `AllowExternalIdentityAsSession` 을 켠 호스트만 그런 쿠키를 그대로 둔다.
 
 7. **외부 로그인(OIDC 등)을 붙일 때**: 핸들러에 자기 스킴을 준다(`AddCookie("external")` + `SignInScheme = "external"`).
    지정하지 않으면 핸들러가 외부 공급자의 주체를 세션 쿠키에 그대로 로그인시킨다 — 로컬 계정 없이도 «로그인됨»이 되고

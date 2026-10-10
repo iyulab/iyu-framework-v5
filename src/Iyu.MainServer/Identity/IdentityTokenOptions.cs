@@ -101,4 +101,22 @@ public sealed class IdentityTokenOptions
     /// resolving the account.
     /// </remarks>
     public bool AllowExternalIdentityAsSession { get; set; }
+
+    /// <summary>
+    /// How often a session cookie's claims are re-read from <see cref="IUserClaimsSource"/>. Default: five minutes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The cookie counterpart of a refresh: the longest a deactivated person stays signed in, or a withdrawn
+    /// permission stays usable, on the cookie. A request inside the interval costs a timestamp comparison; the
+    /// first one after it asks the source once and re-issues the cookie. <see cref="TimeSpan.Zero"/> asks on
+    /// every request.
+    /// </para>
+    /// <para>
+    /// A session cookie that <see cref="UserSessionService"/> did not open is re-read the first time it is
+    /// presented, whatever the interval — except where <see cref="AllowExternalIdentityAsSession"/> says such a
+    /// cookie is an external provider's identity, which no account stands behind.
+    /// </para>
+    /// </remarks>
+    public TimeSpan SessionRevalidationInterval { get; set; } = TimeSpan.FromMinutes(5);
 }
