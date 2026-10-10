@@ -24,7 +24,8 @@ public class UserTokenServiceTests
     private UserTokenService Service()
     {
         var tokens = new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, new RecordingLogger<IdentityTokenService>());
-        return new UserTokenService(tokens, _store, _claims, _opts, _clock, new RecordingLogger<UserTokenService>());
+        var access = new UserAccessTokenService(tokens, _claims, _opts, new RecordingLogger<UserAccessTokenService>());
+        return new UserTokenService(access, _store, _opts, _clock, new RecordingLogger<UserTokenService>());
     }
 
     private static string[] Perms(string accessToken) =>

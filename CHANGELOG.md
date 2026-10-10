@@ -78,8 +78,19 @@ onward; earlier entries state the same consequence in prose where it applies.
     whose principal carries neither identifier claim is signed out** — an endpoint that wrote the account under
     another claim type moves to `UserSessionService.SignInAsync`. A host with `AllowExternalIdentityAsSession` leaves
     such cookies as they are.
-  - `IdentityTokenService.IssueUserToken` is unchanged: it signs exactly the claims it is handed and asks no source.
-  - README `## Identity` — «What the framework does own is the step after», and both sign-in recipes.
+  - **New `UserAccessTokenService.IssueAsync(subject, lifetime?)`** issues a person's access token without a refresh
+    token, assembled from the source like the cookie (`sub` from the subject); `Ok = false` with `invalid_grant` when
+    the source refuses the subject. Registered by `AddIyuIdentity` — no refresh-token store needed. The lifetime
+    argument defaults to `UserAccessTokenLifetime`, then `Lifetime`. `UserTokenService` issues its access half through
+    it, so the two cannot differ (its constructor takes `UserAccessTokenService` in place of `IdentityTokenService`
+    and `IUserClaimsSource` — only code that constructs it outside DI notices).
+  - **`IdentityTokenService.IssueUserToken` is no longer public.** It signed whatever claims the caller assembled, and a
+    bearer token is not re-read while it lives — so a hand-assembled token kept the permissions its caller wrote for
+    its whole lifetime. Replace `IssueUserToken(claims, lifetimeOverride)` with
+    `UserAccessTokenService.IssueAsync(subject, lifetime)`: the permission claims the call site used to add come from
+    the source, and a subject the source refuses gets no token.
+  - README `## Identity` — «What the framework does own is the step after», and the cookie, bearer-token and
+    refresh-token recipes.
 
 ### Fixed
 

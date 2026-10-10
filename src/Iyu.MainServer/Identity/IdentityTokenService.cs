@@ -8,7 +8,10 @@ namespace Iyu.MainServer.Identity;
 
 public sealed record TokenResult(bool Ok, string? Error, string? AccessToken, int ExpiresInSeconds, IReadOnlyList<string> Permissions);
 
-/// <summary>Issues short-lived JWTs for the OAuth2 client_credentials grant, scoped to owner∩client permissions.</summary>
+/// <summary>
+/// Issues short-lived JWTs for the OAuth2 client_credentials grant, scoped to owner∩client permissions. A person's
+/// token is issued by <see cref="UserAccessTokenService"/> or <see cref="UserTokenService"/>.
+/// </summary>
 public sealed class IdentityTokenService
 {
     // Dummy hash for a constant-time verify on the not-found/inactive/expired branch below,
@@ -116,25 +119,18 @@ public sealed class IdentityTokenService
         _log.LogWarning("client_credentials rejected for {ClientId}: {Reason}", clientId, reason);
 
     /// <summary>
-    /// Signs a JWT for a caller-supplied claim set — the counterpart to
-    /// <see cref="IssueClientCredentialsAsync(string, string, string?, CancellationToken)"/> for a human principal the consuming app has
-    /// already authenticated by its own means (password check, external IdP, etc.). This service
-    /// does not verify credentials; the caller is trusted to have done so before calling.
+    /// Signs a person's access token over claims already assembled from <see cref="IUserClaimsSource"/> — the
+    /// signing half of <see cref="UserAccessTokenService"/> and <see cref="UserTokenService"/>.
     /// </summary>
-    /// <param name="claims">
-    /// The claims to embed (e.g. <c>sub</c>, and any <see cref="IdentityTokenOptions.PermissionClaimType"/>
-    /// claims the caller wants enforced) — this method neither adds nor validates business claims.
-    /// </param>
-    /// <param name="lifetimeOverride">
-    /// Overrides <see cref="IdentityTokenOptions.Lifetime"/> for this token. Human clients without a
-    /// refresh flow (e.g. a mobile app queuing work offline) often need a longer lifetime than the
-    /// short-lived default tuned for service clients.
-    /// </param>
     /// <remarks>
-    /// Synchronous, unlike <see cref="IssueClientCredentialsAsync(string, string, string?, CancellationToken)"/> — there is no store lookup here,
-    /// only signing of the claims the caller already assembled.
+    /// Not public: a token signed over claims the caller put together is a session the claims source never
+    /// answered for, and nothing re-reads a bearer token while it lives — so the permission claims it carries
+    /// would be whatever the caller wrote, for as long as it lasts. Applications issue people's tokens through
+    /// the two services above.
     /// </remarks>
-    public TokenResult IssueUserToken(IEnumerable<Claim> claims, TimeSpan? lifetimeOverride = null)
+    /// <param name="claims">The assembled claims, the subject's identifier included.</param>
+    /// <param name="lifetimeOverride">Overrides <see cref="IdentityTokenOptions.Lifetime"/> for this token.</param>
+    internal TokenResult IssueUserToken(IEnumerable<Claim> claims, TimeSpan? lifetimeOverride = null)
     {
         ArgumentNullException.ThrowIfNull(claims);
         var lifetime = lifetimeOverride ?? _opts.Lifetime;

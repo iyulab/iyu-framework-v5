@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -47,17 +46,16 @@ public sealed record UserTokenPair(bool Ok, string? Error, string? AccessToken, 
 /// </remarks>
 public sealed class UserTokenService
 {
-    private readonly IdentityTokenService _tokens;
+    private readonly UserAccessTokenService _access;
     private readonly IRefreshTokenStore _store;
-    private readonly IUserClaimsSource _claims;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
     private readonly ILogger<UserTokenService> _log;
 
-    public UserTokenService(IdentityTokenService tokens, IRefreshTokenStore store, IUserClaimsSource claims,
-        IdentityTokenOptions opts, TimeProvider clock, ILogger<UserTokenService> log)
+    public UserTokenService(UserAccessTokenService access, IRefreshTokenStore store, IdentityTokenOptions opts,
+        TimeProvider clock, ILogger<UserTokenService> log)
     {
-        _tokens = tokens; _store = store; _claims = claims; _opts = opts; _clock = clock; _log = log;
+        _access = access; _store = store; _opts = opts; _clock = clock; _log = log;
     }
 
     /// <summary>
@@ -129,19 +127,16 @@ public sealed class UserTokenService
 
     private async Task<UserTokenPair> IssuePairAsync(string subject, Guid familyId, Guid? parentId, CancellationToken ct)
     {
-        var claims = await _claims.GetClaimsAsync(subject, ct);
+        // The access half is the same token UserAccessTokenService issues on its own — assembled from the source.
+        var access = await _access.IssueAsync(subject, ct: ct);
         var now = _clock.GetUtcNow();
-        if (claims is null)
+        if (!access.Ok)
         {
+            // The source refused the subject (logged there): the sign-in ends with it.
             await _store.RevokeFamilyAsync(familyId, now, ct);
-            _log.LogWarning("user token refused for {Subject}: the claims source declined the subject", subject);
             return UserTokenPair.Refused;
         }
 
-        // The subject is written here, not left to the source: a token and a cookie opened for the same
-        // person then name them the same way, whatever the source answered.
-        var access = _tokens.IssueUserToken(
-            IyuIdentityClaims.ForSubject(claims, subject, JwtRegisteredClaimNames.Sub), _opts.UserAccessTokenLifetime);
         var refresh = Base64Url(RandomNumberGenerator.GetBytes(32));
         await _store.InsertAsync(new RefreshTokenRecord(Guid.NewGuid(), familyId, subject, HashRefreshToken(refresh),
             now, now.Add(_opts.RefreshTokenLifetime), ParentId: parentId), ct);

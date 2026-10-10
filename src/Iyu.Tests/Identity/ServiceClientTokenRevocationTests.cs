@@ -178,8 +178,8 @@ public class ServiceClientTokenRevocationTests
     {
         await using var h = await StartAsync(NoCache);
         using var scope = h.App.Services.CreateScope();
-        var tokens = scope.ServiceProvider.GetRequiredService<IdentityTokenService>();
-        var user = tokens.IssueUserToken([new Claim("sub", "someone"), IyuIdentityClaims.Permission(Permission)]);
+        ((FakeUserClaimsSource)scope.ServiceProvider.GetRequiredService<IUserClaimsSource>()).Set("someone", Permission);
+        var user = await scope.ServiceProvider.GetRequiredService<UserAccessTokenService>().IssueAsync("someone");
 
         Assert.Equal(HttpStatusCode.OK, await h.ProbeAsync(user.AccessToken!));
     }

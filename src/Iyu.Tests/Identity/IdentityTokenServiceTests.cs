@@ -70,55 +70,6 @@ public class IdentityTokenServiceTests
         Assert.Equal("invalid_client", r.Error);
     }
 
-    [Fact]
-    public void IssueUserToken_ReturnsJwt_WithCallerClaims()
-    {
-        var svc = new IdentityTokenService(new FakeIdentityStore(), Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
-        var claims = new[]
-        {
-            new Claim(JwtRegisteredClaimNames.Sub, "user-42"),
-            new Claim("perm", "orders.read"),
-            new Claim("perm", "orders.write"),
-        };
-
-        var r = svc.IssueUserToken(claims);
-
-        Assert.True(r.Ok);
-        Assert.Equal(new[] { "orders.read", "orders.write" }, r.Permissions);
-        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(r.AccessToken);
-        Assert.Contains(jwt.Claims, c => c.Type == JwtRegisteredClaimNames.Sub && c.Value == "user-42");
-        Assert.Equal((int)Opts().Lifetime.TotalSeconds, r.ExpiresInSeconds);
-    }
-
-    [Fact]
-    public void IssueUserToken_HonorsLifetimeOverride()
-    {
-        var svc = new IdentityTokenService(new FakeIdentityStore(), Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
-        var longLifetime = TimeSpan.FromDays(30);
-
-        var r = svc.IssueUserToken([new Claim(JwtRegisteredClaimNames.Sub, "user-42")], longLifetime);
-
-        Assert.True(r.Ok);
-        Assert.Equal((int)longLifetime.TotalSeconds, r.ExpiresInSeconds);
-        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(r.AccessToken);
-        Assert.True(jwt.ValidTo > DateTime.UtcNow.AddDays(29));
-    }
-
-    [Fact]
-    public void IssueUserToken_RejectsNonPositiveLifetimeOverride()
-    {
-        var svc = new IdentityTokenService(new FakeIdentityStore(), Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            svc.IssueUserToken([new Claim(JwtRegisteredClaimNames.Sub, "user-42")], TimeSpan.Zero));
-    }
-
-    [Fact]
-    public void IssueUserToken_RejectsNullClaims()
-    {
-        var svc = new IdentityTokenService(new FakeIdentityStore(), Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
-        Assert.Throws<ArgumentNullException>(() => svc.IssueUserToken(null!));
-    }
-
     /// <summary>
     /// Every rejection cause is recorded for the operator, while the caller keeps getting one
     /// undifferentiated answer.

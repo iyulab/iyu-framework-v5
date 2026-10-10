@@ -5,8 +5,9 @@ namespace Iyu.MainServer.Identity;
 /// <summary>
 /// Answers, for a subject, the claims that person's session carries in this application — or that they
 /// get none. Implemented by the consuming app; asked whenever a session is opened for a person, whichever
-/// form it takes: the session cookie (<see cref="UserSessionService"/>) or an access token
-/// (<see cref="UserTokenService"/>, at sign-in and again at every refresh).
+/// form it takes: the session cookie (<see cref="UserSessionService"/>, at sign-in and again while it lives) or an
+/// access token (<see cref="UserAccessTokenService"/>; <see cref="UserTokenService"/>, at sign-in and again at every
+/// refresh).
 /// </summary>
 /// <remarks>
 /// <para>

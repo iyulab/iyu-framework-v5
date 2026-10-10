@@ -12,7 +12,7 @@ namespace Iyu.MainServer.Identity;
 
 /// <summary>
 /// Wires the identity runtime into DI: cookie + JWT bearer dual-scheme authentication,
-/// token/service-client services, the service that opens a person's session, and per-permission
+/// token/service-client services, the services that open a person's session (cookie or access token), and per-permission
 /// authorization policies from a catalog. Consuming apps remain responsible for registering concrete
 /// <see cref="IIdentityStore"/> / <see cref="IServiceClientStore"/> implementations and their
 /// <see cref="IUserClaimsSource"/>.
@@ -55,6 +55,7 @@ public static class IyuIdentityServiceCollectionExtensions
         // A person's session is assembled from the app's claims source, not by hand — see UserSessionService.
         // The source is the app's to register; a host without one is refused at startup.
         services.TryAddScoped<UserSessionService>();
+        services.TryAddScoped<UserAccessTokenService>();
         services.AddHostedService<UserClaimsSourceGuard>();
 
         // Cookie sessions are only as durable as the Data Protection key ring that seals them — refuse to start

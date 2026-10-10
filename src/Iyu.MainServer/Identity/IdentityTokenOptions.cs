@@ -68,8 +68,8 @@ public sealed class IdentityTokenOptions
     private TimeSpan _refreshTokenReuseInterval = TimeSpan.Zero;
 
     /// <summary>
-    /// The lifetime of a person's access token issued with a refresh token (<see cref="UserTokenService"/>);
-    /// <c>null</c> uses <see cref="Lifetime"/>.
+    /// The lifetime of a person's access token — issued with a refresh token (<see cref="UserTokenService"/>) or
+    /// alone (<see cref="UserAccessTokenService"/>, unless the call names one); <c>null</c> uses <see cref="Lifetime"/>.
     /// </summary>
     /// <remarks>
     /// Separate because <see cref="Lifetime"/> also governs service-client tokens: keeping a person's

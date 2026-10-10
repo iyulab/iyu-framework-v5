@@ -102,8 +102,8 @@ the same way the generic OData controller leaves business validation to the cons
 **What the framework does own is the step after: opening the session.** Once the app knows which
 account it is, it names that account's subject and the framework assembles the session —
 `UserSessionService.SignInAsync(http, subject)` for the session cookie,
-`UserTokenService.IssueAsync(subject)` for an access token. Both ask one port, which every host
-registers:
+`UserAccessTokenService.IssueAsync(subject)` for an access token, `UserTokenService.IssueAsync(subject)`
+for an access token with a refresh token. All of them ask one port, which every host registers:
 
 ```csharp
 builder.Services.AddScoped<IUserClaimsSource, AppUserClaimsSource>();
@@ -141,6 +141,8 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   carries (`ClaimTypes.NameIdentifier` or `sub`): claims the endpoint added and the source does not answer are
   gone, and a cookie carrying no identifier is signed out. The one exception is a host that set
   `AllowExternalIdentityAsSession` (below) — there such a cookie is the provider's identity and is left as it is.
+- **An access token cannot be written by hand at all.** A bearer token is not re-read while it lives, so there
+  is nothing to re-assemble it later — every person's token is signed over what the source answered.
 
 **A cookie lasts as long as the key ring that sealed it.** Cookie sessions are protected by ASP.NET Core
 Data Protection, and where its keys live is the application's choice — the framework does not pick a store.
@@ -227,30 +229,34 @@ framework callback signature.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
 session verifies the user by whichever means the app already uses (the local check above, or an
-external IdP), then calls `IdentityTokenService.IssueUserToken` — the same signing primitive
-`IssueClientCredentialsAsync` uses for service clients, opened up for a caller-supplied claim set:
+external IdP), then asks `UserAccessTokenService` for an access token — the bearer counterpart of
+`UserSessionService.SignInAsync`:
 
 ```csharp
-app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, IdentityTokenService tokens, CancellationToken ct) =>
+app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, UserAccessTokenService tokens, CancellationToken ct) =>
 {
     var user = await store.FindUserByUsernameAsync(req.Username, ct);
     if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
 
-    var claims = new[] { new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()) };
-    var result = tokens.IssueUserToken(claims, lifetimeOverride: TimeSpan.FromDays(30));
-    return Results.Ok(new { accessToken = result.AccessToken, expiresIn = result.ExpiresInSeconds });
+    var result = await tokens.IssueAsync(user.Id.ToString(), TimeSpan.FromDays(30), ct);
+    return result.Ok
+        ? Results.Ok(new { access_token = result.AccessToken, expires_in = result.ExpiresInSeconds })
+        : Results.Unauthorized();
 }).AllowAnonymous();
 ```
 
-`IssueUserToken` is the signing primitive, not a session: unlike the two services above it asks no
-`IUserClaimsSource` and writes no identifier — the token carries exactly the claims it is handed, and
-assembling them (the permission claims included) is the caller's.
-It does not authenticate either — it only signs, using the same
-`IdentityTokenOptions` (`SigningKey`/`Issuer`/`Audience`) the cookie/OIDC recipes above never touch.
-`lifetimeOverride` is there because a client without a refresh flow (a mobile app queuing work
-offline) typically needs a longer-lived token than the short default tuned for service clients —
-pass nothing to keep `IdentityTokenOptions.Lifetime`. A long-lived access token cannot be taken
-back, though: prefer the refresh flow below for a public client.
+The token is assembled the way a session cookie is: the claims `IUserClaimsSource` answers for the
+subject (the permission claims included), and `sub` written from the subject. A subject the source
+refuses gets no token (`Ok == false`, `invalid_grant`). Nothing here authenticates — the app has done
+that — and `AddIyuIdentity` registers the service; it needs nothing beyond the claims source.
+The lifetime argument is optional: unset, it is `IdentityTokenOptions.UserAccessTokenLifetime`, or
+`Lifetime` when that is unset too. A longer one serves a client without a refresh flow (a mobile app
+queuing work offline), but **an access token cannot be taken back** — nothing asks the source again
+while it lives, so a person deactivated after it was issued keeps it until it expires. Prefer the
+refresh flow below for a public client that stays signed in.
+
+There is no public way to sign a person's token over claims the caller put together: such a token would
+carry whatever permissions the caller wrote, for as long as it lives.
 
 **Refresh tokens (short access, rotating refresh — RFC 9700 §4.14, RFC 8252):** turn them on, register
 the store, and sign the person in through `UserTokenService` instead:

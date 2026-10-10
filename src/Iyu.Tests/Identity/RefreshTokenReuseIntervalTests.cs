@@ -29,7 +29,8 @@ public class RefreshTokenReuseIntervalTests
     {
         _claims.Set("u1", "orders.read");
         var tokens = new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, new RecordingLogger<IdentityTokenService>());
-        return new UserTokenService(tokens, _store, _claims, _opts, _clock, new RecordingLogger<UserTokenService>());
+        var access = new UserAccessTokenService(tokens, _claims, _opts, new RecordingLogger<UserAccessTokenService>());
+        return new UserTokenService(access, _store, _opts, _clock, new RecordingLogger<UserTokenService>());
     }
 
     private int LiveTokens() => _store.Tokens.Count(t => t.UsedAt is null && t.RevokedAt is null);
