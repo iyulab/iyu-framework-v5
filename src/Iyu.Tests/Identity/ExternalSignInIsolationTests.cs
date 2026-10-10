@@ -1,21 +1,14 @@
 using System.Net;
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
-using System.Web;
 using Iyu.MainServer.Identity;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Xunit;
+using static Iyu.Tests.Identity.OidcStandIn;
 
 namespace Iyu.Tests.Identity;
 
@@ -33,50 +26,16 @@ namespace Iyu.Tests.Identity;
 /// session only after it has resolved a local account — and a host that leaves the handler on its default does not start.
 /// </para>
 /// <para>
-/// The provider here is a stand-in: a fixed configuration and a token endpoint answered in process, signing an ID
-/// token with a test key. Everything on the application's side is the real handler pipeline.
+/// The provider is <see cref="OidcStandIn"/>; everything on the application's side is the real handler pipeline. The
+/// framework's own external sign-in (<c>AddIyuExternalSignIn</c>) is <see cref="ExternalSignInEndpointTests"/>.
 /// </para>
 /// </remarks>
 public class ExternalSignInIsolationTests
 {
-    private const string Issuer = "https://provider.test";
-    private const string ClientId = "app";
     private const string ExternalScheme = "external";
-    private const string ProviderSubject = "provider-subject-1";
     private static readonly Guid LocalAccount = Guid.Parse("11111111-2222-3333-4444-555555555555");
 
-    /// <summary>Answers the code exchange with an ID token for <see cref="ProviderSubject"/> that also claims a permission.</summary>
-    private sealed class ProviderTokenEndpoint(RsaSecurityKey key) : HttpMessageHandler
-    {
-        public string Nonce { get; set; } = "";
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            var idToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-            {
-                Issuer = Issuer,
-                Audience = ClientId,
-                IssuedAt = DateTime.UtcNow,
-                NotBefore = DateTime.UtcNow.AddMinutes(-1),
-                Expires = DateTime.UtcNow.AddMinutes(5),
-                Claims = new Dictionary<string, object>
-                {
-                    ["sub"] = ProviderSubject,
-                    ["nonce"] = Nonce,
-                    // What the provider (or the person, through it) asserts — in the application's own permission claim type.
-                    [IyuIdentityClaims.DefaultPermissionClaimType] = "orders.read",
-                },
-                SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256),
-            });
-            var json = $$"""{"access_token":"opaque","token_type":"Bearer","expires_in":300,"id_token":"{{idToken}}"}""";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json"),
-            });
-        }
-    }
-
-    private sealed record Host(WebApplication App, HttpClient Http, ProviderTokenEndpoint Provider) : IAsyncDisposable
+    private sealed record Host(WebApplication App, HttpClient Http, OidcStandIn Provider) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
@@ -88,8 +47,7 @@ public class ExternalSignInIsolationTests
     /// <param name="allowExternalIdentityAsSession">The application says the provider's identity is its session.</param>
     private static async Task<Host> StartAsync(bool separateExternalScheme, bool allowExternalIdentityAsSession = false)
     {
-        var key = new RsaSecurityKey(RSA.Create(2048)) { KeyId = "test-key" };
-        var provider = new ProviderTokenEndpoint(key);
+        var provider = new OidcStandIn();
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -103,25 +61,14 @@ public class ExternalSignInIsolationTests
                 SigningKey = new string('k', 32),
                 AllowExternalIdentityAsSession = allowExternalIdentityAsSession,
             },
-            permissionCatalog: ["orders.read"]);
+            permissionCatalog: [ClaimedPermission]);
 
         builder.Services.AddAuthentication()
             .AddCookie(ExternalScheme)
             .AddOpenIdConnect("oidc", options =>
             {
                 if (separateExternalScheme) options.SignInScheme = ExternalScheme;
-                options.ClientId = ClientId;
-                options.ClientSecret = "secret";
-                options.ResponseType = OpenIdConnectResponseType.Code;
-                options.RequireHttpsMetadata = false;
-                options.Configuration = new OpenIdConnectConfiguration
-                {
-                    Issuer = Issuer,
-                    AuthorizationEndpoint = Issuer + "/authorize",
-                    TokenEndpoint = Issuer + "/token",
-                };
-                options.Configuration.SigningKeys.Add(key);
-                options.BackchannelHttpHandler = provider;
+                provider.Configure(options);
             });
 
         var app = builder.Build();
@@ -140,7 +87,7 @@ public class ExternalSignInIsolationTests
 
             var subject = external.Principal.FindFirstValue(ClaimTypes.NameIdentifier)
                           ?? external.Principal.FindFirstValue("sub");
-            if (subject != ProviderSubject) return Results.Unauthorized();   // no local account for anyone else
+            if (subject != provider.Subject) return Results.Unauthorized();   // no local account for anyone else
 
             // The session is the local account's: its identifier and what the application's claims source answers.
             if (!await sessions.SignInAsync(http, LocalAccount.ToString())) return Results.Unauthorized();
@@ -149,27 +96,12 @@ public class ExternalSignInIsolationTests
         }).AllowAnonymous();
 
         app.MapGet("/whoami", (ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier) ?? "(none)");
-        app.MapGet("/orders", () => "orders").RequireAuthorization("orders.read");
+        app.MapGet("/orders", () => "orders").RequireAuthorization(ClaimedPermission);
 
         await app.StartAsync();
         var http = app.GetTestServer().CreateClient();
         http.BaseAddress = new Uri("https://localhost");
         return new Host(app, http, provider);
-    }
-
-    /// <summary>The cookies a response sets, as a request <c>Cookie</c> header value (deletions left out).</summary>
-    private static string CookiesFrom(HttpResponseMessage response)
-        => !response.Headers.TryGetValues("Set-Cookie", out var values)
-            ? ""
-            : string.Join("; ", values
-                .Select(v => v.Split(';', 2)[0])
-                .Where(pair => !pair.EndsWith('=')));
-
-    private static HttpRequestMessage With(HttpMethod method, string path, string cookies, HttpContent? content = null)
-    {
-        var request = new HttpRequestMessage(method, path) { Content = content };
-        if (cookies.Length > 0) request.Headers.Add("Cookie", cookies);
-        return request;
     }
 
     /// <summary>
@@ -179,12 +111,7 @@ public class ExternalSignInIsolationTests
     private static async Task<string> SignInAtProviderAsync(Host host)
     {
         using var challenge = await host.Http.GetAsync("/sign-in");
-        Assert.Equal(HttpStatusCode.Redirect, challenge.StatusCode);
-        var query = HttpUtility.ParseQueryString(challenge.Headers.Location!.Query);
-        host.Provider.Nonce = query["nonce"]!;
-
-        using var callback = await host.Http.SendAsync(With(HttpMethod.Post, "/signin-oidc", CookiesFrom(challenge),
-            new FormUrlEncodedContent(new Dictionary<string, string> { ["code"] = "code", ["state"] = query["state"]! })));
+        using var callback = await host.Provider.AnswerAsync(host.Http, challenge);
         Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
         Assert.Equal("/sign-in/complete", callback.Headers.Location!.OriginalString);
         return CookiesFrom(callback);
@@ -251,7 +178,7 @@ public class ExternalSignInIsolationTests
         using var orders = await host.Http.SendAsync(With(HttpMethod.Get, "/orders", afterProvider));
 
         Assert.Equal(HttpStatusCode.OK, whoami.StatusCode);
-        Assert.Equal(ProviderSubject, await whoami.Content.ReadAsStringAsync());   // the provider's subject, not a local account
-        Assert.Equal(HttpStatusCode.OK, orders.StatusCode);                        // a permission nobody here granted
+        Assert.Equal(host.Provider.Subject, await whoami.Content.ReadAsStringAsync());   // the provider's subject, not a local account
+        Assert.Equal(HttpStatusCode.OK, orders.StatusCode);                              // a permission nobody here granted
     }
 }

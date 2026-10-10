@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -135,6 +136,45 @@ public static class IyuIdentityServiceCollectionExtensions
     public static IServiceCollection AddIyuRefreshTokens(this IServiceCollection services)
     {
         services.TryAddScoped<UserTokenService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Turns on sign-in through external providers: a cookie scheme of its own holds what a provider said until the
+    /// application has decided which local account that is, and <see cref="IdentityEndpointRouteExtensions.MapIyuExternalSignIn"/>
+    /// maps the endpoints that start a sign-in and complete it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The application still registers each provider's handler — <c>AddOpenIdConnect("oidc", …)</c> and the like — and
+    /// its <see cref="IExternalLoginResolver"/> (a host without one is refused at startup). A handler needs no
+    /// <c>SignInScheme</c>: <see cref="IyuExternalSignInDefaults.AuthenticationScheme"/> becomes the default sign-in
+    /// scheme, which is where remote handlers put what they receive — never the session cookie.
+    /// </para>
+    /// <para>
+    /// The same default means a <c>HttpContext.SignInAsync(principal)</c> that names no scheme lands there too, not in the
+    /// session. A person's session is opened by <see cref="UserSessionService.SignInAsync"/>, which names its scheme.
+    /// </para>
+    /// <para>
+    /// The external cookie lives five minutes — long enough to come back from the provider — and is removed by the
+    /// completion endpoint whatever its outcome.
+    /// </para>
+    /// </remarks>
+    public static IServiceCollection AddIyuExternalSignIn(this IServiceCollection services)
+    {
+        services.AddAuthentication(o => o.DefaultSignInScheme = IyuExternalSignInDefaults.AuthenticationScheme)
+            .AddCookie(IyuExternalSignInDefaults.AuthenticationScheme, o =>
+            {
+                o.Cookie.Name = ".Iyu.External";
+                o.Cookie.HttpOnly = true;
+                o.Cookie.SameSite = SameSiteMode.Lax;
+                o.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+                o.SlidingExpiration = false;
+                // Nothing challenges this scheme; if something did, it answers with a status rather than a login page.
+                o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
+                o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+            });
+        services.AddHostedService<ExternalLoginResolverGuard>();
         return services;
     }
 }

@@ -12,7 +12,9 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    (권한 코드마다 `IyuIdentityClaims.Permission(code)`, 계정이 없거나 비활성이면 `null`). **등록하지 않은 호스트는 기동이 거부된다.**
    사람을 로그인시키지 않는 앱은 `null` 만 답하는 구현을 등록한다.
 6. **login/logout/me**: 끝점(라우트·응답 모양·자격 검증)은 앱의 것이다. 계정을 확인한 뒤 세션은 프레임워크가 연다 —
-   쿠키는 `UserSessionService.SignInAsync(http, subject)`, 토큰은 `UserTokenService.IssueAsync(subject)`. 둘 다 5번의 원천에 묻는다.
+   쿠키는 `UserSessionService.SignInAsync(http, subject)`, 액세스 토큰은 `UserAccessTokenService.IssueAsync(subject, lifetime?)`,
+   리프레시 토큰과 함께면 `UserTokenService.IssueAsync(subject)`. 셋 다 5번의 원천에 묻는다. 호출자가 지은 클레임에 서명하는 공개 경로는 없다
+   (Bearer 토큰은 사는 동안 다시 읽히지 않으므로, 손으로 지은 토큰은 그 권한을 수명 내내 싣는다).
    `ClaimsPrincipal` 을 손으로 짓지 않는다 — 권한 클레임을 빠뜨리면 서비스 클라이언트(JWT)는 정상인데 사람만 전 정책에서 403 을 받던 함정이 그 자리였다.
    식별자는 프레임워크가 주체로부터 쓴다(쿠키 `ClaimTypes.NameIdentifier` · 토큰 `sub`). 읽을 때는 `IyuIdentityClaims.FindSubject(user)`.
    원천이 다른 사람을 가리키는 식별자 클레임을 답하면 로그인이 아니라 오류다.
@@ -21,11 +23,13 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    **손으로 지은 쿠키도 예외가 아니다** — `UserSessionService` 를 거치지 않은 세션 쿠키는 처음 제시될 때 그것이 싣고 있는 식별자로 원천에서 다시
    조립된다(끝점이 스스로 더한 클레임은 사라진다). 식별자가 없는 쿠키는 로그아웃된다. `AllowExternalIdentityAsSession` 을 켠 호스트만 그런 쿠키를 그대로 둔다.
 
-7. **외부 로그인(OIDC 등)을 붙일 때**: 핸들러에 자기 스킴을 준다(`AddCookie("external")` + `SignInScheme = "external"`).
-   지정하지 않으면 핸들러가 외부 공급자의 주체를 세션 쿠키에 그대로 로그인시킨다 — 로컬 계정 없이도 «로그인됨»이 되고
-   공급자가 보낸 `perm` 클레임이 권한 정책을 통과한다. 그 구성은 **기동이 거부된다**. 세션은 계정을 찾은 완료 단계에서
-   앱이 연다(리포 README `## Identity` 의 «External OIDC / AD federation»). 공급자의 주체를 그대로 세션으로 쓰려는 앱만
-   `IdentityTokenOptions.AllowExternalIdentityAsSession`.
+7. **외부 로그인(OIDC 등)을 붙일 때**: `AddIyuExternalSignIn()` + `MapIyuExternalSignIn()` + 앱의 `IExternalLoginResolver`.
+   공급자의 답은 프레임워크의 격리 쿠키(`IyuExternalSignInDefaults.AuthenticationScheme`, 5분)에 담기고 — 원격 핸들러의 기본
+   `SignInScheme` 이 된다 — `GET /api/auth/external/complete` 가 리졸버에게 «어느 로컬 계정인가»(`Provider` + `ProviderKey`)를 물어
+   `UserSessionService` 로 그 계정의 세션을 연다. 공급자가 보낸 것은 세션에 들어가지 않는다. 연결·프로비저닝 정책은 리졸버(앱)의 것.
+   리졸버 없이 켜면 **기동이 거부된다**. 시작은 `GET /api/auth/external/{provider}?returnUrl=…`(`returnUrl` 은 이 앱의 경로만).
+   핸들러가 세션 쿠키에 직접 로그인하는 구성(격리 스킴 없음)은 여전히 **기동이 거부된다** — 공급자의 주체를 그대로 세션으로
+   쓰려는 앱만 `IdentityTokenOptions.AllowExternalIdentityAsSession`(리포 README `## Identity` 의 «External OIDC / AD federation»).
 
 토큰 흐름: `POST /api/auth/token` → 단기 JWT → `Authorization: Bearer`. 요청은 **RFC 6749 §4.4 client credentials** 모양이다:
 

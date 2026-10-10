@@ -1,7 +1,9 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 
 namespace Iyu.MainServer.Identity;
 
@@ -38,6 +40,25 @@ public static class IdentityEndpointRouteExtensions
             => TryOwnerId(http, out var owner)
                 ? IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(id, req, owner, svc, ct)
                 : Task.FromResult(Results.Unauthorized()));
+        return app;
+    }
+
+    /// <summary>
+    /// Maps sign-in through external providers (turned on by
+    /// <see cref="IyuIdentityServiceCollectionExtensions.AddIyuExternalSignIn"/>):
+    /// <c>GET /api/auth/external/{provider}?returnUrl=…</c> sends the browser to the provider behind that handler, and
+    /// <c>GET /api/auth/external/complete</c> — where the handler sends it back — opens the application's session for the
+    /// account <see cref="IExternalLoginResolver"/> names. Both are anonymous: there is no session yet.
+    /// </summary>
+    public static IEndpointRouteBuilder MapIyuExternalSignIn(this IEndpointRouteBuilder app)
+    {
+        var external = app.MapGroup(IyuExternalSignInDefaults.StartPath).AllowAnonymous();
+        external.MapGet("/complete", (string? returnUrl, HttpContext http, IExternalLoginResolver resolver,
+                UserSessionService sessions, ILoggerFactory loggers)
+            => ExternalSignInHandlers.CompleteAsync(returnUrl, http, resolver, sessions, loggers));
+        external.MapGet("/{provider}", (string provider, string? returnUrl, HttpContext http,
+                IAuthenticationSchemeProvider schemes)
+            => ExternalSignInHandlers.ChallengeAsync(provider, returnUrl, http, schemes));
         return app;
     }
 

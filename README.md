@@ -182,50 +182,51 @@ Sign-out is the cookie scheme's own: `await http.SignOutAsync(CookieAuthenticati
 where each site brings its own directory):
 
 ```csharp
+builder.Services.AddIyuExternalSignIn();                          // the scheme that holds the provider's answer
 builder.Services.AddAuthentication()
-    .AddCookie("external")                                   // holds the provider's answer until the step below
-    .AddOpenIdConnect("oidc", opts =>
-    {
-        opts.SignInScheme = "external";                      // not the session cookie — see below
-        /* Authority, ClientId, ClientSecret from config */
-    });
+    .AddOpenIdConnect("oidc", opts => { /* Authority, ClientId, ClientSecret from config */ });
+builder.Services.AddScoped<IExternalLoginResolver, AppExternalLoginResolver>();
 
-// Start: app.MapGet("/api/auth/oidc", () => Results.Challenge(
-//     new AuthenticationProperties { RedirectUri = "/api/auth/oidc/complete" }, ["oidc"])).AllowAnonymous();
+app.MapIyuExternalSignIn();   // GET /api/auth/external/{provider}?returnUrl=…  and  GET /api/auth/external/complete
 
-app.MapGet("/api/auth/oidc/complete", async (HttpContext http, IIdentityStore store, UserSessionService sessions,
-    CancellationToken ct) =>
+public sealed class AppExternalLoginResolver(AppDbContext db) : IExternalLoginResolver
 {
-    var external = await http.AuthenticateAsync("external");
-    if (!external.Succeeded) return Results.Unauthorized();
-
-    var user = await store.FindUserByUsernameAsync(external.Principal.Identity!.Name!, ct)
-        ?? await ProvisionFromExternalClaimsAsync(external.Principal, ct);   // consumer-owned find-or-provision
-    if (user is null) return Results.Unauthorized();
-
-    // The session is built from the local account — its id, and the permissions *this application* grants it.
-    // Nothing the provider said is carried into it.
-    if (!await sessions.SignInAsync(http, user.Id.ToString(), ct: ct)) return Results.Unauthorized();
-    await http.SignOutAsync("external");
-    return Results.Redirect("/");
-}).AllowAnonymous();   // there is no session yet when this runs
+    // Which local account this external sign-in is — or null to refuse it.
+    public async Task<string?> ResolveSubjectAsync(ExternalLogin login, CancellationToken ct)
+    {
+        var account = await db.ExternalLogins
+            .Where(l => l.Provider == login.Provider && l.ProviderKey == login.ProviderKey)
+            .Select(l => l.UserId).SingleOrDefaultAsync(ct);
+        return account == Guid.Empty ? null : account.ToString();   // or provision one here
+    }
+}
 ```
 
-**The provider's identity is not the session.** An external sign-in handler stores what the provider
-told it in its `SignInScheme`, and when none is named that is the default scheme — the session cookie
-`AddIyuIdentity` registered. The provider's claims would then be the session as they stand: anyone the
-provider authenticates is signed in whether or not a local account exists, and a claim the provider
-sends under the permission claim type (`perm`) satisfies the permission policies. So the handler gets a
-scheme of its own (`"external"` above), nothing the application serves accepts that cookie, and the
-session is opened by the step that resolved the account. **A host that leaves a handler signing into
-the session cookie is refused at startup**; an application that really means the provider's identity to
-be its session (no local accounts, authorization that does not rest on those claims) sets
-`IdentityTokenOptions.AllowExternalIdentityAsSession`.
+A link (or a button) to `/api/auth/external/oidc?returnUrl=/reports` sends the browser to the provider.
+The handler brings it back to `/api/auth/external/complete`, which asks the resolver which local account
+this is and opens that account's session with `UserSessionService` — the claims the application's
+`IUserClaimsSource` answers, nothing the provider sent. Then it redirects to `returnUrl` (only a path on
+this application; anything else is 400) or to `/`. The provider's answer is discarded whatever the
+outcome: 401 if there was none, 403 if the resolver or the claims source refuses.
 
-`ProvisionFromExternalClaimsAsync` — whether a first-seen federated identity is auto-provisioned
-or must already exist, and which external claims map to which local fields — is a policy
-decision specific to each deployment, which is why it stays application code rather than a
-framework callback signature.
+**The provider's identity is not the session.** An external sign-in handler stores what the provider
+told it in its `SignInScheme`, and when none is named that is the default sign-in scheme.
+`AddIyuExternalSignIn` makes that its own cookie (`IyuExternalSignInDefaults.AuthenticationScheme`, five
+minutes), which nothing the application serves accepts. Without it, the default would be the session
+cookie `AddIyuIdentity` registered, and the provider's claims would be the session as they stand: anyone
+the provider authenticates is signed in whether or not a local account exists, and a claim the provider
+sends under the permission claim type (`perm`) satisfies the permission policies. **A host whose handler
+would sign into the session cookie is refused at startup**; an application that really means the
+provider's identity to be its session (no local accounts, authorization that does not rest on those
+claims) sets `IdentityTokenOptions.AllowExternalIdentityAsSession`. With `AddIyuExternalSignIn`, a
+`HttpContext.SignInAsync(principal)` that names no scheme also lands in the external cookie — a person's
+session is opened by `UserSessionService`, which names its scheme.
+
+The resolver is where each deployment's policy lives: whether a first-seen external identity is
+provisioned or must already be linked, and which of its claims fill which local fields. `ProviderKey` is
+the person's identifier at that provider (its `sub`) and is unique only together with `Provider` — key
+links on the pair. A host that calls `AddIyuExternalSignIn` without registering a resolver is refused at
+startup.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
 session verifies the user by whichever means the app already uses (the local check above, or an

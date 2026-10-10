@@ -61,7 +61,7 @@ internal sealed class ExternalSignInSchemeGuard(
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>The options type of a remote handler (<c>RemoteAuthenticationHandler&lt;TOptions&gt;</c>), or <c>null</c>.</summary>
-    private static Type? RemoteOptionsType(Type handlerType)
+    internal static Type? RemoteOptionsType(Type? handlerType)
     {
         for (var type = handlerType; type is not null; type = type.BaseType)
         {

@@ -46,6 +46,17 @@ onward; earlier entries state the same consequence in prose where it applies.
   carries the Capabilities restrictions and every property but the key is `Computed` in `$metadata`. Until now such
   a model needed a placeholder write type and a pair restricted on every verb. README «A set that is only read».
 - **`Iyu.Core`: `IKeyed`.** `IyuEntity` implements it; nothing changes for existing entities.
+- **`Iyu.MainServer`: sign-in through external providers — `AddIyuExternalSignIn`, `MapIyuExternalSignIn` and
+  `IExternalLoginResolver`.** The framework now holds what a provider (OpenID Connect, OAuth) said about a person in a
+  cookie scheme of its own (`IyuExternalSignInDefaults.AuthenticationScheme`, five minutes) — the default sign-in scheme,
+  so a handler needs no `SignInScheme` — and maps `GET /api/auth/external/{provider}?returnUrl=…` (start) and
+  `GET /api/auth/external/complete`. Completion asks the application's `IExternalLoginResolver` which local account the
+  external identity is (`ExternalLogin`: provider, the person's identifier there, everything it sent), opens that
+  account's session through `UserSessionService`, discards the provider's answer, and returns to `returnUrl` (a path on
+  the application only). Linking and provisioning stay the application's, in the resolver. A host that turns this on
+  without a resolver is refused at startup. With it on, a `HttpContext.SignInAsync(principal)` that names no scheme
+  lands in the external cookie, not the session. README «External OIDC / AD federation» is rewritten on it; the
+  hand-written completion endpoint the earlier recipe showed still works.
 
 ### Changed — identity
 
