@@ -88,4 +88,17 @@ public sealed class IdentityTokenOptions
     /// <c>PersistKeysToDbContext</c> or <c>PersistKeysToFileSystem</c> on a volume.
     /// </remarks>
     public bool AllowContainerLocalKeyRing { get; set; }
+
+    /// <summary>
+    /// Lets an external sign-in handler (OpenID Connect, OAuth) sign the identity it receives directly into the
+    /// application's session cookie. Off by default: such a host is refused at startup, because the provider's
+    /// identity would be the session as it stands — signed in without a local account, carrying whatever claims
+    /// the provider sent.
+    /// </summary>
+    /// <remarks>
+    /// For an application with no local accounts whose authorization does not rest on the permission claims the
+    /// provider could send. Everything else gives the handler a scheme of its own and opens the session after
+    /// resolving the account.
+    /// </remarks>
+    public bool AllowExternalIdentityAsSession { get; set; }
 }

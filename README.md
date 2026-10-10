@@ -140,21 +140,44 @@ where each site brings its own directory):
 
 ```csharp
 builder.Services.AddAuthentication()
-    .AddOpenIdConnect("oidc", opts => { /* Authority, ClientId, ClientSecret from config */ });
-// AddIyuIdentity already registered the cookie scheme this callback signs into.
+    .AddCookie("external")                                   // holds the provider's answer until the step below
+    .AddOpenIdConnect("oidc", opts =>
+    {
+        opts.SignInScheme = "external";                      // not the session cookie — see below
+        /* Authority, ClientId, ClientSecret from config */
+    });
 
-app.MapGet("/api/auth/oidc/callback", async (HttpContext http, IIdentityStore store, CancellationToken ct) =>
+// Start: app.MapGet("/api/auth/oidc", () => Results.Challenge(
+//     new AuthenticationProperties { RedirectUri = "/api/auth/oidc/complete" }, ["oidc"])).AllowAnonymous();
+
+app.MapGet("/api/auth/oidc/complete", async (HttpContext http, IIdentityStore store, CancellationToken ct) =>
 {
-    var externalPrincipal = (await http.AuthenticateAsync("oidc")).Principal!;
-    var user = await store.FindUserByUsernameAsync(externalPrincipal.Identity!.Name!, ct)
-        ?? await ProvisionFromExternalClaimsAsync(externalPrincipal, ct);   // consumer-owned find-or-provision
+    var external = await http.AuthenticateAsync("external");
+    if (!external.Succeeded) return Results.Unauthorized();
 
+    var user = await store.FindUserByUsernameAsync(external.Principal.Identity!.Name!, ct)
+        ?? await ProvisionFromExternalClaimsAsync(external.Principal, ct);   // consumer-owned find-or-provision
+    if (user is null) return Results.Unauthorized();
+
+    // The session is built from the local account — its id, and the permissions *this application* grants it.
     var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [new(ClaimTypes.NameIdentifier, user.Id.ToString())], CookieAuthenticationDefaults.AuthenticationScheme));
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+    await http.SignOutAsync("external");
     return Results.Redirect("/");
-});
+}).AllowAnonymous();   // there is no session yet when this runs
 ```
+
+**The provider's identity is not the session.** An external sign-in handler stores what the provider
+told it in its `SignInScheme`, and when none is named that is the default scheme — the session cookie
+`AddIyuIdentity` registered. The provider's claims would then be the session as they stand: anyone the
+provider authenticates is signed in whether or not a local account exists, and a claim the provider
+sends under the permission claim type (`perm`) satisfies the permission policies. So the handler gets a
+scheme of its own (`"external"` above), nothing the application serves accepts that cookie, and the
+session is opened by the step that resolved the account. **A host that leaves a handler signing into
+the session cookie is refused at startup**; an application that really means the provider's identity to
+be its session (no local accounts, authorization that does not rest on those claims) sets
+`IdentityTokenOptions.AllowExternalIdentityAsSession`.
 
 `ProvisionFromExternalClaimsAsync` — whether a first-seen federated identity is auto-provisioned
 or must already exist, and which external claims map to which local fields — is a policy

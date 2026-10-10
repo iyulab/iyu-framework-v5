@@ -51,6 +51,10 @@ public static class IyuIdentityServiceCollectionExtensions
         services.AddSingleton<IValidateOptions<KeyManagementOptions>, CookieKeyRingValidator>();
         services.AddOptions<KeyManagementOptions>().ValidateOnStart();
 
+        // The session cookie is also the default sign-in scheme, which is where an external sign-in handler puts
+        // the identity it receives unless told otherwise — refuse to start that way. See ExternalSignInSchemeGuard.
+        services.AddHostedService<ExternalSignInSchemeGuard>();
+
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(tokenOptions.SigningKey));
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(opts =>

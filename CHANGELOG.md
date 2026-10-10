@@ -39,6 +39,21 @@ onward; earlier entries state the same consequence in prose where it applies.
   may not read their set. An export, a template download or a bulk action can now select «the rows the list shows»
   without a second search implementation. Registered by `AddIyuMainServer`. README «How far a read policy reaches».
 
+### Fixed
+
+- **`Iyu.MainServer`: a host where an external sign-in handler would sign into the session cookie is refused at
+  startup, and the README recipe no longer composes one.** `AddIyuIdentity` makes the session cookie the default
+  scheme, and a remote handler (`AddOpenIdConnect`, `AddOAuth`, …) with no `SignInScheme` named stores the identity it
+  receives there. The provider's identity then is the session: anyone the provider authenticates is signed in with or
+  without a local account, and a claim it sends under the permission claim type satisfies the permission policies.
+  The README's «External OIDC / AD federation» recipe was written that way. It now gives the handler a scheme of its
+  own and opens the session in a completion step that resolved the account. **If you followed the earlier recipe**,
+  add `.AddCookie("external")`, set `opts.SignInScheme = "external"`, read the external identity with
+  `AuthenticateAsync("external")` in an `AllowAnonymous` completion endpoint, and sign that scheme out after signing
+  the session in — until then the host will not start and says which handler. An application that means the
+  provider's identity to be its session sets the new `IdentityTokenOptions.AllowExternalIdentityAsSession`. Security
+  fix — it matters to any deployment that added an external sign-in handler.
+
 ### Changed
 
 - 🔇 **`Iyu.Server.OData`: `$metadata` marks every property an update cannot store as `Org.OData.Core.V1.Computed`.**

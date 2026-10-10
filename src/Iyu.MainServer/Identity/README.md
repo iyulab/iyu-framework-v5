@@ -13,6 +13,12 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    이 클레임이 없으면 서비스 클라이언트(JWT)는 정상 동작하는데 사람(쿠키) 사용자만 모든 permission 정책에서 403을 받는다.
    헬퍼로 `IyuIdentityClaims.Permission(code)`를 사용할 수 있다(예: `identity.AddClaim(IyuIdentityClaims.Permission("orders.read"))`).
 
+6. **외부 로그인(OIDC 등)을 붙일 때**: 핸들러에 자기 스킴을 준다(`AddCookie("external")` + `SignInScheme = "external"`).
+   지정하지 않으면 핸들러가 외부 공급자의 주체를 세션 쿠키에 그대로 로그인시킨다 — 로컬 계정 없이도 «로그인됨»이 되고
+   공급자가 보낸 `perm` 클레임이 권한 정책을 통과한다. 그 구성은 **기동이 거부된다**. 세션은 계정을 찾은 완료 단계에서
+   앱이 연다(리포 README `## Identity` 의 «External OIDC / AD federation»). 공급자의 주체를 그대로 세션으로 쓰려는 앱만
+   `IdentityTokenOptions.AllowExternalIdentityAsSession`.
+
 토큰 흐름: `POST /api/auth/token` → 단기 JWT → `Authorization: Bearer`. 요청은 **RFC 6749 §4.4 client credentials** 모양이다:
 
 ```http
