@@ -42,12 +42,12 @@ internal sealed class IyuNavigationValidationProvider(IyuEntityPairRegistry regi
 
     private static bool IsNavigationType(Type type)
     {
-        if (typeof(IyuEntity).IsAssignableFrom(type)) return true;
+        if (typeof(IKeyed).IsAssignableFrom(type)) return true;
         return type.IsGenericType
             && type.GetInterfaces().Append(type).Any(i =>
                 i.IsGenericType
                 && i.GetGenericTypeDefinition() == typeof(IEnumerable<>)
-                && typeof(IyuEntity).IsAssignableFrom(i.GetGenericArguments()[0]));
+                && typeof(IKeyed).IsAssignableFrom(i.GetGenericArguments()[0]));
     }
 
     private sealed class SkipValidation : IPropertyValidationFilter

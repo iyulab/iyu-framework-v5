@@ -33,10 +33,12 @@ internal sealed class WriteSurface
     private readonly Dictionary<string, PropertyInfo> _readProperties;
     private readonly Dictionary<string, PropertyInfo> _writableProperties;
 
-    internal WriteSurface(Type readType, Type writeType)
+    /// <param name="readType">The type request bodies bind to.</param>
+    /// <param name="writeType">The type writes are stored through; <c>null</c> for a set that is only read.</param>
+    internal WriteSurface(Type readType, Type? writeType)
     {
         _readProperties = readType.GetProperties().ToDictionary(p => p.Name, StringComparer.Ordinal);
-        _writableProperties = writeType.GetProperties()
+        _writableProperties = (writeType?.GetProperties() ?? [])
             .Where(p => p.CanWrite && p.GetSetMethod(nonPublic: false) is not null)
             .ToDictionary(p => p.Name, StringComparer.Ordinal);
     }

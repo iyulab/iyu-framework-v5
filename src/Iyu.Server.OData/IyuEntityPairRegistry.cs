@@ -45,6 +45,30 @@ public sealed class IyuEntityPairRegistry
         }
     }
 
+    private static readonly IReadOnlySet<ODataVerb> EveryWriteVerb =
+        new HashSet<ODataVerb> { ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete };
+
+    /// <summary>
+    /// Registers a set that is only read: <typeparamref name="TRead"/> has no write type behind it.
+    /// Every write verb is refused, and stays refused — there is nothing a write could be stored into.
+    /// </summary>
+    /// <param name="setName">The OData entity set name.</param>
+    public void RegisterReadOnly<TRead>(string setName)
+        where TRead : class, IKeyed
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(setName);
+
+        var pair = new EntityPair(setName, typeof(TRead), null, EveryWriteVerb, NoProperties, null, null, null, null);
+        if (!_bySetName.TryAdd(setName, pair))
+            throw new InvalidOperationException($"Entity set '{setName}' is already registered.");
+        if (!_byReadType.TryAdd(typeof(TRead), setName))
+        {
+            _bySetName.TryRemove(setName, out _);
+            throw new InvalidOperationException(
+                $"Read type '{typeof(TRead).FullName}' is already registered under set '{_byReadType[typeof(TRead)]}'.");
+        }
+    }
+
     /// <summary>
     /// Updates the read-only verb restriction of an already-registered set, in place.
     /// </summary>
@@ -66,7 +90,10 @@ public sealed class IyuEntityPairRegistry
         _bySetName.AddOrUpdate(
             setName,
             _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
-            (_, existing) => existing with { ReadOnlyVerbs = readOnlyVerbs });
+            (_, existing) => existing.WriteType is null && !readOnlyVerbs.IsSupersetOf(EveryWriteVerb)
+                ? throw new InvalidOperationException(
+                    $"Entity set '{setName}' is a read-only set with no write type, so no write verb can be opened on it.")
+                : existing with { ReadOnlyVerbs = readOnlyVerbs });
     }
 
     /// <summary>
@@ -90,7 +117,11 @@ public sealed class IyuEntityPairRegistry
         _bySetName.AddOrUpdate(
             setName,
             _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
-            (_, existing) => existing with
+            (_, existing) => existing.WriteType is null
+                ? throw new InvalidOperationException(
+                    $"Entity set '{setName}' is a read-only set: nothing is written through it, so there is no "
+                    + "property to exclude from writes.")
+                : existing with
             {
                 WriteExcludedProperties = new HashSet<string>(existing.WriteExcludedProperties, StringComparer.Ordinal)
                     .Concat(propertyNames)
@@ -174,6 +205,13 @@ public sealed class IyuEntityPairRegistry
         var principal = Find(principalSetName)
             ?? throw new InvalidOperationException($"Entity set '{principalSetName}' is not registered.");
 
+        // A shared key is a rule about writes — who chooses a new row's key, and which row it must name. A set
+        // that is only read has no rows of its own to create and no table for another set's key to refer to.
+        if (principal.WriteType is null || Find(setName) is { WriteType: null })
+            throw new InvalidOperationException(
+                $"A shared key cannot involve a read-only set ('{setName}' → '{principalSetName}'): nothing is "
+                + "written through a read-only set, so there is no key to choose or to refer to.");
+
         if (principal.SharedKeyPrincipalSet is { } grandparent)
             throw new InvalidOperationException(
                 $"Entity set '{principalSetName}' already shares its key with '{grandparent}', "
@@ -199,7 +237,7 @@ public sealed class IyuEntityPairRegistry
     public sealed record EntityPair(
         string SetName,
         Type ReadType,
-        Type WriteType,
+        Type? WriteType,
         IReadOnlySet<ODataVerb> ReadOnlyVerbs,
         IReadOnlySet<string> WriteExcludedProperties,
         string? ReadPolicy,

@@ -72,6 +72,34 @@ public sealed class IyuEdmModelBuilder
     }
 
     /// <summary>
+    /// Registers a set that is only read: <typeparamref name="TRead"/> has no write type behind it — a model with
+    /// no table of its own, such as a view joining or aggregating other sets.
+    /// </summary>
+    /// <param name="setName">The OData entity set name.</param>
+    /// <remarks>
+    /// <para>
+    /// The read type needs a key and nothing else (<see cref="IKeyed"/>): it does not inherit the audit
+    /// timestamps a written entity carries, so its shape is exactly what the view returns. Serve it with a
+    /// controller derived from <see cref="IyuODataReadOnlyController{TRead}"/>.
+    /// </para>
+    /// <para>
+    /// Everything about reading is as for a pair — query options, paging (<see cref="Page"/>), <c>$expand</c> into
+    /// and out of it, the entity's read policy. Every write verb is refused (<c>405</c>,
+    /// <see cref="ODataErrorCodes.ReadOnlySet"/>) and <c>$metadata</c> says so twice: the set carries the
+    /// Capabilities restrictions, and every property but the key is <c>Computed</c>. Unlike
+    /// <see cref="AddEntityPair{TRead,TWrite}"/> with all three verbs listed, the restriction cannot be lifted
+    /// later (<see cref="Restrict"/>): there is no write type for a write to reach.
+    /// </para>
+    /// </remarks>
+    public IyuEdmModelBuilder AddReadOnlySet<TRead>(string setName)
+        where TRead : class, IKeyed
+    {
+        Registry.RegisterReadOnly<TRead>(setName);
+        _modelBuilder.EntitySet<TRead>(setName);
+        return this;
+    }
+
+    /// <summary>
     /// Restricts an already-registered set's write verbs from a location that does not own the
     /// original <see cref="AddEntityPair{TRead,TWrite}"/> call site — e.g. a code-generated
     /// registration file the consumer does not hand-edit.
@@ -507,8 +535,8 @@ public sealed class IyuEdmModelBuilder
         }
     }
 
-    private static HashSet<string> DeclaredRowVersions(Type readType, Type writeType)
-        => readType.GetProperties().Concat(writeType.GetProperties())
+    private static HashSet<string> DeclaredRowVersions(Type readType, Type? writeType)
+        => readType.GetProperties().Concat(writeType?.GetProperties() ?? [])
             .Where(p => p.IsDefined(typeof(TimestampAttribute), inherit: true)
                         || p.IsDefined(typeof(ConcurrencyCheckAttribute), inherit: true))
             .Select(p => p.Name)

@@ -11,7 +11,7 @@ namespace Iyu.Core.Entities;
 /// <c>IyuDbContext</c> <c>SaveChanges</c> interceptor. Consumers should not set
 /// these fields manually; the interceptor is the single source of truth.
 /// </remarks>
-public abstract class IyuEntity
+public abstract class IyuEntity : IKeyed
 {
     /// <summary>The stable primary key. Generated entities default to <see cref="Guid"/>.</summary>
     public Guid Id { get; set; }

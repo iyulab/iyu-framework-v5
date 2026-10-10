@@ -881,6 +881,36 @@ options.ODataModel.Restrict("DemoDataProvenances", ODataVerb.Post, ODataVerb.Pat
 `AddEntityPair` time, since both read the registry's live state rather than a value captured
 at registration.
 
+### A set that is only read
+
+A pair restricted on every verb still needs a write type. A model with no table of its own — a view
+that joins or aggregates other sets — has none to give, and it does not have the audit timestamps a
+written entity carries either. Register it by its read type alone:
+
+```csharp
+public sealed class OrderSummary : IKeyed          // a key, and what the view returns
+{
+    public Guid Id { get; set; }
+    public string Customer { get; set; } = "";
+    public int Lines { get; set; }
+}
+
+options.ODataModel.AddReadOnlySet<OrderSummary>("OrderSummaries");
+
+public sealed class OrderSummariesController(AppDbContext db) : IyuODataReadOnlyController<OrderSummary>(db);
+```
+
+Map the type in your `DbContext` as you would any view (`ToView("order_summary")`, the key on `Id`).
+Reading it is the same as reading a pair: query options, paging (`Page`), `$expand`, and the entity's
+read policy (`options.Authorize<OrderSummary>(read: …)`). Writing is refused on every verb with the same
+`405` `ReadOnlySet` a restricted pair answers, and `$metadata` says so twice — the set carries the three
+Capabilities restrictions and every property but the key is `Computed`. The restriction cannot be lifted
+with `Restrict` later, and `ExcludeFromWrite` or `DeclareSharedKey` on such a set is refused at startup:
+there is no write type for any of them to mean something for.
+
+`IKeyed` is the whole contract — a stable `Guid Id`. `IyuEntity` is `IKeyed` plus the timestamps the
+runtime maintains on what it writes, so a read/write pair's types are unchanged.
+
 ### A set whose key is not its own
 
 Some types hold optional extra facts about *one* row of another type rather than a collection of

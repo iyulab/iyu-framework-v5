@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.MainServer`, `Iyu.Server.OData`
 
 ### Added
 
@@ -38,6 +38,14 @@ onward; earlier entries state the same consequence in prose where it applies.
   `[Searchable]` properties, one step into each searchable reference) and the references left out because the caller
   may not read their set. An export, a template download or a bulk action can now select «the rows the list shows»
   without a second search implementation. Registered by `AddIyuMainServer`. README «How far a read policy reaches».
+- **`Iyu.Server.OData`: a set that is only read — `AddReadOnlySet<TRead>` and `IyuODataReadOnlyController<TRead>`.**
+  A model with no table of its own (a view joining or aggregating other sets) is registered by its read type alone:
+  no write type stands behind it. The read type implements the new `Iyu.Core.Entities.IKeyed` — a `Guid Id` and
+  nothing else — so it does not inherit audit timestamps the view does not have. Reads behave as on any set (query
+  options, paging, `$expand`, the entity's read policy); POST, PATCH and DELETE answer `405` `ReadOnlySet`, the set
+  carries the Capabilities restrictions and every property but the key is `Computed` in `$metadata`. Until now such
+  a model needed a placeholder write type and a pair restricted on every verb. README «A set that is only read».
+- **`Iyu.Core`: `IKeyed`.** `IyuEntity` implements it; nothing changes for existing entities.
 
 ### Fixed
 

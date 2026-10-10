@@ -529,6 +529,58 @@ public class IyuEdmModelBuilderTests
         Assert.Equal(["CreatedAt", "UpdatedAt"], ComputedProperties(builder.GetEdmModel(), nameof(Stateful)));
     }
 
+    /// <summary>A model that is only read: a key and what a view projects.</summary>
+    public class ShelfSummary : IKeyed
+    {
+        public Guid Id { get; set; }
+        public string Label { get; set; } = "";
+    }
+
+    [Fact]
+    public void A_read_only_set_has_no_write_type_and_refuses_every_write_verb()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddReadOnlySet<ShelfSummary>("ShelfSummaries");
+
+        var model = builder.GetEdmModel();
+
+        var pair = builder.Registry.Find("ShelfSummaries");
+        Assert.NotNull(pair);
+        Assert.Null(pair!.WriteType);
+        Assert.Equal([ODataVerb.Delete, ODataVerb.Patch, ODataVerb.Post], pair.ReadOnlyVerbs.OrderBy(v => v.ToString()));
+        Assert.NotNull(model.EntityContainer.FindEntitySet("ShelfSummaries"));
+        Assert.Equal(["Label"], ComputedProperties(model, nameof(ShelfSummary)));
+    }
+
+    /// <summary>A pair listed read-only can be reopened; a set with no write type has nothing to reopen onto.</summary>
+    [Fact]
+    public void A_read_only_set_cannot_have_a_write_verb_opened_later()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddReadOnlySet<ShelfSummary>("ShelfSummaries");
+
+        var error = Assert.Throws<InvalidOperationException>(() => builder.Restrict("ShelfSummaries", ODataVerb.Delete));
+        Assert.Contains("ShelfSummaries", error.Message);
+
+        // Restating the full restriction changes nothing and is accepted.
+        builder.Restrict("ShelfSummaries", ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete);
+    }
+
+    [Fact]
+    public void Write_only_declarations_on_a_read_only_set_are_refused()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<CustomerExt, Customer>("Customers");
+        builder.AddReadOnlySet<ShelfSummary>("ShelfSummaries");
+
+        Assert.Throws<InvalidOperationException>(() => builder.DeclareSharedKey("ShelfSummaries", "Customers"));
+        Assert.Throws<InvalidOperationException>(() => builder.DeclareSharedKey("Customers", "ShelfSummaries"));
+
+        builder.ExcludeFromWrite<ShelfSummary>(x => x.Label);
+        var error = Assert.Throws<InvalidOperationException>(() => builder.GetEdmModel());
+        Assert.Contains("read-only", error.Message);
+    }
+
     /// <summary>The registry is what the generic controller actually consults at request time.</summary>
     [Fact]
     public void ExcludeFromWrite_records_the_property_name_on_the_registered_pair()

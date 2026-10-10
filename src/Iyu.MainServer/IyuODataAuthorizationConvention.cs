@@ -26,7 +26,7 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
 
         foreach (var action in controller.Actions)
         {
-            // Matches IyuODataController<TRead,TWrite>'s own action method names exactly — no
+            // Matches the generic controllers' own action method names exactly — no
             // [HttpGet]/[HttpPost] attributes to fall back on, same convention OData's own routing
             // already relies on (IyuODataController.cs).
             var policy = action.ActionMethod.Name switch
@@ -51,15 +51,15 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
 
     /// <summary>
     /// Walks <paramref name="controllerType"/>'s base-type chain to the closed
-    /// <c>IyuODataController&lt;TRead,TWrite&gt;</c> and returns its <c>TRead</c> argument, or
-    /// <see langword="null"/> for a controller that is not one (e.g. OData's own
-    /// <c>MetadataController</c>).
+    /// <c>IyuODataQueryController&lt;TRead&gt;</c> — the base of a read/write pair's controller and of a
+    /// read-only set's alike — and returns its <c>TRead</c> argument, or <see langword="null"/> for a
+    /// controller that is not one (e.g. OData's own <c>MetadataController</c>).
     /// </summary>
     private static Type? FindReadType(TypeInfo controllerType)
     {
         for (var t = controllerType.BaseType; t is not null; t = t.BaseType)
         {
-            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IyuODataController<,>))
+            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IyuODataQueryController<>))
                 return t.GetGenericArguments()[0];
         }
         return null;

@@ -40,48 +40,16 @@ namespace Iyu.Server.OData;
 /// </para>
 /// </remarks>
 [IyuBufferWriteBody]
-public abstract class IyuODataController<TRead, TWrite> : ODataController
+public abstract class IyuODataController<TRead, TWrite> : IyuODataQueryController<TRead>
     where TRead : IyuEntity
     where TWrite : IyuEntity, new()
 {
-    /// <summary>The EF Core context the controller reads and writes through.</summary>
-    protected IyuDbContext Context { get; }
-
-    /// <summary>DbSet backing the read (view) type.</summary>
-    protected DbSet<TRead> ReadSet => Context.Set<TRead>();
-
     /// <summary>DbSet backing the write (table) type.</summary>
     protected DbSet<TWrite> WriteSet => Context.Set<TWrite>();
 
-    protected IyuODataController(IyuDbContext context)
+    protected IyuODataController(IyuDbContext context) : base(context)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        Context = context;
     }
-
-    /// <summary>
-    /// GET — returns the full queryable set. OData query options
-    /// (<c>$filter</c>, <c>$orderby</c>, <c>$select</c>, <c>$expand</c>, paging)
-    /// are applied by <see cref="IyuEnableQueryAttribute"/>.
-    /// </summary>
-    [IyuEnableQuery]
-    public virtual IQueryable<TRead> Get() => ReadSet.AsNoTracking();
-
-    /// <summary>GET by key — returns a single entity, or 404 when no row has the key.</summary>
-    /// <remarks>
-    /// Returned as a <see cref="SingleResult{T}"/> over the query rather than a materialized
-    /// entity, so the query attribute composes <c>$expand</c> and <c>$select</c> into the
-    /// database query the same way it does for the collection <see cref="Get()"/>. A materialized
-    /// entity has no navigation loaded, and expanding it answers a collection as empty and a
-    /// reference as absent — a valid-looking response that is simply wrong. The 404 for a missing
-    /// key comes from <see cref="IyuEnableQueryAttribute"/>, which answers an empty single result that way.
-    /// </remarks>
-    // Declared first so that it runs last on the way out — after the query attribute has turned the
-    // SingleResult into the one entity the header is computed from.
-    [ETagActionFilter]
-    [IyuEnableQuery]
-    public virtual SingleResult<TRead> Get(Guid key)
-        => SingleResult.Create(ReadSet.AsNoTracking().Where(e => e.Id == key));
 
     /// <summary>
     /// POST — creates a new write entity. The request body is bound as
@@ -502,7 +470,10 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
                 $"Entity set '{pair.SetName}' is declared to share its key with '{principalSet}', "
                 + "which is not registered.");
 
-        var owner = await Context.FindAsync(principal.WriteType, [key], ct);
+        // DeclareSharedKey refuses a read-only principal, so the principal always has a table to look in.
+        var principalWriteType = principal.WriteType
+            ?? throw new InvalidOperationException($"Entity set '{principalSet}' is read-only and cannot own a shared key.");
+        var owner = await Context.FindAsync(principalWriteType, [key], ct);
         if (owner is not null) Context.Entry(owner).State = EntityState.Detached;
         if (owner is null)
             return Refusal(StatusCodes.Status409Conflict, ODataErrorCodes.SharedKeyPrincipalMissing,
@@ -516,14 +487,6 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
                 $"Entity set '{pair.SetName}' already has the row with key {key}: a set that "
                 + $"shares its key with '{principalSet}' holds at most one row per principal.");
     }
-
-    /// <summary>
-    /// A refusal in the OData error shape — <c>{"error":{"code","message"}}</c> — with a code from
-    /// <see cref="ODataErrorCodes"/>. Every refusal this controller makes goes through here or
-    /// <see cref="Invalid"/>, so a caller parses one shape and branches on one field.
-    /// </summary>
-    private static ObjectResult Refusal(int status, string code, string message)
-        => new(new ODataError { Code = code, Message = message }) { StatusCode = status };
 
     /// <summary>A <c>400</c> for a request that carried no body to bind.</summary>
     private static ObjectResult MissingBody()
