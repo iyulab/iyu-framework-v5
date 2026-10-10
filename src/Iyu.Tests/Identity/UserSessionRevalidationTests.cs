@@ -61,7 +61,10 @@ public class UserSessionRevalidationTests
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
 
-    private static async Task<Host> StartAsync(Action<IdentityTokenOptions>? configure = null)
+    /// <param name="configure">Identity options on top of the defaults here.</param>
+    /// <param name="cookie">The session cookie's own options, applied after the framework's.</param>
+    private static async Task<Host> StartAsync(Action<IdentityTokenOptions>? configure = null,
+        Action<CookieAuthenticationOptions>? cookie = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -75,6 +78,8 @@ public class UserSessionRevalidationTests
         var options = new IdentityTokenOptions { SigningKey = Key, SessionRevalidationInterval = Interval };
         configure?.Invoke(options);
         builder.Services.AddIyuIdentity(options, permissionCatalog: ["orders.read", "orders.write"]);
+        if (cookie is not null)
+            builder.Services.PostConfigure(CookieAuthenticationDefaults.AuthenticationScheme, cookie);
 
         var app = builder.Build();
         app.UseAuthentication();
@@ -208,6 +213,40 @@ public class UserSessionRevalidationTests
 
         Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
         Assert.Equal(0, host.Claims.Asked);
+    }
+
+    /// <summary>
+    /// Without sliding expiration a session ends when the sign-in said it would. Asking the source again re-issues
+    /// the cookie, and re-issuing must not move that end — a session kept alive by its own revalidation would never end.
+    /// </summary>
+    [Fact]
+    public async Task Without_sliding_expiration_a_re_issued_cookie_still_ends_when_the_sign_in_said()
+    {
+        await using var host = await StartAsync(cookie: o =>
+        {
+            o.SlidingExpiration = false;
+            o.ExpireTimeSpan = TimeSpan.FromHours(1);
+        });
+        host.Claims.Set("u1", "orders.read");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        var askedAtSignIn = host.Claims.Asked;
+
+        // Fifty minutes in, past the interval: the source is asked and the cookie re-issued.
+        host.Clock.Advance(TimeSpan.FromMinutes(50));
+        using (var renewed = await host.SendAsync(HttpMethod.Get, "/orders"))
+        {
+            Assert.Equal(HttpStatusCode.OK, renewed.StatusCode);
+            Assert.True(renewed.Headers.Contains("Set-Cookie"), "the revalidated cookie was not re-issued");
+        }
+        Assert.True(host.Claims.Asked > askedAtSignIn);
+
+        // Still inside the hour the sign-in gave it — and re-issued once more on the way.
+        host.Clock.Advance(TimeSpan.FromMinutes(9));
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+
+        // The hour is over: the re-issued cookies did not carry the session past it.
+        host.Clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.StatusAsync(HttpMethod.Get, "/orders"));
     }
 
     [Fact]

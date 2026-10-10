@@ -153,8 +153,9 @@ public sealed class UserSessionService
         MarkValidated(context.Properties, now);
         context.ReplacePrincipal(principal);
         context.ShouldRenew = true;
-        // Renewal re-issues the cookie from IssuedUtc; without sliding expiration that must not push the
-        // session's end further out than the sign-in set it.
+        // Renewal re-issues the cookie for the span ExpiresUtc − IssuedUtc counted from now. Without sliding
+        // expiration that must not push the session's end further out than the sign-in set it: with IssuedUtc at
+        // now, the span is the time left, and the end stays where it was.
         if (!context.Options.SlidingExpiration) context.Properties.IssuedUtc = now;
     }
 
