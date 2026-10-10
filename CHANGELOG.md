@@ -41,6 +41,16 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- 🔇 **`Iyu.Server.OData`: `$metadata` marks every property an update cannot store as `Org.OData.Core.V1.Computed`.**
+  Until now only a property named to `ExcludeFromWrite` carried the term. A property the read type has and the write
+  type does not — what a view derives: a lookup, a rollup, a computed column — was refused by `PATCH`
+  (`UnwritableProperty`) and yet read as an ordinary writable property in the metadata; so did `CreatedAt`, `UpdatedAt`
+  and a row version. The metadata and the update path now ask one rule, so a client that reads `$metadata` to decide
+  what to offer for editing sees exactly what an update would refuse. The key is not marked (a create may supply it).
+  Nothing about what a write stores or refuses changes — only the metadata document: every entity type gains the term
+  on `CreatedAt` and `UpdatedAt`, plus one per derived property and row version. A client that hid or disabled
+  `Computed` properties will now do so for these as well, which is the point; one that compared the document byte for
+  byte will see the difference.
 - **`Iyu.MainServer`: the `$search` reference allowance is decided by `IyuSearch`.** The `$expand` authorization filter
   asks `IyuSearch.AllowedNavigationsAsync` which searchable references the caller may search, so a list and an
   endpoint outside OData cannot disagree. No behaviour change.

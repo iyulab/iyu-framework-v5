@@ -241,7 +241,10 @@ public class IyuEdmModelBuilderTests
         builder.AddEntityPair<BankAccountExt, BankAccount>("BankAccounts");
 
         var model = builder.GetEdmModel();
-        Assert.Empty(model.VocabularyAnnotations);
+        // The model does carry annotations — the Core term on properties a write cannot store —
+        // so the claim is about the Capabilities vocabulary and the entity set, not the whole model.
+        Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Term.Namespace == "Org.OData.Capabilities.V1");
+        Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Target is IEdmEntitySet);
     }
 
     /// <summary>
@@ -466,6 +469,64 @@ public class IyuEdmModelBuilderTests
 
         var nameProperty = entityType.FindProperty(nameof(Stateful.Name));
         Assert.DoesNotContain(model.VocabularyAnnotations, a => a.Target == nameProperty);
+    }
+
+    public class Parcel : IyuEntity
+    {
+        public string Label { get; set; } = "";
+        public Guid CarrierId { get; set; }
+        [System.ComponentModel.DataAnnotations.Timestamp] public uint Version { get; set; }
+    }
+
+    /// <summary>The read side: the stored columns, two a view derives, and a reference to follow.</summary>
+    public class ParcelExt : IyuEntity
+    {
+        public string Label { get; set; } = "";
+        public Guid CarrierId { get; set; }
+        public string? CarrierName { get; set; }
+        public int ItemCount { get; set; }
+        [System.ComponentModel.DataAnnotations.Timestamp] public uint Version { get; set; }
+        public CustomerExt? Carrier { get; set; }
+    }
+
+    private static string[] ComputedProperties(IEdmModel model, string typeName)
+        => model.SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == typeName)
+            .Properties()
+            .Where(p => model.VocabularyAnnotations.Any(a =>
+                a.Target == p && a.Term.Namespace == "Org.OData.Core.V1" && a.Term.Name == "Computed"))
+            .Select(p => p.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+    /// <summary>
+    /// What a view derives has no column to store into, the server sets the timestamps and the
+    /// database sets the row's version — an update refuses all of them, so the metadata says so.
+    /// The stored columns, the key (a create may supply it) and the navigation carry nothing.
+    /// </summary>
+    [Fact]
+    public void Properties_a_write_cannot_store_are_marked_computed_without_being_declared()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<CustomerExt, Customer>("Customers");
+        builder.AddEntityPair<ParcelExt, Parcel>("Parcels");
+
+        var model = builder.GetEdmModel();
+
+        Assert.Equal(
+            ["CarrierName", "CreatedAt", "ItemCount", "UpdatedAt", "Version"],
+            ComputedProperties(model, nameof(ParcelExt)));
+        Assert.NotNull(model.SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == nameof(ParcelExt))
+            .FindProperty(nameof(ParcelExt.Carrier)));   // the navigation is in the model, and unmarked
+    }
+
+    /// <summary>A pair served from one type has nothing derived: only the server's timestamps are marked.</summary>
+    [Fact]
+    public void A_pair_whose_read_and_write_types_match_marks_only_the_timestamps()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Stateful, Stateful>("Statefuls");
+
+        Assert.Equal(["CreatedAt", "UpdatedAt"], ComputedProperties(builder.GetEdmModel(), nameof(Stateful)));
     }
 
     /// <summary>The registry is what the generic controller actually consults at request time.</summary>

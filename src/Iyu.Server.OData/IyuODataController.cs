@@ -178,10 +178,9 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>This is the single place that decides writability.</b> The same set is used
-    /// to answer the caller and to drive <see cref="CopySelectedProperties"/>, so the
-    /// two cannot disagree. A second predicate that mirrored the copy's skip rules
-    /// would drift the first time a fourth rule is added.
+    /// The decision itself is <see cref="WriteSurface"/>'s — the same one <c>$metadata</c>
+    /// advertises from — and the set it yields here both answers the caller and drives
+    /// <see cref="CopySelectedProperties"/>, so the three cannot disagree.
     /// </para>
     /// <para>
     /// A property the read type declares but the write type does not is the ordinary
@@ -193,49 +192,30 @@ public abstract class IyuODataController<TRead, TWrite> : ODataController
     private static (ISet<string> Writable, IReadOnlyDictionary<string, string> Unwritable) PartitionByWritability(
         ISet<string> changedNames, IReadOnlySet<string>? excludedFromWrite, IReadOnlySet<string> rowVersions)
     {
-        var targetProps = typeof(TWrite).GetProperties()
-            .Where(p => p.CanWrite && p.GetSetMethod(nonPublic: false) is not null)
-            .ToDictionary(p => p.Name, StringComparer.Ordinal);
-        var sourceProps = typeof(TRead).GetProperties()
-            .ToDictionary(p => p.Name, StringComparer.Ordinal);
-
         var writable = new HashSet<string>(StringComparer.Ordinal);
         var unwritable = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var name in changedNames)
         {
-            if (name is nameof(IyuEntity.Id) or nameof(IyuEntity.CreatedAt) or nameof(IyuEntity.UpdatedAt))
+            var reason = Surface.Classify(name, excludedFromWrite, rowVersions) switch
             {
-                unwritable[name] = "The property is managed by the server and cannot be updated.";
-                continue;
-            }
-            if (rowVersions.Contains(name))
-            {
-                unwritable[name] = "The property is the row's version, which the database sets. " +
-                                   "Name the version a write expects with If-Match instead.";
-                continue;
-            }
-            if (excludedFromWrite is not null && excludedFromWrite.Contains(name))
-            {
-                unwritable[name] = "The property is read-only: the model excludes it from writes.";
-                continue;
-            }
-            if (!sourceProps.TryGetValue(name, out var srcProp)
-                || !targetProps.TryGetValue(name, out var tgtProp))
-            {
-                unwritable[name] = "The property is read-only: it is derived and has no stored counterpart.";
-                continue;
-            }
-            if (!tgtProp.PropertyType.IsAssignableFrom(srcProp.PropertyType))
-            {
-                unwritable[name] = "The property cannot be stored: its type has no writable counterpart.";
-                continue;
-            }
-            writable.Add(name);
+                WriteSurface.Refusal.None => null,
+                WriteSurface.Refusal.ServerManaged => "The property is managed by the server and cannot be updated.",
+                WriteSurface.Refusal.RowVersion => "The property is the row's version, which the database sets. " +
+                                                   "Name the version a write expects with If-Match instead.",
+                WriteSurface.Refusal.Excluded => "The property is read-only: the model excludes it from writes.",
+                WriteSurface.Refusal.Derived => "The property is read-only: it is derived and has no stored counterpart.",
+                WriteSurface.Refusal.TypeMismatch => "The property cannot be stored: its type has no writable counterpart.",
+                var other => throw new InvalidOperationException($"Unhandled write refusal: {other}."),
+            };
+            if (reason is null) writable.Add(name);
+            else unwritable[name] = reason;
         }
 
         return (writable, unwritable);
     }
+
+    private static readonly WriteSurface Surface = new(typeof(TRead), typeof(TWrite));
 
     /// <summary>
     /// Builds the 400 body for an update that could not have stored anything, keyed by

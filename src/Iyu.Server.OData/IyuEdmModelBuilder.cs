@@ -354,7 +354,7 @@ public sealed class IyuEdmModelBuilder
         {
             ApplyCapabilityRestrictions(mutableModel);
             ApplyPropertyDescriptions(mutableModel);
-            ApplyWriteExclusionAnnotations(mutableModel);
+            ApplyComputedAnnotations(mutableModel);
         }
 
         return edmModel;
@@ -456,24 +456,48 @@ public sealed class IyuEdmModelBuilder
     }
 
     /// <summary>
-    /// Advertises every <see cref="ExcludeFromWrite{T}"/>-marked property as
-    /// <c>Org.OData.Core.V1.Computed</c> on <c>$metadata</c>, using the built-in
-    /// <see cref="CoreVocabularyModel.ComputedTerm"/> rather than a hand-declared
-    /// one — unlike <see cref="ApplyCapabilityRestrictions"/>'s Capabilities
-    /// terms, the pinned <c>Microsoft.OData.Edm</c> version already ships this one.
+    /// Advertises, on <c>$metadata</c>, every property a generic write cannot store as
+    /// <c>Org.OData.Core.V1.Computed</c> — the standard term for "the service supplies this
+    /// value; one sent by a client is not stored".
     /// </summary>
-    private void ApplyWriteExclusionAnnotations(EdmModel model)
+    /// <remarks>
+    /// <para>
+    /// The set is exactly what the write path refuses, asked of the same <see cref="WriteSurface"/>:
+    /// a property the write type has no stored counterpart for (what a view derives — a lookup, a
+    /// rollup, a computed column), one <see cref="ExcludeFromWrite{T}"/> marks, the timestamps the
+    /// server sets, and the row's version. A client that reads the metadata to decide what to offer
+    /// for editing then sees what an update would answer <c>UnwritableProperty</c> for.
+    /// </para>
+    /// <para>
+    /// The key is left alone: a create may supply it, and a key is immutable by definition, so
+    /// neither <c>Computed</c> nor a second term would tell a client anything new. Navigation
+    /// properties are not values a write stores and carry no term either.
+    /// </para>
+    /// <para>
+    /// The row's version is recognized here by its declaration on the type (<c>[Timestamp]</c> /
+    /// <c>[ConcurrencyCheck]</c>) — the same declaration that makes it the entity's ETag in this
+    /// model. The built-in <see cref="CoreVocabularyModel.ComputedTerm"/> is used rather than a
+    /// hand-declared one — unlike <see cref="ApplyCapabilityRestrictions"/>'s Capabilities terms,
+    /// the pinned <c>Microsoft.OData.Edm</c> version already ships it.
+    /// </para>
+    /// </remarks>
+    private void ApplyComputedAnnotations(EdmModel model)
     {
-        foreach (var pair in Registry.All.Where(p => p.WriteExcludedProperties.Count > 0))
+        foreach (var pair in Registry.All)
         {
             var entityType = model.SchemaElements.OfType<IEdmEntityType>()
                 .FirstOrDefault(t => t.Name == pair.ReadType.Name);
             if (entityType is null) continue;
 
-            foreach (var propertyName in pair.WriteExcludedProperties)
+            var surface = new WriteSurface(pair.ReadType, pair.WriteType);
+            var rowVersions = DeclaredRowVersions(pair.ReadType, pair.WriteType);
+            var keys = entityType.Key().Select(k => k.Name).ToHashSet(StringComparer.Ordinal);
+
+            foreach (var edmProperty in entityType.StructuralProperties())
             {
-                var edmProperty = entityType.FindProperty(propertyName);
-                if (edmProperty is null) continue;
+                if (keys.Contains(edmProperty.Name)) continue;
+                if (surface.Classify(edmProperty.Name, pair.WriteExcludedProperties, rowVersions) == WriteSurface.Refusal.None)
+                    continue;
 
                 var annotation = new EdmVocabularyAnnotation(
                     edmProperty, CoreVocabularyModel.ComputedTerm, new EdmBooleanConstant(true));
@@ -482,6 +506,13 @@ public sealed class IyuEdmModelBuilder
             }
         }
     }
+
+    private static HashSet<string> DeclaredRowVersions(Type readType, Type writeType)
+        => readType.GetProperties().Concat(writeType.GetProperties())
+            .Where(p => p.IsDefined(typeof(TimestampAttribute), inherit: true)
+                        || p.IsDefined(typeof(ConcurrencyCheckAttribute), inherit: true))
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Attaches a <c>{propertyName}: false</c> record annotation for <paramref name="term"/>.</summary>
     private static void Annotate(EdmModel model, IEdmEntitySet entitySet, EdmTerm term, string propertyName)

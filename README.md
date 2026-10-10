@@ -675,6 +675,13 @@ naming it is dropped on the same terms *unless the whole request is unwritable* 
 write-side `DbSet` — a dedicated endpoint reached through your own controller action, for
 instance — is unaffected; it never goes through the generic controller's copy step at all.
 
+**`$metadata` says what an update can store.** `Computed` is not only for properties you
+mark: every property a generic write cannot store carries it — one the read type has and the
+write type does not (what a view derives: a lookup, a rollup, a computed column), `CreatedAt`
+and `UpdatedAt`, and a row version (`[Timestamp]`). The term is decided by the same rule that
+answers `UnwritableProperty`, so a client reading the metadata to choose what to offer for
+editing sees exactly what an update would refuse. The key is not marked — a create may supply it.
+
 Same read-type rule as `Exclude<T>()`, for the same reason: request bodies bind to
 `TRead`, so name that side. Also order-independent and callable after the fact from a
 generated registration, exactly like `Exclude<T>()`.
