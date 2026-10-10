@@ -27,12 +27,28 @@ public class GraphQLUnexposedNavigationTests
         public string Name { get; set; } = "";
     }
 
+    /// <summary>A model that is only read (a key and nothing else required) — kept off the API.</summary>
+    public sealed class KeyedOffApi : IKeyed
+    {
+        public Guid Id { get; set; }
+        public string Secret { get; set; } = "";
+    }
+
+    /// <summary>A model that is only read, served as a read-only set.</summary>
+    public sealed class ReadOnlyTarget : IKeyed
+    {
+        public Guid Id { get; set; }
+        public string Label { get; set; } = "";
+    }
+
     public sealed class ExposedHolder : IyuEntity
     {
         public string Title { get; set; } = "";
         public KeptOffApi? Hidden { get; set; }
         public List<KeptOffApi> HiddenMany { get; set; } = [];
         public ExposedTarget? Target { get; set; }
+        public KeyedOffApi? KeyedHidden { get; set; }
+        public ReadOnlyTarget? Summary { get; set; }
     }
 
     public sealed class HolderContext(DbContextOptions<HolderContext> options) : IyuDbContext(options)
@@ -48,6 +64,7 @@ public class GraphQLUnexposedNavigationTests
         graphql.AddEntityPair<ExposedHolder, ExposedHolder>("holders", "holder");
         // Registered after the holder on purpose: exposure is decided once every pair is known.
         graphql.AddEntityPair<ExposedTarget, ExposedTarget>("targets", "target");
+        graphql.AddReadOnlySet<ReadOnlyTarget>("readOnlyTargets");
 
         var services = new ServiceCollection();
         services.AddDbContext<HolderContext>(o => o.UseInMemoryDatabase(nameof(GraphQLUnexposedNavigationTests)));
@@ -69,6 +86,20 @@ public class GraphQLUnexposedNavigationTests
         Assert.DoesNotContain("\"hiddenMany\"", fields, StringComparison.Ordinal);
 
         var type = (await executor.ExecuteAsync("{ __type(name: \"KeptOffApi\") { name } }")).ToJson();
+        Assert.Contains("\"__type\": null", type, StringComparison.Ordinal);
+    }
+
+    /// <summary>A keyed model that is not an entity — what a read-only set serves — is held to the same boundary.</summary>
+    [Fact]
+    public async Task A_navigation_to_an_unexposed_keyed_model_is_dropped_and_one_to_a_read_only_set_stays()
+    {
+        var executor = await BuildAsync();
+
+        var fields = (await executor.ExecuteAsync("{ __type(name: \"ExposedHolder\") { fields { name } } }")).ToJson();
+        Assert.DoesNotContain("\"keyedHidden\"", fields, StringComparison.Ordinal);
+        Assert.Contains("\"summary\"", fields, StringComparison.Ordinal);
+
+        var type = (await executor.ExecuteAsync("{ __type(name: \"KeyedOffApi\") { name } }")).ToJson();
         Assert.Contains("\"__type\": null", type, StringComparison.Ordinal);
     }
 

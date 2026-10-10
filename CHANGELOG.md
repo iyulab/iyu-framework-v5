@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.MainServer`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
 
 ### Added
 
@@ -45,6 +45,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   options, paging, `$expand`, the entity's read policy); POST, PATCH and DELETE answer `405` `ReadOnlySet`, the set
   carries the Capabilities restrictions and every property but the key is `Computed` in `$metadata`. Until now such
   a model needed a placeholder write type and a pair restricted on every verb. README «A set that is only read».
+- **`Iyu.Server.GraphQL`: `AddReadOnlySet<TRead>(queryName)` and `IsReadOnly(queryName)`** — the same model on the
+  GraphQL surface (`options.GraphQL`): a query field read like a pair's (key-ordered cursor connection, projection,
+  `Page`, the entity's read policy on the field and the type), no mutation prefix. A navigation to a keyed model no
+  field serves is now kept out of the schema like one to an unserved entity — before, only `IyuEntity` targets were.
 - **`Iyu.Core`: `IKeyed`.** `IyuEntity` implements it; nothing changes for existing entities.
 - **`Iyu.MainServer`: sign-in through external providers — `AddIyuExternalSignIn`, `MapIyuExternalSignIn` and
   `IExternalLoginResolver`.** The framework now holds what a provider (OpenID Connect, OAuth) said about a person in a

@@ -972,6 +972,12 @@ there is no write type for any of them to mean something for.
 `IKeyed` is the whole contract — a stable `Guid Id`. `IyuEntity` is `IKeyed` plus the timestamps the
 runtime maintains on what it writes, so a read/write pair's types are unchanged.
 
+On the GraphQL surface (`Iyu.MainServer.GraphQL`) the same model is
+`options.GraphQL.AddReadOnlySet<OrderSummary>("orderSummaries")`: a query field like a pair's — a cursor
+connection in key order, the selection projected, `Page` bounds, the entity's read policy — with no
+mutation prefix, and `IsReadOnly("orderSummaries")` answers `true`. A navigation from another type to a
+keyed model that no field serves is left out of the schema, as one to an unserved entity is.
+
 ### A set whose key is not its own
 
 Some types hold optional extra facts about *one* row of another type rather than a collection of

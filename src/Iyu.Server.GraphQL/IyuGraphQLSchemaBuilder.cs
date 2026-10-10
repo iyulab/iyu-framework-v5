@@ -22,7 +22,7 @@ namespace Iyu.Server.GraphQL;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Call <see cref="AddEntityPair{TRead,TWrite}"/> zero-or-more times, then
+/// Call <see cref="AddEntityPair{TRead,TWrite}"/> and <see cref="AddReadOnlySet{TRead}"/> zero-or-more times, then
 /// call <see cref="ApplyTo(IRequestExecutorBuilder)"/> exactly once during
 /// service configuration. <c>ApplyTo</c> invokes <c>AddQueryType</c>, so the
 /// caller must not add a Query type separately.
@@ -32,7 +32,7 @@ namespace Iyu.Server.GraphQL;
 /// application-specific (input shapes, authorization) and will be emitted by
 /// the mdd-booster API generator in a later plan. <c>mutationPrefix</c> is
 /// recorded for that future use. When that generator lands, it must consult
-/// <c>IyuEntityPairRegistry.EntityPair.ReadOnlyVerbs</c> (Iyu.Server.OData) so a
+/// <see cref="IsReadOnly"/> and <c>IyuEntityPairRegistry.EntityPair.ReadOnlyVerbs</c> (Iyu.Server.OData) so a
 /// set the OData surface refuses POST/PATCH/DELETE for does not grow a GraphQL
 /// mutation that bypasses the same restriction — and it should let the same
 /// <c>authorizePolicy</c> a pair registered for reads cover its mutations too, so a write
@@ -103,7 +103,7 @@ public sealed class IyuGraphQLSchemaBuilder
                 $"Cannot set paging for GraphQL query field '{queryName}': ApplyTo has already run.");
         if (!_queryNames.Contains(queryName))
             throw new InvalidOperationException(
-                $"Cannot set paging for GraphQL query field '{queryName}': it was never registered via AddEntityPair.");
+                $"Cannot set paging for GraphQL query field '{queryName}': it was never registered via AddEntityPair or AddReadOnlySet.");
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPageSize);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(defaultPageSize);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(defaultPageSize, maxPageSize);
@@ -130,6 +130,43 @@ public sealed class IyuGraphQLSchemaBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationPrefix);
+        AddQueryField<TRead>(queryName);
+        _mutationPrefixes[queryName] = mutationPrefix;
+        return this;
+    }
+
+    /// <summary>
+    /// Registers a query field named <paramref name="queryName"/> over a model that is only read — a read type with
+    /// no write type behind it, such as a view joining or aggregating other tables. The GraphQL counterpart of
+    /// <c>IyuEdmModelBuilder.AddReadOnlySet</c> (Iyu.Server.OData).
+    /// </summary>
+    /// <param name="queryName">The GraphQL query field name.</param>
+    /// <remarks>
+    /// The field is read like a pair's — a cursor connection ordered by the key, the selection projected, the page
+    /// bounds of <see cref="Page"/> and the entity's read policy (<c>IyuMainServerOptions.Authorize&lt;TRead&gt;</c>)
+    /// on the field and on the type. It has no mutation prefix, and <see cref="IsReadOnly"/> answers <c>true</c> for
+    /// it: whatever later grows mutations on this schema must not grow one here.
+    /// </remarks>
+    public IyuGraphQLSchemaBuilder AddReadOnlySet<TRead>(string queryName)
+        where TRead : class, IKeyed
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queryName);
+        AddQueryField<TRead>(queryName);
+        _readOnly.Add(queryName);
+        return this;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="queryName"/> was registered as a read-only set (<see cref="AddReadOnlySet{TRead}"/>) —
+    /// <c>false</c> for a pair and for an unregistered name.
+    /// </summary>
+    public bool IsReadOnly(string queryName) => queryName is not null && _readOnly.Contains(queryName);
+
+    private readonly HashSet<string> _readOnly = new(StringComparer.Ordinal);
+
+    /// <summary>The query field over <typeparamref name="TRead"/> — what a pair and a read-only set have in common.</summary>
+    private void AddQueryField<TRead>(string queryName) where TRead : class
+    {
         if (!_queryNames.Add(queryName))
             throw new InvalidOperationException($"GraphQL query field '{queryName}' is already registered.");
         // Two query fields over one read type would be two doors to the same data, and each door
@@ -144,7 +181,6 @@ public sealed class IyuGraphQLSchemaBuilder
                 + $"'{existingQueryName}'. Exposing it again as '{queryName}' would give the same "
                 + "data two query fields with independent authorization, so the less restricted one "
                 + "would decide what the other protects. Expose it once and restrict that field.");
-        _mutationPrefixes[queryName] = mutationPrefix;
         _exposedTypes[typeof(TRead)] = queryName;
         _authorizePolicies[queryName] = null;
 
@@ -198,20 +234,22 @@ public sealed class IyuGraphQLSchemaBuilder
         }));
 
         ApplyPropertyDescriptions<TRead>();
-        return this;
     }
 
-    /// <summary>The entity a property navigates to — itself, or a collection's element — or null.</summary>
+    /// <summary>
+    /// The model a property navigates to — itself, or a collection's element — or null. Any keyed model counts: a
+    /// read-only set's type is as much a served model as an entity's.
+    /// </summary>
     private static Type? EntityTypeOf(Type type)
     {
-        if (type.IsAssignableTo(typeof(IyuEntity))) return type;
+        if (type.IsAssignableTo(typeof(IKeyed))) return type;
         if (type == typeof(string)) return null;
         var element = type.IsArray
             ? type.GetElementType()
             : type.GetInterfaces().Append(type)
                 .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
                 ?.GetGenericArguments()[0];
-        return element is not null && element.IsAssignableTo(typeof(IyuEntity)) ? element : null;
+        return element is not null && element.IsAssignableTo(typeof(IKeyed)) ? element : null;
     }
 
     /// <summary>
@@ -249,7 +287,7 @@ public sealed class IyuGraphQLSchemaBuilder
                 + "Call Restrict before ApplyTo — it wires the authorization handler into DI synchronously.");
         if (!_queryNames.Contains(queryName))
             throw new InvalidOperationException(
-                $"Cannot restrict GraphQL query field '{queryName}': it was never registered via AddEntityPair.");
+                $"Cannot restrict GraphQL query field '{queryName}': it was never registered via AddEntityPair or AddReadOnlySet.");
         _authorizePolicies[queryName] = authorizePolicy;
         _usesAuthorization = true;
         return this;
