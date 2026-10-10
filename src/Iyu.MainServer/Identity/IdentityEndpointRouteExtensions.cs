@@ -42,5 +42,5 @@ public static class IdentityEndpointRouteExtensions
     }
 
     private static bool TryOwnerId(HttpContext http, out Guid id) =>
-        Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out id);
+        Guid.TryParse(IyuIdentityClaims.FindSubject(http.User), out id);
 }

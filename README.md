@@ -95,11 +95,41 @@ Resulting endpoints:
 per-permission authorization policies built from a `permissionCatalog`, and `IIdentityStore` as
 the read-side seam a consumer implements against its own user store. `MapIyuIdentity` maps only
 the service-client surface (`/api/auth/token` plus `/api/service-clients/*`) — **there is no
-built-in human sign-in endpoint, local or federated.** That is deliberate: authenticating a
-person and turning the result into a signed-in `ClaimsPrincipal` is left to the consuming app,
-the same way the generic OData controller leaves business validation to the consumer. The
-framework's job stops at making the cookie scheme, the policies, and `IIdentityStore` available
-to build on.
+built-in human sign-in endpoint, local or federated.** That is deliberate: how a person is
+authenticated — the credential check, the route, what the response says — is the consuming app's,
+the same way the generic OData controller leaves business validation to the consumer.
+
+**What the framework does own is the step after: opening the session.** Once the app knows which
+account it is, it names that account's subject and the framework assembles the session —
+`UserSessionService.SignInAsync(http, subject)` for the session cookie,
+`UserTokenService.IssueAsync(subject)` for an access token. Both ask one port, which every host
+registers:
+
+```csharp
+builder.Services.AddScoped<IUserClaimsSource, AppUserClaimsSource>();
+
+public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
+{
+    // What this person may do here, or null to refuse them (no account, deactivated).
+    public async Task<IReadOnlyCollection<Claim>?> GetClaimsAsync(string subject, CancellationToken ct)
+    {
+        var user = await db.Users.FindAsync([Guid.Parse(subject)], ct);
+        if (user is null || !user.IsActive) return null;
+        return [.. (await PermissionCodesAsync(user, ct)).Select(code => IyuIdentityClaims.Permission(code))];
+    }
+}
+```
+
+- **The permission claims are not assembled by hand.** A sign-in endpoint that builds its own
+  `ClaimsPrincipal` has to remember one claim per granted permission, under the claim type the policies
+  read; leave them out and service clients work while every person gets 403. The source is asked
+  instead, for the cookie and the token alike, so the two cannot describe the same person differently.
+- **The identifier is the framework's to write** — from the subject, as `ClaimTypes.NameIdentifier` in
+  the cookie and `sub` in the token (which the bearer handler presents as `ClaimTypes.NameIdentifier`
+  too). `IyuIdentityClaims.FindSubject(user)` reads it on either. A source need not answer it; one that
+  answers an identifier naming someone else is an error, not a sign-in.
+- **A host with no `IUserClaimsSource` is refused at startup.** An application that signs no person in
+  registers one that answers `null`.
 
 **A cookie lasts as long as the key ring that sealed it.** Cookie sessions are protected by ASP.NET Core
 Data Protection, and where its keys live is the application's choice — the framework does not pick a store.
@@ -118,22 +148,22 @@ A deployment that accepts sessions ending with the container sets
 `IdentityTokenOptions.AllowContainerLocalKeyRing`. Outside a container the default store (user profile or
 registry) outlives the process, so nothing is refused there.
 
-Two recipes for that composition — same seam, same shape, only the credential check differs:
+Two recipes for a sign-in endpoint — same shape, only the way the account is established differs:
 
 **Local username/password:**
 
 ```csharp
-app.MapPost("/api/auth/login", async (LoginRequest req, IIdentityStore store, HttpContext http, CancellationToken ct) =>
+app.MapPost("/api/auth/login", async (LoginRequest req, IIdentityStore store, UserSessionService sessions,
+    HttpContext http, CancellationToken ct) =>
 {
     var user = await store.FindUserByUsernameAsync(req.Username, ct);
     if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
 
-    var principal = new ClaimsPrincipal(new ClaimsIdentity(
-        [new(ClaimTypes.NameIdentifier, user.Id.ToString())], CookieAuthenticationDefaults.AuthenticationScheme));
-    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
-    return Results.Ok();
+    return await sessions.SignInAsync(http, user.Id.ToString(), ct: ct) ? Results.Ok() : Results.Unauthorized();
 }).AllowAnonymous();
 ```
+
+Sign-out is the cookie scheme's own: `await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme)`.
 
 **External OIDC / AD federation** (a customer-hosted IdP — common in on-premises deployments
 where each site brings its own directory):
@@ -150,7 +180,8 @@ builder.Services.AddAuthentication()
 // Start: app.MapGet("/api/auth/oidc", () => Results.Challenge(
 //     new AuthenticationProperties { RedirectUri = "/api/auth/oidc/complete" }, ["oidc"])).AllowAnonymous();
 
-app.MapGet("/api/auth/oidc/complete", async (HttpContext http, IIdentityStore store, CancellationToken ct) =>
+app.MapGet("/api/auth/oidc/complete", async (HttpContext http, IIdentityStore store, UserSessionService sessions,
+    CancellationToken ct) =>
 {
     var external = await http.AuthenticateAsync("external");
     if (!external.Succeeded) return Results.Unauthorized();
@@ -160,9 +191,8 @@ app.MapGet("/api/auth/oidc/complete", async (HttpContext http, IIdentityStore st
     if (user is null) return Results.Unauthorized();
 
     // The session is built from the local account — its id, and the permissions *this application* grants it.
-    var principal = new ClaimsPrincipal(new ClaimsIdentity(
-        [new(ClaimTypes.NameIdentifier, user.Id.ToString())], CookieAuthenticationDefaults.AuthenticationScheme));
-    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+    // Nothing the provider said is carried into it.
+    if (!await sessions.SignInAsync(http, user.Id.ToString(), ct: ct)) return Results.Unauthorized();
     await http.SignOutAsync("external");
     return Results.Redirect("/");
 }).AllowAnonymous();   // there is no session yet when this runs
@@ -201,7 +231,10 @@ app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore st
 }).AllowAnonymous();
 ```
 
-`IssueUserToken` does not authenticate — it only signs the claims it is handed, using the same
+`IssueUserToken` is the signing primitive, not a session: unlike the two services above it asks no
+`IUserClaimsSource` and writes no identifier — the token carries exactly the claims it is handed, and
+assembling them (the permission claims included) is the caller's.
+It does not authenticate either — it only signs, using the same
 `IdentityTokenOptions` (`SigningKey`/`Issuer`/`Audience`) the cookie/OIDC recipes above never touch.
 `lifetimeOverride` is there because a client without a refresh flow (a mobile app queuing work
 offline) typically needs a longer-lived token than the short default tuned for service clients —
@@ -209,12 +242,11 @@ pass nothing to keep `IdentityTokenOptions.Lifetime`. A long-lived access token 
 back, though: prefer the refresh flow below for a public client.
 
 **Refresh tokens (short access, rotating refresh — RFC 9700 §4.14, RFC 8252):** turn them on, register
-the two ports, and sign the person in through `UserTokenService` instead:
+the store, and sign the person in through `UserTokenService` instead:
 
 ```csharp
-builder.Services.AddIyuRefreshTokens();                                        // without it, neither port is needed
+builder.Services.AddIyuRefreshTokens();                                        // without it, no store is needed
 builder.Services.AddScoped<IRefreshTokenStore, EfRefreshTokenStore>();        // your table of RefreshTokenRecord
-builder.Services.AddScoped<IUserTokenClaimsSource, AppUserClaimsSource>();    // claims for a subject, or null to refuse
 
 app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, UserTokenService users, CancellationToken ct) =>
 {
@@ -243,7 +275,7 @@ next access token and the refresh token that replaces the one it sent. What the 
   a second presentation revokes the sign-in as before. The price is that for those seconds a copy of
   the old token works too — set it to the time a retry takes (a few seconds), for clients on networks
   that drop responses.
-- **Every refresh asks `IUserTokenClaimsSource` again.** A deactivated person (the source answers
+- **Every refresh asks `IUserClaimsSource` again.** A deactivated person (the source answers
   `null`) cannot refresh, and a narrowed permission set reaches the next access token — within one
   access-token lifetime. Set `IdentityTokenOptions.UserAccessTokenLifetime` (e.g. 15 minutes) to keep a
   person's access token short without shortening service-client tokens; unset, it is `Lifetime`.
@@ -274,7 +306,7 @@ by the seams above, not by more types in this package:
   `IyuDbContext` (`HasQueryFilter(e => e.TenantId == currentTenant)`) — every read surface, OData and
   GraphQL alike, queries through it — and a write rule that stamps or checks the column on the generic
   write path (see «Rules on the generic write path»). Which claim names the tenant is your token's
-  content (`IUserTokenClaimsSource`).
+  content (`IUserClaimsSource`).
 - **A device** is already a sign-in: each refresh token belongs to one, `RevokeAsync` ends it, and
   `RevokeAllAsync` ends every one. A list of trusted devices, push endpoints and the like is a model of
   your own, keyed by the person.

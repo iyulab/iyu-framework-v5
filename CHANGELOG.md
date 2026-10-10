@@ -47,6 +47,29 @@ onward; earlier entries state the same consequence in prose where it applies.
   a model needed a placeholder write type and a pair restricted on every verb. README «A set that is only read».
 - **`Iyu.Core`: `IKeyed`.** `IyuEntity` implements it; nothing changes for existing entities.
 
+### Changed — identity
+
+- 🔴 **`Iyu.MainServer`: a person's session is assembled by the framework, from one claims source.** Until now the
+  cookie session was whatever `ClaimsPrincipal` the application's sign-in endpoint built by hand, while an access token
+  from `UserTokenService` was assembled from a port — so the two could describe one person differently, and a cookie
+  principal missing the permission claims gave every person 403 while service clients worked.
+  - **`IUserTokenClaimsSource` is renamed `IUserClaimsSource`** (same method) — it is no longer a refresh-token port.
+    Rename the implementation's interface and its registration.
+  - **Every host registers it.** `AddIyuIdentity` needs it whether or not refresh tokens are on; a host without one is
+    refused at startup, with the registration to add in the message. An application that signs no person in registers
+    one that answers `null`.
+  - **New `UserSessionService.SignInAsync(http, subject)`** opens the session cookie with what the source answers, and
+    returns `false` — signing nobody in — when it answers `null`. Replace a hand-built principal +
+    `HttpContext.SignInAsync(...)` with this call; the permission claims the endpoint used to add come from the source.
+  - 🔇 **The identifier is written by the framework, from the subject**: `ClaimTypes.NameIdentifier` in the cookie, `sub`
+    in the access token `UserTokenService` issues. A token whose source answered no identifier now carries `sub`; a
+    source that answers the same identifier is unaffected (it is written once). 🔇 A source that answers an identifier
+    naming someone other than the subject asked about now fails the sign-in with an `InvalidOperationException` instead
+    of issuing that token.
+  - **New `IyuIdentityClaims.FindSubject(principal)`** reads the identifier on either form of session.
+  - `IdentityTokenService.IssueUserToken` is unchanged: it signs exactly the claims it is handed and asks no source.
+  - README `## Identity` — «What the framework does own is the step after», and both sign-in recipes.
+
 ### Fixed
 
 - **`Iyu.MainServer`: a host where an external sign-in handler would sign into the session cookie is refused at

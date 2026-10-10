@@ -21,23 +21,23 @@ public class TokenEndpointRefreshGrantTests
 {
     private const string Key = "0123456789abcdef0123456789abcdef";
 
-    private sealed record Host(WebApplication App, HttpClient Http, FakeUserTokenClaimsSource Claims) : IAsyncDisposable
+    private sealed record Host(WebApplication App, HttpClient Http, FakeUserClaimsSource Claims) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
 
-    private static Task<Host> StartAsync(bool refreshTokens) => StartAsync(refreshTokens, refreshTokens, refreshTokens);
+    private static Task<Host> StartAsync(bool refreshTokens) => StartAsync(refreshTokens, refreshTokens);
 
-    private static async Task<Host> StartAsync(bool turnedOn, bool tokenStore, bool claimsSource)
+    private static async Task<Host> StartAsync(bool turnedOn, bool tokenStore, bool claimsSource = true)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         var store = new FakeIdentityStore();
         builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
-        var claims = new FakeUserTokenClaimsSource();
+        var claims = new FakeUserClaimsSource();
         if (tokenStore) builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
-        if (claimsSource) builder.Services.AddSingleton<IUserTokenClaimsSource>(claims);
+        if (claimsSource) builder.Services.AddSingleton<IUserClaimsSource>(claims);
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: ["orders.read"]);
         if (turnedOn) builder.Services.AddIyuRefreshTokens();
 
@@ -97,25 +97,39 @@ public class TokenEndpointRefreshGrantTests
     }
 
     /// <summary>
-    /// Turned on with a port missing is a configuration mistake, not "refresh tokens off": answering
+    /// Turned on with the store missing is a configuration mistake, not "refresh tokens off": answering
     /// <c>unsupported_grant_type</c> would hide which registration is missing.
     /// </summary>
-    [Theory]
-    [InlineData(true, false, nameof(IUserTokenClaimsSource))]
-    [InlineData(false, true, nameof(IRefreshTokenStore))]
-    public async Task Turning_on_with_one_port_of_two_names_the_missing_one(bool tokenStore, bool claimsSource, string missing)
+    [Fact]
+    public async Task Turning_on_without_the_store_names_it()
     {
-        await using var host = await StartAsync(turnedOn: true, tokenStore, claimsSource);
+        await using var host = await StartAsync(turnedOn: true, tokenStore: false);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => PostTokenAsync(host.Http, Refresh("anything")));
 
-        Assert.Contains(missing, error.Message);
+        Assert.Contains(nameof(IRefreshTokenStore), error.Message);
+    }
+
+    /// <summary>
+    /// The claims source is not a refresh-token port: every session a person has is assembled from it, so a
+    /// host without one does not start — in any environment, with or without service-provider validation.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_host_without_a_claims_source_does_not_start(bool refreshTokens)
+    {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => StartAsync(turnedOn: refreshTokens, tokenStore: refreshTokens, claimsSource: false));
+
+        Assert.Contains(nameof(IUserClaimsSource), error.Message);
+        Assert.Contains("AddScoped", error.Message);
     }
 
     [Fact]
-    public async Task A_missing_port_does_not_disturb_client_credentials()
+    public async Task A_missing_store_does_not_disturb_client_credentials()
     {
-        await using var host = await StartAsync(turnedOn: true, tokenStore: true, claimsSource: false);
+        await using var host = await StartAsync(turnedOn: true, tokenStore: false);
 
         var (res, body) = await PostTokenAsync(host.Http,
             new FormUrlEncodedContent([new("grant_type", "client_credentials"), new("client_id", "x"), new("client_secret", "y")]));

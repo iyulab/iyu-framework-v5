@@ -28,6 +28,7 @@ public class IdentityRouteMapTests
         builder.Services.AddLogging();
         builder.Services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
         builder.Services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
+        builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", Issuer = "iyu", Audience = "iyu-api" },
             permissionCatalog: ["orders.read"]);

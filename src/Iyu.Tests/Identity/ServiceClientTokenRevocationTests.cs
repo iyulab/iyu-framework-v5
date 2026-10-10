@@ -69,6 +69,7 @@ public class ServiceClientTokenRevocationTests
         builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
         builder.Services.AddSingleton<TimeProvider>(clock);
+        builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         var options = new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" };
         configure?.Invoke(options);
         builder.Services.AddIyuIdentity(options, permissionCatalog: [Permission]);

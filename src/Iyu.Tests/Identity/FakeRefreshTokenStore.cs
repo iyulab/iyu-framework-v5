@@ -68,7 +68,7 @@ public sealed class FakeRefreshTokenStore : IRefreshTokenStore
 }
 
 /// <summary>A claims source whose answers a test changes between calls — deactivate, narrow permissions.</summary>
-public sealed class FakeUserTokenClaimsSource : IUserTokenClaimsSource
+public sealed class FakeUserClaimsSource : IUserClaimsSource
 {
     private readonly Dictionary<string, string[]?> _permissions = new();
 

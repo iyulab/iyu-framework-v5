@@ -8,7 +8,7 @@ namespace Iyu.MainServer.Identity;
 /// Every token rotated from the same sign-in shares it. Presenting a token that was already used
 /// revokes the whole family: the server cannot tell which of the two holders is the thief.
 /// </param>
-/// <param name="Subject">Who the token was issued to — the value <see cref="IUserTokenClaimsSource"/> is asked about.</param>
+/// <param name="Subject">Who the token was issued to — the value <see cref="IUserClaimsSource"/> is asked about.</param>
 /// <param name="TokenHash">The token's hash (<see cref="UserTokenService.HashRefreshToken"/>), the lookup key.</param>
 /// <param name="IssuedAt">When it was issued.</param>
 /// <param name="ExpiresAt">When it stops being accepted.</param>
@@ -32,7 +32,7 @@ public sealed record RefreshTokenRecord(
 
 /// <summary>
 /// Where refresh tokens are kept. The concrete implementation lives in the consuming app, like
-/// <see cref="IServiceClientStore"/>. Required, with <see cref="IUserTokenClaimsSource"/>, once the app turns
+/// <see cref="IServiceClientStore"/>. Required once the app turns
 /// refresh tokens on (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>).
 /// </summary>
 /// <remarks>
@@ -71,18 +71,4 @@ public interface IRefreshTokenStore
 
     /// <summary>Revokes every not-yet-revoked token issued to the subject — sign-out everywhere.</summary>
     Task RevokeSubjectAsync(string subject, DateTimeOffset revokedAt, CancellationToken ct);
-}
-
-/// <summary>
-/// Answers, for a subject, the claims a new access token should carry — or that it should get none.
-/// Implemented by the consuming app; asked at sign-in and again at every refresh.
-/// </summary>
-/// <remarks>
-/// Asking again at refresh is the point: a user deactivated, or whose permissions shrank, reaches
-/// their tokens at the next refresh rather than never. Answer <c>null</c> to refuse — the refresh
-/// fails and the token's family is revoked.
-/// </remarks>
-public interface IUserTokenClaimsSource
-{
-    Task<IReadOnlyCollection<System.Security.Claims.Claim>?> GetClaimsAsync(string subject, CancellationToken ct);
 }

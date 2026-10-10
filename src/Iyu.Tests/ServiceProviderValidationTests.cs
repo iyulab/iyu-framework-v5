@@ -42,16 +42,17 @@ public class ServiceProviderValidationTests
         using var app = builder.Build();
     }
 
-    private static void IdentityWithItsRequiredStores(WebApplicationBuilder builder)
+    private static void IdentityWithItsRequiredStores(WebApplicationBuilder builder, bool claimsSource = true)
     {
         var store = new FakeIdentityStore();
         builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
+        if (claimsSource) builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: ["orders.read"]);
     }
 
     [Fact]
-    public void Identity_without_refresh_tokens_needs_neither_refresh_port()
+    public void Identity_without_refresh_tokens_needs_no_refresh_token_store()
     {
         var builder = DevelopmentBuilder();
         IdentityWithItsRequiredStores(builder);
@@ -66,23 +67,36 @@ public class ServiceProviderValidationTests
         IdentityWithItsRequiredStores(builder);
         builder.Services.AddIyuRefreshTokens();
         builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
-        builder.Services.AddSingleton<IUserTokenClaimsSource>(new FakeUserTokenClaimsSource());
 
         BuildsAndDisposes(builder);
     }
 
-    /// <summary>The opposite case: turning refresh tokens on is what makes the ports required.</summary>
+    /// <summary>The opposite case: turning refresh tokens on is what makes the store required.</summary>
     [Fact]
-    public void Refresh_tokens_turned_on_without_a_port_is_refused_at_startup_naming_it()
+    public void Refresh_tokens_turned_on_without_a_store_is_refused_at_startup_naming_it()
     {
         var builder = DevelopmentBuilder();
         IdentityWithItsRequiredStores(builder);
         builder.Services.AddIyuRefreshTokens();
-        builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
 
         var error = Assert.Throws<AggregateException>(() => BuildsAndDisposes(builder));
 
-        Assert.Contains(nameof(IUserTokenClaimsSource), error.Message);
+        Assert.Contains(nameof(IRefreshTokenStore), error.Message);
+    }
+
+    /// <summary>
+    /// The claims source is required by identity itself: a person's session is assembled from it, with
+    /// or without refresh tokens.
+    /// </summary>
+    [Fact]
+    public void Identity_without_a_claims_source_is_refused_at_startup_naming_it()
+    {
+        var builder = DevelopmentBuilder();
+        IdentityWithItsRequiredStores(builder, claimsSource: false);
+
+        var error = Assert.Throws<AggregateException>(() => BuildsAndDisposes(builder));
+
+        Assert.Contains(nameof(IUserClaimsSource), error.Message);
     }
 
     [Fact]

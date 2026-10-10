@@ -35,6 +35,7 @@ public class TokenEndpointRfc6749Tests : IAsyncLifetime
 
         builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
+        builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" },
             permissionCatalog: ["orders.read", "orders.write"]);
 

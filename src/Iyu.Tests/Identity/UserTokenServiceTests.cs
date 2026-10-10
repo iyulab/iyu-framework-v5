@@ -13,7 +13,7 @@ public class UserTokenServiceTests
 {
     private readonly FakeTimeProvider _clock = new(DateTimeOffset.Parse("2026-09-28T00:00:00Z"));
     private readonly FakeRefreshTokenStore _store = new();
-    private readonly FakeUserTokenClaimsSource _claims = new();
+    private readonly FakeUserClaimsSource _claims = new();
     private readonly IdentityTokenOptions _opts = new()
     {
         SigningKey = "0123456789abcdef0123456789abcdef",

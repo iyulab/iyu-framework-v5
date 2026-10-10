@@ -8,12 +8,16 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
    `IIdentityStore.ListServiceClientsByOwnerAsync` 의 계약은 아래 「저장소가 지켜야 할 것」 참조.
 3. **권한 카탈로그**: 도메인 권한 코드(`orders.read` 등)를 `AddIyuIdentity(..., permissionCatalog)`로 전달.
 4. **서명키 주입**: `IdentityTokenOptions.SigningKey`를 구성값(.env/App Setting, >=32 bytes)으로 주입. 프레임워크는 키를 소유하지 않는다.
-5. **login/logout/me**: 사용자 로그인은 앱이 `IIdentityStore.FindUserByUsernameAsync`로 비밀번호 검증 후 쿠키 sign-in(기존 AuthApi 패턴 승격, P3에서 이관).
-   **필수**: 쿠키 sign-in 시 부여된 권한 코드마다 클레임 타입 `permissionClaimType`(기본 `"perm"`, `AddIyuIdentity`에 전달한 값과 동일해야 함)로 클레임을 1개씩 추가해야 한다.
-   이 클레임이 없으면 서비스 클라이언트(JWT)는 정상 동작하는데 사람(쿠키) 사용자만 모든 permission 정책에서 403을 받는다.
-   헬퍼로 `IyuIdentityClaims.Permission(code)`를 사용할 수 있다(예: `identity.AddClaim(IyuIdentityClaims.Permission("orders.read"))`).
+5. **클레임 원천 등록(필수)**: `IUserClaimsSource` — 주체(계정 식별자)에 대해 «이 사람이 이 앱에서 무엇을 할 수 있는가»를 클레임으로 답한다
+   (권한 코드마다 `IyuIdentityClaims.Permission(code)`, 계정이 없거나 비활성이면 `null`). **등록하지 않은 호스트는 기동이 거부된다.**
+   사람을 로그인시키지 않는 앱은 `null` 만 답하는 구현을 등록한다.
+6. **login/logout/me**: 끝점(라우트·응답 모양·자격 검증)은 앱의 것이다. 계정을 확인한 뒤 세션은 프레임워크가 연다 —
+   쿠키는 `UserSessionService.SignInAsync(http, subject)`, 토큰은 `UserTokenService.IssueAsync(subject)`. 둘 다 5번의 원천에 묻는다.
+   `ClaimsPrincipal` 을 손으로 짓지 않는다 — 권한 클레임을 빠뜨리면 서비스 클라이언트(JWT)는 정상인데 사람만 전 정책에서 403 을 받던 함정이 그 자리였다.
+   식별자는 프레임워크가 주체로부터 쓴다(쿠키 `ClaimTypes.NameIdentifier` · 토큰 `sub`). 읽을 때는 `IyuIdentityClaims.FindSubject(user)`.
+   원천이 다른 사람을 가리키는 식별자 클레임을 답하면 로그인이 아니라 오류다.
 
-6. **외부 로그인(OIDC 등)을 붙일 때**: 핸들러에 자기 스킴을 준다(`AddCookie("external")` + `SignInScheme = "external"`).
+7. **외부 로그인(OIDC 등)을 붙일 때**: 핸들러에 자기 스킴을 준다(`AddCookie("external")` + `SignInScheme = "external"`).
    지정하지 않으면 핸들러가 외부 공급자의 주체를 세션 쿠키에 그대로 로그인시킨다 — 로컬 계정 없이도 «로그인됨»이 되고
    공급자가 보낸 `perm` 클레임이 권한 정책을 통과한다. 그 구성은 **기동이 거부된다**. 세션은 계정을 찾은 완료 단계에서
    앱이 연다(리포 README `## Identity` 의 «External OIDC / AD federation»). 공급자의 주체를 그대로 세션으로 쓰려는 앱만
@@ -93,8 +97,8 @@ null 검사를 하게 된다.
 ## 사람 사용자의 리프레시 토큰 — `UserTokenService`
 
 네이티브·데스크톱 같은 공개 클라이언트에 긴 수명 액세스 토큰 대신 «짧은 액세스 + 회전 리프레시»를 준다.
-켜는 방법은 포트 두 개를 등록하는 것뿐이다 — `IRefreshTokenStore`(저장) · `IUserTokenClaimsSource`(주체의 클레임, `null` 이면 거절).
-둘이 없으면 `POST /api/auth/token` 의 `grant_type=refresh_token` 은 `unsupported_grant_type` 이다. 사용법은 리포 README `## Identity` 의 «Refresh tokens».
+켜는 방법은 `AddIyuRefreshTokens()` 와 `IRefreshTokenStore`(저장) 등록이다 — 클레임은 위 5번의 `IUserClaimsSource` 가 댄다.
+켜지 않으면 `POST /api/auth/token` 의 `grant_type=refresh_token` 은 `unsupported_grant_type` 이다. 사용법은 리포 README `## Identity` 의 «Refresh tokens».
 
 ### 저장소가 지켜야 할 것 — `IRefreshTokenStore`
 
@@ -103,7 +107,7 @@ null 검사를 하게 된다.
    읽고 나서 쓰는 두 단계로 구현하면 같은 토큰을 든 두 요청이 **둘 다** 이긴다 — 복사된 토큰이 진짜 클라이언트와 경주하는 모양이 바로 그것이다.
 3. **폐기는 계열(`FamilyId`)·주체(`Subject`) 단위**로, 이미 폐기된 행은 건드리지 않는다. 시각은 인자로 받은 것을 쓴다(시계는 하나).
 
-### 클레임 원천이 지켜야 할 것 — `IUserTokenClaimsSource`
+### 클레임 원천이 지켜야 할 것 — `IUserClaimsSource`
 
-로그인 때와 **매 리프레시 때** 불린다. 비활성·삭제된 사용자에게는 `null` 을 돌려준다 — 그 리프레시는 실패하고 그 로그인 계열 전체가 폐기된다.
+세션을 열 때마다 불린다 — 쿠키 로그인, 토큰 로그인, 그리고 **매 리프레시**. 비활성·삭제된 사용자에게는 `null` 을 돌려준다 — 그 리프레시는 실패하고 그 로그인 계열 전체가 폐기된다.
 권한이 줄었으면 줄어든 클레임을 돌려준다 — 다음 액세스 토큰부터 반영된다(이미 나간 액세스 토큰은 수명까지 유효 — `IdentityTokenOptions.Lifetime` 을 짧게).

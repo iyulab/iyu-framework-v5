@@ -93,6 +93,10 @@ public class ExternalSignInIsolationTests
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
+        // The one local account, with no permission of its own — what the provider claims must not add one.
+        var accounts = new FakeUserClaimsSource();
+        accounts.Set(LocalAccount.ToString());
+        builder.Services.AddSingleton<IUserClaimsSource>(accounts);
         builder.Services.AddIyuIdentity(
             new IdentityTokenOptions
             {
@@ -129,7 +133,7 @@ public class ExternalSignInIsolationTests
 
         // The recipe's completion step: the application decides who the external identity is here, and only then
         // opens its own session — with claims it chose.
-        app.MapGet("/sign-in/complete", async (HttpContext http) =>
+        app.MapGet("/sign-in/complete", async (HttpContext http, UserSessionService sessions) =>
         {
             var external = await http.AuthenticateAsync(ExternalScheme);
             if (!external.Succeeded) return Results.Unauthorized();
@@ -138,10 +142,8 @@ public class ExternalSignInIsolationTests
                           ?? external.Principal.FindFirstValue("sub");
             if (subject != ProviderSubject) return Results.Unauthorized();   // no local account for anyone else
 
-            var principal = new ClaimsPrincipal(new ClaimsIdentity(
-                [new Claim(ClaimTypes.NameIdentifier, LocalAccount.ToString())],
-                CookieAuthenticationDefaults.AuthenticationScheme));
-            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            // The session is the local account's: its identifier and what the application's claims source answers.
+            if (!await sessions.SignInAsync(http, LocalAccount.ToString())) return Results.Unauthorized();
             await http.SignOutAsync(ExternalScheme);
             return Results.Ok();
         }).AllowAnonymous();

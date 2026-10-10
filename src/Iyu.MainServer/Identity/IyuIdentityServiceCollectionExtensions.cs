@@ -12,9 +12,10 @@ namespace Iyu.MainServer.Identity;
 
 /// <summary>
 /// Wires the identity runtime into DI: cookie + JWT bearer dual-scheme authentication,
-/// token/service-client services, and per-permission authorization policies from a catalog.
-/// Consuming apps remain responsible for registering concrete <see cref="IIdentityStore"/> /
-/// <see cref="IServiceClientStore"/> implementations.
+/// token/service-client services, the service that opens a person's session, and per-permission
+/// authorization policies from a catalog. Consuming apps remain responsible for registering concrete
+/// <see cref="IIdentityStore"/> / <see cref="IServiceClientStore"/> implementations and their
+/// <see cref="IUserClaimsSource"/>.
 /// </summary>
 public static class IyuIdentityServiceCollectionExtensions
 {
@@ -45,6 +46,11 @@ public static class IyuIdentityServiceCollectionExtensions
         services.AddScoped<ServiceClientService>();
         services.AddMemoryCache();
         services.AddScoped<ServiceClientTokenValidator>();
+
+        // A person's session is assembled from the app's claims source, not by hand — see UserSessionService.
+        // The source is the app's to register; a host without one is refused at startup.
+        services.TryAddScoped<UserSessionService>();
+        services.AddHostedService<UserClaimsSourceGuard>();
 
         // Cookie sessions are only as durable as the Data Protection key ring that seals them — refuse to start
         // where that ring would be lost with the container. See CookieKeyRingValidator.
@@ -109,11 +115,11 @@ public static class IyuIdentityServiceCollectionExtensions
     /// sign-in endpoint calls, and makes <c>POST /api/auth/token</c> accept <c>grant_type=refresh_token</c>.
     /// </summary>
     /// <remarks>
-    /// The app registers <see cref="IRefreshTokenStore"/> and <see cref="IUserTokenClaimsSource"/> itself,
-    /// with whatever lifetime its storage needs. A missing one is a startup error under service-provider
-    /// validation (on by default in Development), and otherwise an <see cref="InvalidOperationException"/>
-    /// naming it the first time the service is resolved. Apps that do not call this need neither port: the
-    /// grant answers <c>unsupported_grant_type</c>.
+    /// The app registers <see cref="IRefreshTokenStore"/> itself, with whatever lifetime its storage needs
+    /// (<see cref="IUserClaimsSource"/> is already required by <see cref="AddIyuIdentity"/>). A missing store
+    /// is a startup error under service-provider validation (on by default in Development), and otherwise an
+    /// <see cref="InvalidOperationException"/> naming it the first time the service is resolved. Apps that do
+    /// not call this need no store: the grant answers <c>unsupported_grant_type</c>.
     /// </remarks>
     public static IServiceCollection AddIyuRefreshTokens(this IServiceCollection services)
     {

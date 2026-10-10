@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -31,7 +32,7 @@ public sealed record UserTokenPair(bool Ok, string? Error, string? AccessToken, 
 /// (rotation); a token presented a second time revokes every token descended from the same sign-in,
 /// because the server cannot tell the legitimate client from whoever copied it (unless it is a retry
 /// within <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/>, off by default); and each refresh
-/// asks <see cref="IUserTokenClaimsSource"/> again, so deactivation or a narrowed permission set
+/// asks <see cref="IUserClaimsSource"/> again, so deactivation or a narrowed permission set
 /// reaches the person's tokens at the next refresh.
 /// </para>
 /// <para>
@@ -40,7 +41,7 @@ public sealed record UserTokenPair(bool Ok, string? Error, string? AccessToken, 
 /// </para>
 /// <para>
 /// Registered by <see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>, alongside the app's
-/// <see cref="IRefreshTokenStore"/> and <see cref="IUserTokenClaimsSource"/>; <c>POST /api/auth/token</c> then
+/// <see cref="IRefreshTokenStore"/>; <c>POST /api/auth/token</c> then
 /// also accepts <c>grant_type=refresh_token</c>.
 /// </para>
 /// </remarks>
@@ -48,25 +49,26 @@ public sealed class UserTokenService
 {
     private readonly IdentityTokenService _tokens;
     private readonly IRefreshTokenStore _store;
-    private readonly IUserTokenClaimsSource _claims;
+    private readonly IUserClaimsSource _claims;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
     private readonly ILogger<UserTokenService> _log;
 
-    public UserTokenService(IdentityTokenService tokens, IRefreshTokenStore store, IUserTokenClaimsSource claims,
+    public UserTokenService(IdentityTokenService tokens, IRefreshTokenStore store, IUserClaimsSource claims,
         IdentityTokenOptions opts, TimeProvider clock, ILogger<UserTokenService> log)
     {
         _tokens = tokens; _store = store; _claims = claims; _opts = opts; _clock = clock; _log = log;
     }
 
     /// <summary>
-    /// Starts a sign-in: an access token with the claims <see cref="IUserTokenClaimsSource"/> gives for
+    /// Starts a sign-in: an access token with the claims <see cref="IUserClaimsSource"/> gives for
     /// <paramref name="subject"/>, and the first refresh token of a new family.
     /// </summary>
     /// <remarks>
     /// Call only after the app has authenticated the person — this method checks no credential. The
     /// claims come from the same source a refresh asks, so a first token and a refreshed one cannot
-    /// disagree about who the person is. <c>invalid_grant</c> when the source refuses the subject.
+    /// disagree about who the person is; the token's <c>sub</c> is <paramref name="subject"/>.
+    /// <c>invalid_grant</c> when the source refuses the subject.
     /// </remarks>
     public Task<UserTokenPair> IssueAsync(string subject, CancellationToken ct)
     {
@@ -136,7 +138,10 @@ public sealed class UserTokenService
             return UserTokenPair.Refused;
         }
 
-        var access = _tokens.IssueUserToken(claims, _opts.UserAccessTokenLifetime);
+        // The subject is written here, not left to the source: a token and a cookie opened for the same
+        // person then name them the same way, whatever the source answered.
+        var access = _tokens.IssueUserToken(
+            IyuIdentityClaims.ForSubject(claims, subject, JwtRegisteredClaimNames.Sub), _opts.UserAccessTokenLifetime);
         var refresh = Base64Url(RandomNumberGenerator.GetBytes(32));
         await _store.InsertAsync(new RefreshTokenRecord(Guid.NewGuid(), familyId, subject, HashRefreshToken(refresh),
             now, now.Add(_opts.RefreshTokenLifetime), ParentId: parentId), ct);
