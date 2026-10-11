@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
 
 ### Added
 
@@ -187,6 +187,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 - **`Iyu.MainServer`: the `$search` reference allowance is decided by `IyuSearch`.** The `$expand` authorization filter
   asks `IyuSearch.AllowedNavigationsAsync` which searchable references the caller may search, so a list and an
   endpoint outside OData cannot disagree. No behaviour change.
+
+### Dependencies
+
+No behaviour change. The minimum versions these packages require move to the current releases:
+`Azure.Storage.Blobs` 12.30.1 (`Iyu.FileServer`) · `HotChocolate.AspNetCore`, `.Authorization` and
+`.Data.EntityFramework` 16.6.8 (`Iyu.Server.GraphQL`).
 
 ## [0.37.0] - 2026-10-09
 
