@@ -67,6 +67,19 @@ onward; earlier entries state the same consequence in prose where it applies.
   sign out (OpenID Connect's RP-initiated logout) also sends the browser to the provider's end-session endpoint, with
   the identity token the provider issued as `id_token_hint` when the handler keeps its tokens (`SaveTokens`), and from
   there back to `returnUrl` (local only). The session records the provider that opened it, and keeps across re-issue.
+- **`Iyu.MainServer`: `UserCredentialService.VerifyAsync(username, password)` — the local password check.** It finds
+  the account (`IIdentityStore.FindUserByUsernameAsync`), verifies the password against `IUser.PasswordHash` with the
+  registered `IPasswordHasher<IUser>`, and refuses an inactive account, returning `CredentialCheck`: the account, why
+  it failed (`CredentialFailure`: `UnknownUser`, `WrongPassword`, `Inactive`, `UnreadableHash`), and — when the
+  stored hash was made with older settings — the same password hashed with the current ones to store instead. Every
+  check costs one hash verification, unknown names included, and the password is verified before the account's state
+  is read, so neither which names are accounts nor which accounts are inactive shows in response time.
+  `AddIyuIdentity` registers it, and ASP.NET Core Identity's `PasswordHasher<IUser>` unless the host registered a
+  hasher of its own — a dependency already in the shared framework, no new package. An application moving its own
+  password check onto this one keeps signing people in only if its stored hashes are in that hasher's format; for any
+  other, register an `IPasswordHasher<IUser>` that reads them. `IIdentityStore.FindUserByUsernameAsync` now states
+  that it returns inactive accounts too. README's sign-in recipes use it in place of the `VerifyPassword` they left to
+  the application.
 
 ### Changed — identity
 

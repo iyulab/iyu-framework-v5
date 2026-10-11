@@ -1,9 +1,11 @@
 using System.Text;
+using Iyu.Core.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -13,7 +15,8 @@ namespace Iyu.MainServer.Identity;
 
 /// <summary>
 /// Wires the identity runtime into DI: cookie + JWT bearer dual-scheme authentication,
-/// token/service-client services, the services that open a person's session (cookie or access token), and per-permission
+/// token/service-client services, the local password check, the services that open a person's session (cookie or access
+/// token), and per-permission
 /// authorization policies from a catalog. Consuming apps remain responsible for registering concrete
 /// <see cref="IIdentityStore"/> / <see cref="IServiceClientStore"/> implementations and their
 /// <see cref="IUserClaimsSource"/>.
@@ -58,6 +61,11 @@ public static class IyuIdentityServiceCollectionExtensions
         services.TryAddScoped<UserSessionService>();
         services.TryAddScoped<UserAccessTokenService>();
         services.AddHostedService<UserClaimsSourceGuard>();
+
+        // A local password check. TryAdd for the hasher: an app whose stored hashes are in another format registers its
+        // own, before or after this call.
+        services.TryAddSingleton<IPasswordHasher<IUser>, PasswordHasher<IUser>>();
+        services.TryAddScoped<UserCredentialService>();
 
         // Cookie sessions are only as durable as the Data Protection key ring that seals them — refuse to start
         // where that ring would be lost with the container. See CookieKeyRingValidator.

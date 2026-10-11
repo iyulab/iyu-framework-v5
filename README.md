@@ -166,15 +166,26 @@ Two recipes for a sign-in endpoint — same shape, only the way the account is e
 **Local username/password:**
 
 ```csharp
-app.MapPost("/api/auth/login", async (LoginRequest req, IIdentityStore store, UserSessionService sessions,
+app.MapPost("/api/auth/login", async (LoginRequest req, UserCredentialService credentials, UserSessionService sessions,
     HttpContext http, CancellationToken ct) =>
 {
-    var user = await store.FindUserByUsernameAsync(req.Username, ct);
-    if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
+    var check = await credentials.VerifyAsync(req.Username, req.Password, ct);
+    if (!check.Ok) return Results.Unauthorized();
 
-    return await sessions.SignInAsync(http, user.Id.ToString(), ct: ct) ? Results.Ok() : Results.Unauthorized();
+    return await sessions.SignInAsync(http, check.User!.Id.ToString(), ct: ct) ? Results.Ok() : Results.Unauthorized();
 }).AllowAnonymous();
 ```
+
+`UserCredentialService` (registered by `AddIyuIdentity`) finds the account, verifies the password against
+`IUser.PasswordHash`, and refuses an account that is not active. Every check costs one hash verification —
+an unknown name and an account without a password included — so response time does not tell which names are
+accounts, and the password is verified before the account's state is read. The hasher is ASP.NET Core
+Identity's `PasswordHasher<T>`: hash a password you store with the same `IPasswordHasher<IUser>`. **Stored
+hashes in another format need a hasher that reads them** — register your own `IPasswordHasher<IUser>`; without
+it those accounts cannot sign in (a hash it cannot parse is `CredentialFailure.UnreadableHash`, logged as an
+error). What follows a check stays yours: `check.Failure` says why it failed (count `WrongPassword` toward a
+lockout, but answer the person the same way for all), and a non-null `check.UpgradedPasswordHash` — the hash
+was made with older settings — is the value to store in its place.
 
 Sign-out: `await sessions.SignOutAsync(http)` — it also ends the person's session at an external provider
 that opened this one (below); for a session opened as above it is the cookie scheme's own sign-out.
@@ -245,12 +256,12 @@ external IdP), then asks `UserAccessTokenService` for an access token — the be
 `UserSessionService.SignInAsync`:
 
 ```csharp
-app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, UserAccessTokenService tokens, CancellationToken ct) =>
+app.MapPost("/api/auth/mobile-login", async (LoginRequest req, UserCredentialService credentials, UserAccessTokenService tokens, CancellationToken ct) =>
 {
-    var user = await store.FindUserByUsernameAsync(req.Username, ct);
-    if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
+    var check = await credentials.VerifyAsync(req.Username, req.Password, ct);
+    if (!check.Ok) return Results.Unauthorized();
 
-    var result = await tokens.IssueAsync(user.Id.ToString(), TimeSpan.FromDays(30), ct);
+    var result = await tokens.IssueAsync(check.User!.Id.ToString(), TimeSpan.FromDays(30), ct);
     return result.Ok
         ? Results.Ok(new { access_token = result.AccessToken, expires_in = result.ExpiresInSeconds })
         : Results.Unauthorized();
@@ -277,12 +288,12 @@ the store, and sign the person in through `UserTokenService` instead:
 builder.Services.AddIyuRefreshTokens();                                        // without it, no store is needed
 builder.Services.AddScoped<IRefreshTokenStore, EfRefreshTokenStore>();        // your table of RefreshTokenRecord
 
-app.MapPost("/api/auth/mobile-login", async (LoginRequest req, IIdentityStore store, UserTokenService users, CancellationToken ct) =>
+app.MapPost("/api/auth/mobile-login", async (LoginRequest req, UserCredentialService credentials, UserTokenService users, CancellationToken ct) =>
 {
-    var user = await store.FindUserByUsernameAsync(req.Username, ct);
-    if (user is null || !VerifyPassword(req.Password, user.PasswordHash)) return Results.Unauthorized();
+    var check = await credentials.VerifyAsync(req.Username, req.Password, ct);
+    if (!check.Ok) return Results.Unauthorized();
 
-    var pair = await users.IssueAsync(user.Id.ToString(), ct);
+    var pair = await users.IssueAsync(check.User!.Id.ToString(), ct);
     return pair.Ok
         ? Results.Ok(new { access_token = pair.AccessToken, expires_in = pair.ExpiresInSeconds, refresh_token = pair.RefreshToken })
         : Results.Unauthorized();

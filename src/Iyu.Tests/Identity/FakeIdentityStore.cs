@@ -46,8 +46,12 @@ public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
 
     private static readonly DateTimeOffset _epoch = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
+    /// <remarks>
+    /// Inactive accounts are returned too, as the contract asks. This fake used to drop them, which made every
+    /// inactive account look like an unknown name — a gap in the contract that no test could see past.
+    /// </remarks>
     public Task<IUser?> FindUserByUsernameAsync(string username, CancellationToken ct) =>
-        Task.FromResult<IUser?>(_users.FirstOrDefault(u => u.Username == username && u.IsActive));
+        Task.FromResult<IUser?>(_users.FirstOrDefault(u => u.Username == username));
 
     public Task<IServiceClient?> FindServiceClientByClientIdAsync(string clientId, CancellationToken ct) =>
         Task.FromResult<IServiceClient?>(_clients.FirstOrDefault(c => c.ClientId == clientId));

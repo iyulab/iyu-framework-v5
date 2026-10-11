@@ -5,6 +5,10 @@ namespace Iyu.MainServer.Identity;
 /// <summary>Read/side-effect surface the identity runtime needs, decoupled from concrete entity types.</summary>
 public interface IIdentityStore
 {
+    /// <summary>
+    /// The account with this name, active or not — <see cref="UserCredentialService"/> reads
+    /// <see cref="IUser.IsActive"/> itself, and tells the application an inactive account apart from an unknown one.
+    /// </summary>
     Task<IUser?> FindUserByUsernameAsync(string username, CancellationToken ct);
     Task<IServiceClient?> FindServiceClientByClientIdAsync(string clientId, CancellationToken ct);
     Task<IReadOnlyList<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct);
