@@ -4,14 +4,16 @@ using Xunit;
 namespace Iyu.Tests;
 
 /// <summary>
-/// The README's local sign-in recipes — a session cookie, an access token, a refresh-token pair — compile against
-/// these packages as published. Each is the code a consuming application copies into its own sign-in endpoint, so a
-/// recipe that names a member that does not exist, or passes the wrong type, fails in that application first.
+/// The README's sign-in recipes — the three local ones (a session cookie, an access token, a refresh-token pair) and
+/// the external-provider one — compile against these packages as published. Each is the code a consuming
+/// application copies into its own host, so a recipe that names a member that does not exist, or passes the wrong
+/// type, fails in that application first.
 /// </summary>
 /// <remarks>
 /// The recipes are read from the README, not repeated here. The fixture around them supplies only what each recipe
-/// leaves to the application — a request type, a refresh-token store — and the namespaces it would declare: the ones
-/// the README's namespace guidance publishes, the identity namespace, and an ASP.NET Core project's implicit usings.
+/// leaves to the application — a request type, a refresh-token store, a database context with external logins — and
+/// the namespaces it would declare: the ones the README's namespace guidance publishes, the identity namespace, EF
+/// Core, and an ASP.NET Core project's implicit usings.
 /// </remarks>
 public sealed class SignInRecipeCompilationTests
 {
@@ -27,8 +29,12 @@ public sealed class SignInRecipeCompilationTests
         global using Microsoft.AspNetCore.Builder;
         global using Microsoft.AspNetCore.Http;
         global using Microsoft.Extensions.DependencyInjection;
+        global using Microsoft.EntityFrameworkCore;
         global using Iyu.MainServer.Identity;
         """;
+
+    /// <summary>What marks the external-provider recipe: it is the application's resolver.</summary>
+    private const string ExternalRecipeMarker = ": IExternalLoginResolver";
 
     /// <summary>What a recipe leaves to the application, at its smallest.</summary>
     private const string ApplicationSide = """
@@ -45,15 +51,43 @@ public sealed class SignInRecipeCompilationTests
             public Task RevokeFamilyAsync(Guid familyId, DateTimeOffset revokedAt, CancellationToken ct) => throw new NotImplementedException();
             public Task RevokeSubjectAsync(string subject, DateTimeOffset revokedAt, CancellationToken ct) => throw new NotImplementedException();
         }
+
+        public sealed class ExternalLoginRow
+        {
+            public Guid Id { get; set; }
+            public string Provider { get; set; } = "";
+            public string ProviderKey { get; set; } = "";
+            public Guid UserId { get; set; }
+        }
+
+        public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+        {
+            public DbSet<ExternalLoginRow> ExternalLogins => Set<ExternalLoginRow>();
+        }
         """;
 
-    private static IReadOnlyList<string> Recipes() =>
-        [.. Regex.Matches(ReadmeCompilation.ReadmeText(), @"```csharp\r?\n(?<code>.*?)\r?\n```", RegexOptions.Singleline)
-            .Select(m => m.Groups["code"].Value)
-            .Where(code => code.Contains(RecipeMarker, StringComparison.Ordinal))];
+    private static IEnumerable<string> CSharpBlocks() =>
+        Regex.Matches(ReadmeCompilation.ReadmeText(), @"```csharp\r?\n(?<code>.*?)\r?\n```", RegexOptions.Singleline)
+            .Select(m => m.Groups["code"].Value);
 
+    private static IReadOnlyList<string> Recipes() =>
+        [.. CSharpBlocks().Where(code => code.Contains(RecipeMarker, StringComparison.Ordinal))];
+
+    private static IReadOnlyList<string> ExternalRecipes() =>
+        [.. CSharpBlocks().Where(code => code.Contains(ExternalRecipeMarker, StringComparison.Ordinal))];
+
+    /// <summary>
+    /// Compiles a recipe the way an application holds it: its statements in the host's setup, and the types it
+    /// declares — a recipe may end with the application's own class — beside it. A type declaration starts at the
+    /// first line that opens one at the left margin.
+    /// </summary>
     private static IReadOnlyList<string> CompileErrors(string recipe)
     {
+        var lines = recipe.Replace("\r\n", "\n").Split('\n');
+        var firstType = Array.FindIndex(lines, l => Regex.IsMatch(l, @"^(public|internal)\s"));
+        var statements = string.Join('\n', firstType < 0 ? lines : lines[..firstType]);
+        var types = firstType < 0 ? "" : string.Join('\n', lines[firstType..]);
+
         var source = string.Join(Environment.NewLine, ReadmeCompilation.PublishedGlobalUsings())
                      + Environment.NewLine + Usings + Environment.NewLine + ApplicationSide + $$"""
 
@@ -61,9 +95,11 @@ public sealed class SignInRecipeCompilationTests
             {
                 public static void Map(WebApplicationBuilder builder, WebApplication app)
                 {
-            {{recipe}}
+            {{statements}}
                 }
             }
+
+            {{types}}
             """;
         return [.. ReadmeCompilation.Errors("SignInRecipe", source).Select(e => $"{e.Id}: {e.GetMessage()}")];
     }
@@ -103,5 +139,30 @@ public sealed class SignInRecipeCompilationTests
         var broken = Recipes()[0].Replace(RecipeMarker, "credentials.VerifyPasswordAsync(", StringComparison.Ordinal);
 
         Assert.Contains(CompileErrors(broken), e => e.StartsWith("CS1061", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_external_provider_recipe_compiles_as_published()
+    {
+        var recipe = Assert.Single(ExternalRecipes());
+
+        var errors = CompileErrors(recipe);
+
+        Assert.True(errors.Count == 0,
+            "the README's external-provider recipe does not compile against the packages:\n  "
+            + string.Join("\n  ", errors) + "\n\n" + recipe);
+    }
+
+    /// <summary>
+    /// The same control for the external recipe — its resolver must still implement the port: a method named
+    /// differently from the interface's leaves the interface unimplemented.
+    /// </summary>
+    [Fact]
+    public void An_external_recipe_whose_resolver_misses_the_port_does_not_compile()
+    {
+        var broken = Assert.Single(ExternalRecipes())
+            .Replace("ResolveSubjectAsync(", "ResolveAccountAsync(", StringComparison.Ordinal);
+
+        Assert.Contains(CompileErrors(broken), e => e.StartsWith("CS0535", StringComparison.Ordinal));
     }
 }
