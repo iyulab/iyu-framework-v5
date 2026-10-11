@@ -130,16 +130,16 @@ public class UserCredentialServiceTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
-        services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
+        services.AddSingleton<IUserCredentialStore>(new FakeIdentityStore());
         return services;
     }
 
     private static void AddIdentity(IServiceCollection services) => services.AddIyuIdentity(
-        new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" }, permissionCatalog: ["orders.read"]);
+        new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" }, permissionCatalog: ["orders.read"])
+        .AddIyuUserCredentials();
 
     [Fact]
-    public void AddIyuIdentity_registers_the_check_with_ASP_NET_Core_Identitys_hasher()
+    public void AddIyuUserCredentials_registers_the_check_with_ASP_NET_Core_Identitys_hasher()
     {
         var services = Host();
         AddIdentity(services);
@@ -151,7 +151,7 @@ public class UserCredentialServiceTests
     }
 
     [Fact]
-    public void A_host_registered_hasher_survives_AddIyuIdentity()
+    public void A_host_registered_hasher_survives_AddIyuUserCredentials()
     {
         var mine = new CountingHasher(Hasher);
         var services = Host();

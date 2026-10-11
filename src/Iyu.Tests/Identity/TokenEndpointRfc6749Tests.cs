@@ -33,11 +33,11 @@ public class TokenEndpointRfc6749Tests : IAsyncLifetime
         (_clientId, _secret, var hash) = ServiceClientSecrets.Generate();
         store.AddClient(_clientId, hash, owner, perms: ["orders.read", "orders.write"]);
 
-        builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
         builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" },
             permissionCatalog: ["orders.read", "orders.write"]);
+        builder.Services.AddIyuServiceClients();
 
         _app = builder.Build();
         _app.UseAuthentication();

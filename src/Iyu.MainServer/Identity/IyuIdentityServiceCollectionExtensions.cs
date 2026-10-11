@@ -14,12 +14,13 @@ using Microsoft.IdentityModel.Tokens;
 namespace Iyu.MainServer.Identity;
 
 /// <summary>
-/// Wires the identity runtime into DI: cookie + JWT bearer dual-scheme authentication,
-/// token/service-client services, the local password check, the services that open a person's session (cookie or access
-/// token), and per-permission
-/// authorization policies from a catalog. Consuming apps remain responsible for registering concrete
-/// <see cref="IIdentityStore"/> / <see cref="IServiceClientStore"/> implementations and their
-/// <see cref="IUserClaimsSource"/>.
+/// Wires the identity runtime into DI. <see cref="AddIyuIdentity"/> is the core every host uses — cookie + JWT bearer
+/// dual-scheme authentication, per-permission authorization policies from a catalog, and the services that open a
+/// person's session (cookie or access token) from the application's <see cref="IUserClaimsSource"/>. Each further
+/// surface is turned on by its own call and asks for its own store: <see cref="AddIyuServiceClients"/>
+/// (<see cref="IServiceClientStore"/>), <see cref="AddIyuUserCredentials"/> (<see cref="IUserCredentialStore"/>),
+/// <see cref="AddIyuRefreshTokens"/> (<see cref="IRefreshTokenStore"/>), <see cref="AddIyuExternalSignIn"/>
+/// (<see cref="IExternalLoginResolver"/>).
 /// </summary>
 public static class IyuIdentityServiceCollectionExtensions
 {
@@ -64,21 +65,14 @@ public static class IyuIdentityServiceCollectionExtensions
         // registered its own TimeProvider first would otherwise have it silently replaced here,
         // which is what token expiry and secret-rotation timestamps are read from.
         services.TryAddSingleton(TimeProvider.System);
-        services.AddScoped<IdentityTokenService>();
-        services.AddScoped<ServiceClientService>();
-        services.AddMemoryCache();
-        services.AddScoped<ServiceClientTokenValidator>();
 
         // A person's session is assembled from the app's claims source, not by hand — see UserSessionService.
         // The source is the app's to register; a host without one is refused at startup.
         services.TryAddScoped<UserSessionService>();
         services.TryAddScoped<UserAccessTokenService>();
         services.AddHostedService<UserClaimsSourceGuard>();
-
-        // A local password check. TryAdd for the hasher: an app whose stored hashes are in another format registers its
-        // own, before or after this call.
-        services.TryAddSingleton<IPasswordHasher<IUser>, PasswordHasher<IUser>>();
-        services.TryAddScoped<UserCredentialService>();
+        // A store registered for a surface that was never turned on — refuse to start that way. See IdentitySurfaceGuard.
+        services.AddHostedService<IdentitySurfaceGuard>();
 
         // Cookie sessions are only as durable as the Data Protection key ring that seals them — refuse to start
         // where that ring would be lost with the container. See CookieKeyRingValidator.
@@ -119,7 +113,14 @@ public static class IyuIdentityServiceCollectionExtensions
                     {
                         OnTokenValidated = async ctx =>
                         {
-                            var validator = ctx.HttpContext.RequestServices.GetRequiredService<ServiceClientTokenValidator>();
+                            // Only AddIyuServiceClients registers the validator. Without it no service-client token
+                            // is issued here, so one that carries the stamp is refused rather than waved through.
+                            if (ctx.HttpContext.RequestServices.GetService<ServiceClientTokenValidator>() is not { } validator)
+                            {
+                                if (ctx.Principal!.HasClaim(c => c.Type == IyuIdentityClaims.ServiceClientStampClaimType))
+                                    ctx.Fail("Service clients are not turned on in this application.");
+                                return;
+                            }
                             var reason = await validator.RejectionAsync(ctx.Principal!, ctx.HttpContext.RequestAborted);
                             if (reason is not null)
                                 ctx.Fail("The service client behind this token has been revoked, rotated or re-scoped.");
@@ -158,6 +159,43 @@ public static class IyuIdentityServiceCollectionExtensions
     public static IServiceCollection AddIyuRefreshTokens(this IServiceCollection services)
     {
         services.TryAddScoped<UserTokenService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Turns on service clients — machine credentials a person issues under their own permissions: registers
+    /// <see cref="ServiceClientService"/> and <see cref="ServiceClientTokenService"/>, makes <c>POST /api/auth/token</c>
+    /// accept <c>grant_type=client_credentials</c>, has <see cref="IdentityEndpointRouteExtensions.MapIyuIdentity"/> map
+    /// the owner's management endpoints (<c>/api/service-clients</c>), and checks every service-client token against the
+    /// store while it lives (<see cref="IdentityTokenOptions.ValidateServiceClientTokens"/>).
+    /// </summary>
+    /// <remarks>
+    /// The app registers <see cref="IServiceClientStore"/> itself. A host that registers that store without calling this
+    /// is refused at startup — the grant would answer <c>unsupported_grant_type</c> and the management endpoints would not
+    /// exist, which reads the same as a credential that stopped working.
+    /// </remarks>
+    public static IServiceCollection AddIyuServiceClients(this IServiceCollection services)
+    {
+        services.TryAddScoped<ServiceClientTokenService>();
+        services.TryAddScoped<ServiceClientService>();
+        services.AddMemoryCache();
+        services.TryAddScoped<ServiceClientTokenValidator>();
+        return services;
+    }
+
+    /// <summary>
+    /// Turns on the local password check: registers <see cref="UserCredentialService"/>, which the app's own sign-in
+    /// endpoint calls before opening the session.
+    /// </summary>
+    /// <remarks>
+    /// The app registers <see cref="IUserCredentialStore"/> itself. The hasher is ASP.NET Core Identity's
+    /// <see cref="PasswordHasher{TUser}"/> unless the app registers its own <see cref="IPasswordHasher{TUser}"/> of
+    /// <see cref="IUser"/>, before or after this call — which it must when its stored hashes are in another format.
+    /// </remarks>
+    public static IServiceCollection AddIyuUserCredentials(this IServiceCollection services)
+    {
+        services.TryAddSingleton<IPasswordHasher<IUser>, PasswordHasher<IUser>>();
+        services.TryAddScoped<UserCredentialService>();
         return services;
     }
 

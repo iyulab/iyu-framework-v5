@@ -14,7 +14,7 @@ namespace Iyu.MainServer.Identity;
 /// <remarks>
 /// <para>
 /// One call does the three things a hand-written check gets subtly wrong: it finds the account
-/// (<see cref="IIdentityStore.FindUserByUsernameAsync"/>), verifies the password against
+/// (<see cref="IUserCredentialStore.FindUserByUsernameAsync"/>), verifies the password against
 /// <see cref="IUser.PasswordHash"/> with the registered <see cref="IPasswordHasher{TUser}"/>, and refuses an account
 /// that is not <see cref="IUser.IsActive"/>. What follows a check — counting failures toward a lockout, recording
 /// <see cref="IUser.LastLoginAt"/>, asking for a new password — stays the application's; the result says why a
@@ -39,11 +39,11 @@ namespace Iyu.MainServer.Identity;
 /// </remarks>
 public sealed class UserCredentialService
 {
-    private readonly IIdentityStore _store;
+    private readonly IUserCredentialStore _store;
     private readonly IPasswordHasher<IUser> _hasher;
     private readonly ILogger<UserCredentialService> _log;
 
-    public UserCredentialService(IIdentityStore store, IPasswordHasher<IUser> hasher, ILogger<UserCredentialService> log)
+    public UserCredentialService(IUserCredentialStore store, IPasswordHasher<IUser> hasher, ILogger<UserCredentialService> log)
     {
         _store = store; _hasher = hasher; _log = log;
     }

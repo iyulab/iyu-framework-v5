@@ -10,8 +10,8 @@ namespace Iyu.MainServer.Identity;
 public static class IdentityEndpointHandlers
 {
     /// <summary>
-    /// <c>POST /api/auth/token</c> — the OAuth2 client-credentials grant (RFC 6749 §4.4), and the
-    /// refresh-token grant (§6) when the app has enabled refresh tokens.
+    /// <c>POST /api/auth/token</c> — the OAuth2 client-credentials grant (RFC 6749 §4.4) when the app has turned
+    /// service clients on, and the refresh-token grant (§6) when it has turned refresh tokens on.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -35,8 +35,13 @@ public static class IdentityEndpointHandlers
     /// tokens are issued to people, not to registered clients, so no client authentication is read for
     /// this grant. A token that cannot be exchanged, for whatever reason, is <c>invalid_grant</c>.
     /// </para>
+    /// <para>
+    /// <c>grant_type=client_credentials</c> likewise needs
+    /// <see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/>; without it the grant is
+    /// <c>unsupported_grant_type</c>.
+    /// </para>
     /// </remarks>
-    public static async Task<IResult> TokenAsync(HttpContext http, IdentityTokenService tokens, CancellationToken ct)
+    public static async Task<IResult> TokenAsync(HttpContext http, CancellationToken ct)
     {
         http.Response.Headers.CacheControl = "no-store";
         http.Response.Headers.Pragma = "no-cache";
@@ -44,7 +49,8 @@ public static class IdentityEndpointHandlers
         var (req, viaBasic, readError) = await ReadTokenRequestAsync(http.Request, ct);
         if (readError is not null) return OAuthError(readError, StatusCodes.Status400BadRequest);
 
-        var (result, error) = await IssueAsync(req!, tokens, () => RefreshTokens(http.RequestServices), ct);
+        var (result, error) = await IssueAsync(req!, () => Surface<ServiceClientTokenService>(http.RequestServices),
+            () => Surface<UserTokenService>(http.RequestServices), ct);
         if (error != InvalidClient) return result;
         if (!viaBasic) return OAuthError(InvalidClient, StatusCodes.Status400BadRequest);
         http.Response.Headers.WWWAuthenticate = "Basic realm=\"iyu\", charset=\"UTF-8\"";
@@ -54,28 +60,30 @@ public static class IdentityEndpointHandlers
     /// <summary>
     /// Issues a token for an already-read request. Transport decisions — which status a failed
     /// authentication gets, the challenge and cache headers — belong to the HTTP overload; this one
-    /// answers a failed authentication with 401 and no challenge.
+    /// answers a failed authentication with 401 and no challenge. A <c>null</c> service is a grant the app has not
+    /// turned on.
     /// </summary>
-    public static async Task<IResult> TokenAsync(TokenRequest req, IdentityTokenService tokens, CancellationToken ct,
+    public static async Task<IResult> TokenAsync(TokenRequest req, ServiceClientTokenService? clients, CancellationToken ct,
         UserTokenService? users = null)
     {
-        var (result, error) = await IssueAsync(req, tokens, () => users, ct);
+        var (result, error) = await IssueAsync(req, () => clients, () => users, ct);
         return error == InvalidClient ? OAuthError(InvalidClient, StatusCodes.Status401Unauthorized) : result;
     }
 
     private const string InvalidClient = "invalid_client";
 
     /// <summary>
-    /// The refresh-token service when the app turned refresh tokens on
-    /// (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>); <c>null</c> when it did not.
+    /// The service behind a grant when the app turned that grant on
+    /// (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/>,
+    /// <see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>); <c>null</c> when it did not.
     /// </summary>
     /// <exception cref="InvalidOperationException">Turned on with a port missing — a configuration mistake,
     /// named by the container rather than answered as an unsupported grant that would hide it.</exception>
-    private static UserTokenService? RefreshTokens(IServiceProvider services) =>
-        (UserTokenService?)services.GetService(typeof(UserTokenService));
+    private static T? Surface<T>(IServiceProvider services) where T : class =>
+        (T?)services.GetService(typeof(T));
 
     private static async Task<(IResult Result, string? Error)> IssueAsync(
-        TokenRequest req, IdentityTokenService tokens, Func<UserTokenService?> refreshTokens, CancellationToken ct)
+        TokenRequest req, Func<ServiceClientTokenService?> clients, Func<UserTokenService?> refreshTokens, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(req.Grant_Type))
             return Failure("invalid_request");
@@ -91,6 +99,8 @@ public static class IdentityEndpointHandlers
         }
         if (req.Grant_Type != "client_credentials")
             return Failure("unsupported_grant_type");
+        // Resolved only for this grant, like the refresh service above.
+        if (clients() is not { } tokens) return Failure("unsupported_grant_type");
         if (string.IsNullOrWhiteSpace(req.ClientId) || string.IsNullOrWhiteSpace(req.ClientSecret))
             return Failure("invalid_request");
 

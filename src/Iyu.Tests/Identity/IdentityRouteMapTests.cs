@@ -26,12 +26,12 @@ public class IdentityRouteMapTests
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddLogging();
-        builder.Services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
-        builder.Services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
+        builder.Services.AddSingleton<IServiceClientStore>(new FakeIdentityStore());
         builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", Issuer = "iyu", Audience = "iyu-api" },
             permissionCatalog: ["orders.read"]);
+        builder.Services.AddIyuServiceClients();
 
         var app = builder.Build();
         app.MapIyuIdentity();

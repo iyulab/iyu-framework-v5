@@ -21,9 +21,7 @@ public class UserAccessTokenServiceTests
         Lifetime = TimeSpan.FromHours(1),
     };
 
-    private UserAccessTokenService Service(IUserClaimsSource? claims = null) => new(
-        new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>()),
-        claims ?? _claims, _opts, _log);
+    private UserAccessTokenService Service(IUserClaimsSource? claims = null) => new(claims ?? _claims, _opts, _clock, _log);
 
     private static JwtSecurityToken Read(TokenResult result) => new JwtSecurityTokenHandler().ReadJwtToken(result.AccessToken);
 
@@ -102,7 +100,7 @@ public class UserAccessTokenServiceTests
     {
         // A bearer token is not re-read while it lives: one signed over hand-assembled claims would carry whatever
         // permissions the caller wrote, for its whole lifetime. People's tokens go through the claims source.
-        var signers = typeof(IdentityTokenService).Assembly.GetExportedTypes()
+        var signers = typeof(ServiceClientTokenService).Assembly.GetExportedTypes()
             .SelectMany(t => t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
                                           | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly))
             .Where(m => m.ReturnType == typeof(TokenResult)

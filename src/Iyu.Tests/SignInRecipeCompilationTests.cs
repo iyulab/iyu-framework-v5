@@ -42,6 +42,11 @@ public sealed class SignInRecipeCompilationTests
 
         public sealed record LoginRequest(string Username, string Password);
 
+        public sealed class AppUserCredentialStore : IUserCredentialStore
+        {
+            public Task<Iyu.Core.Identity.IUser?> FindUserByUsernameAsync(string username, CancellationToken ct) => throw new NotImplementedException();
+        }
+
         public sealed class EfRefreshTokenStore : IRefreshTokenStore
         {
             public Task InsertAsync(RefreshTokenRecord token, CancellationToken ct) => throw new NotImplementedException();

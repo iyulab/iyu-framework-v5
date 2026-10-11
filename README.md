@@ -28,7 +28,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
 | `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder (searches `[Searchable]` properties when a type declares any, otherwise every string property; a `[Searchable]` reference navigation searches the referenced type's text, one step), `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
-| `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer, OAuth2 `client_credentials` service clients). Serves OData; carries no GraphQL dependency |
+| `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer sessions; service clients, local credentials and refresh tokens each turned on by their own call). Serves OData; carries no GraphQL dependency |
 | `Iyu.MainServer.GraphQL` | The GraphQL surface for `AddIyuMainServer` — `options.GraphQL`, `/graphql`. Reference it only if the host serves GraphQL (below) |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
@@ -91,13 +91,25 @@ Resulting endpoints:
 ## Identity
 
 `AddIyuIdentity` wires authentication/authorization *infrastructure*: dual-scheme authentication
-(cookie for browsers/API clients, JWT bearer for OAuth2 `client_credentials` service clients),
-per-permission authorization policies built from a `permissionCatalog`, and `IIdentityStore` as
-the read-side seam a consumer implements against its own user store. `MapIyuIdentity` maps only
-the service-client surface (`/api/auth/token` plus `/api/service-clients/*`) — **there is no
-built-in human sign-in endpoint, local or federated.** That is deliberate: how a person is
-authenticated — the credential check, the route, what the response says — is the consuming app's,
-the same way the generic OData controller leaves business validation to the consumer.
+(cookie for browsers/API clients, JWT bearer for access tokens), per-permission authorization
+policies built from a `permissionCatalog`, and the services that open a person's session. It needs
+no store. Each further surface is turned on by its own call, and **only a surface that is on asks
+for its store**:
+
+| Call | Surface | The app registers |
+|---|---|---|
+| `AddIyuServiceClients()` | Service clients — the OAuth2 `client_credentials` grant, the owner's management endpoints, and the check of issued tokens against the store | `IServiceClientStore` |
+| `AddIyuUserCredentials()` | The local password check — `UserCredentialService` | `IUserCredentialStore` |
+| `AddIyuRefreshTokens()` | People's refresh tokens — `UserTokenService`, the `refresh_token` grant | `IRefreshTokenStore` |
+| `AddIyuExternalSignIn()` | Sign-in through external providers | `IExternalLoginResolver` |
+
+A host that registers a surface's store without turning the surface on is refused at startup, with
+the call to add in the message. `MapIyuIdentity` maps `POST /api/auth/token` — which answers the
+grants that are on, and `unsupported_grant_type` for the rest — and, with service clients on,
+`/api/service-clients/*`. **There is no built-in human sign-in endpoint, local or federated.** That
+is deliberate: how a person is authenticated — the credential check, the route, what the response
+says — is the consuming app's, the same way the generic OData controller leaves business validation
+to the consumer.
 
 **A wider permission can cover a narrower one.** Each catalog code is a policy of the same name, met by
 that code — and by any code declared to imply it:
@@ -181,6 +193,9 @@ Two recipes for a sign-in endpoint — same shape, only the way the account is e
 **Local username/password:**
 
 ```csharp
+builder.Services.AddIyuUserCredentials();
+builder.Services.AddScoped<IUserCredentialStore, AppUserCredentialStore>();   // FindUserByUsernameAsync over your users
+
 app.MapPost("/api/auth/login", async (LoginRequest req, UserCredentialService credentials, UserSessionService sessions,
     HttpContext http, CancellationToken ct) =>
 {
@@ -191,7 +206,7 @@ app.MapPost("/api/auth/login", async (LoginRequest req, UserCredentialService cr
 }).AllowAnonymous();
 ```
 
-`UserCredentialService` (registered by `AddIyuIdentity`) finds the account, verifies the password against
+`UserCredentialService` (registered by `AddIyuUserCredentials`) finds the account, verifies the password against
 `IUser.PasswordHash`, and refuses an account that is not active. Every check costs one hash verification —
 an unknown name and an account without a password included — so response time does not tell which names are
 accounts, and the password is verified before the account's state is read. The hasher is ASP.NET Core
@@ -397,7 +412,7 @@ stamped by two different machines.
 
 **Server-side diagnosis**: rejected `client_credentials` requests are logged with the cause —
 no such client, revoked, expired, or secret mismatch — at `Warning`, against the category
-`Iyu.MainServer.Identity.IdentityTokenService`. The *response* stays one undifferentiated
+`Iyu.MainServer.Identity.ServiceClientTokenService`. The *response* stays one undifferentiated
 `invalid_client` with equalized timing, which is what stops the endpoint confirming which client
 ids exist; the log is how the operator, who already has the database, is not left with the same
 information as the caller. The secret is never logged in any form.

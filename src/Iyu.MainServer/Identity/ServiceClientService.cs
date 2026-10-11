@@ -8,15 +8,13 @@ public sealed record UpdatePermissionsResult(bool Ok, string? Error, IReadOnlyLi
 /// <summary>Owner-scoped service-client lifecycle: create (subset ⊆ owner), rotate, revoke.</summary>
 public sealed class ServiceClientService
 {
-    private readonly IIdentityStore _store;
-    private readonly IServiceClientStore _writes;
+    private readonly IServiceClientStore _store;
     private readonly TimeProvider _clock;
     private readonly PermissionHierarchy _hierarchy;
 
-    public ServiceClientService(IIdentityStore store, IServiceClientStore writes, TimeProvider clock,
-        PermissionHierarchy hierarchy)
+    public ServiceClientService(IServiceClientStore store, TimeProvider clock, PermissionHierarchy hierarchy)
     {
-        _store = store; _writes = writes; _clock = clock; _hierarchy = hierarchy;
+        _store = store; _clock = clock; _hierarchy = hierarchy;
     }
 
     public async Task<CreateResult> CreateAsync(Guid ownerUserId, string displayName,
@@ -29,19 +27,19 @@ public sealed class ServiceClientService
 
         var effective = PermissionScope.Effective(requestedPermissions, ownerPerms, _hierarchy);
         var (clientId, secret, hash) = ServiceClientSecrets.Generate();
-        var id = await _writes.InsertAsync(clientId, hash, displayName, ownerUserId, expiresAt, effective, ct);
+        var id = await _store.InsertAsync(clientId, hash, displayName, ownerUserId, expiresAt, effective, ct);
         return new(true, null, Array.Empty<string>(), clientId, secret, id);
     }
 
     public async Task<RotateResult> RotateAsync(Guid id, Guid ownerUserId, CancellationToken ct)
     {
         var (_, secret, hash) = ServiceClientSecrets.Generate();
-        var ok = await _writes.UpdateSecretAsync(id, ownerUserId, hash, _clock.GetUtcNow(), ct);
+        var ok = await _store.UpdateSecretAsync(id, ownerUserId, hash, _clock.GetUtcNow(), ct);
         return ok ? new(true, secret) : new(false, null);
     }
 
     public Task<bool> RevokeAsync(Guid id, Guid ownerUserId, CancellationToken ct) =>
-        _writes.DeactivateAsync(id, ownerUserId, ct);
+        _store.DeactivateAsync(id, ownerUserId, ct);
 
     /// <summary>
     /// Replaces a service client's permission grant, subject to the same owner ⊇ effective rule
@@ -57,7 +55,7 @@ public sealed class ServiceClientService
             return new(false, "permissions_exceed_owner", exceeding);
 
         var effective = PermissionScope.Effective(requestedPermissions, ownerPerms, _hierarchy);
-        var ok = await _writes.UpdatePermissionsAsync(id, ownerUserId, effective, ct);
+        var ok = await _store.UpdatePermissionsAsync(id, ownerUserId, effective, ct);
         return ok ? new(true, null, Array.Empty<string>()) : new(false, "not_found", Array.Empty<string>());
     }
 

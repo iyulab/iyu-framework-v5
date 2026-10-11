@@ -33,12 +33,12 @@ public class TokenEndpointRefreshGrantTests
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         var store = new FakeIdentityStore();
-        builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
         var claims = new FakeUserClaimsSource();
         if (tokenStore) builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
         if (claimsSource) builder.Services.AddSingleton<IUserClaimsSource>(claims);
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: ["orders.read"]);
+        builder.Services.AddIyuServiceClients();
         if (turnedOn) builder.Services.AddIyuRefreshTokens();
 
         var app = builder.Build();

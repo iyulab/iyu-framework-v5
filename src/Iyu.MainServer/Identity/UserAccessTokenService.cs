@@ -24,18 +24,22 @@ namespace Iyu.MainServer.Identity;
 /// Registered by <see cref="IyuIdentityServiceCollectionExtensions.AddIyuIdentity"/>; it needs nothing beyond the
 /// claims source every host already registers.
 /// </para>
+/// <para>
+/// There is no public way to sign a person's token over claims the caller put together: nothing re-reads a bearer
+/// token while it lives, so such a token would carry whatever permissions the caller wrote, for as long as it lasts.
+/// </para>
 /// </remarks>
 public sealed class UserAccessTokenService
 {
-    private readonly IdentityTokenService _tokens;
     private readonly IUserClaimsSource _claims;
     private readonly IdentityTokenOptions _opts;
+    private readonly TimeProvider _clock;
     private readonly ILogger<UserAccessTokenService> _log;
 
-    public UserAccessTokenService(IdentityTokenService tokens, IUserClaimsSource claims, IdentityTokenOptions opts,
+    public UserAccessTokenService(IUserClaimsSource claims, IdentityTokenOptions opts, TimeProvider clock,
         ILogger<UserAccessTokenService> log)
     {
-        _tokens = tokens; _claims = claims; _opts = opts; _log = log;
+        _claims = claims; _opts = opts; _clock = clock; _log = log;
     }
 
     /// <summary>
@@ -66,7 +70,15 @@ public sealed class UserAccessTokenService
 
         // The subject is written here, not left to the source: a token and a cookie opened for the same person
         // then name them the same way, whatever the source answered.
-        return _tokens.IssueUserToken(IyuIdentityClaims.ForSubject(claims, subject, JwtRegisteredClaimNames.Sub),
-            lifetime ?? _opts.UserAccessTokenLifetime);
+        var assembled = IyuIdentityClaims.ForSubject(claims, subject, JwtRegisteredClaimNames.Sub).ToList();
+        var effective = lifetime ?? _opts.UserAccessTokenLifetime ?? _opts.Lifetime;
+        if (effective <= TimeSpan.Zero)
+            throw new InvalidOperationException(
+                $"{nameof(IdentityTokenOptions)}.{nameof(IdentityTokenOptions.UserAccessTokenLifetime)} (or "
+                + $"{nameof(IdentityTokenOptions.Lifetime)}) must be positive.");
+
+        var jwt = IdentityTokenSigning.Sign(_opts, assembled, effective, _clock.GetUtcNow());
+        var permissions = assembled.Where(c => c.Type == _opts.PermissionClaimType).Select(c => c.Value).ToArray();
+        return new(true, null, jwt, (int)effective.TotalSeconds, permissions);
     }
 }

@@ -34,7 +34,7 @@ public class ServiceClientTokenRevocationTests
             var (clientId, secret, hash) = ServiceClientSecrets.Generate();
             var id = Store.AddClient(clientId, hash, OwnerId, expiresAt: expiresAt, perms: [Permission]);
             using var scope = App.Services.CreateScope();
-            var tokens = scope.ServiceProvider.GetRequiredService<IdentityTokenService>();
+            var tokens = scope.ServiceProvider.GetRequiredService<ServiceClientTokenService>();
             var result = await tokens.IssueClientCredentialsAsync(clientId, secret, default);
             Assert.True(result.Ok);
             return (id, result.AccessToken!);
@@ -66,13 +66,13 @@ public class ServiceClientTokenRevocationTests
         // the wall clock, so it has to start at "now", not at the fake's default epoch.
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
 
-        builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         var options = new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" };
         configure?.Invoke(options);
         builder.Services.AddIyuIdentity(options, permissionCatalog: [Permission]);
+        builder.Services.AddIyuServiceClients();
 
         var app = builder.Build();
         app.UseAuthentication();

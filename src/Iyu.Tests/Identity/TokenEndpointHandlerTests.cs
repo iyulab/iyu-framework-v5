@@ -7,15 +7,15 @@ namespace Iyu.Tests.Identity;
 
 public class TokenEndpointHandlerTests
 {
-    private static IdentityTokenService Svc(out FakeIdentityStore store, out string clientId, out string secret)
+    private static ServiceClientTokenService Svc(out FakeIdentityStore store, out string clientId, out string secret)
     {
         store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
         (clientId, secret, var hash) = ServiceClientSecrets.Generate();
         store.AddClient(clientId, hash, owner, perms: ["orders.read"]);
-        return new IdentityTokenService(store, new IdentityTokenOptions
+        return new ServiceClientTokenService(store, new IdentityTokenOptions
         { SigningKey = "0123456789abcdef0123456789abcdef" }, TimeProvider.System, PermissionHierarchy.Flat,
-            new RecordingLogger<IdentityTokenService>());
+            new RecordingLogger<ServiceClientTokenService>());
     }
 
     [Fact]

@@ -27,14 +27,14 @@ namespace Iyu.MainServer.Identity;
 /// </remarks>
 internal sealed class ServiceClientTokenValidator
 {
-    private readonly IIdentityStore _store;
+    private readonly IServiceClientStore _store;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
     private readonly IMemoryCache _cache;
     private readonly PermissionHierarchy _hierarchy;
     private readonly ILogger<ServiceClientTokenValidator> _log;
 
-    public ServiceClientTokenValidator(IIdentityStore store, IdentityTokenOptions opts, TimeProvider clock,
+    public ServiceClientTokenValidator(IServiceClientStore store, IdentityTokenOptions opts, TimeProvider clock,
         IMemoryCache cache, PermissionHierarchy hierarchy, ILogger<ServiceClientTokenValidator> log)
     {
         _store = store; _opts = opts; _clock = clock; _cache = cache; _hierarchy = hierarchy; _log = log;

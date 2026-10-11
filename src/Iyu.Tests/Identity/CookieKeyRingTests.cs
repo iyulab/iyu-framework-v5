@@ -29,8 +29,6 @@ public sealed class CookieKeyRingTests : IDisposable
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment });
         builder.WebHost.UseTestServer();
         builder.Configuration["DOTNET_RUNNING_IN_CONTAINER"] = inContainer ? "true" : null;
-        builder.Services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
-        builder.Services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
         builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(
             new IdentityTokenOptions

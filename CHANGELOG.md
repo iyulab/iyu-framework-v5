@@ -68,17 +68,17 @@ onward; earlier entries state the same consequence in prose where it applies.
   the identity token the provider issued as `id_token_hint` when the handler keeps its tokens (`SaveTokens`), and from
   there back to `returnUrl` (local only). The session records the provider that opened it, and keeps across re-issue.
 - **`Iyu.MainServer`: `UserCredentialService.VerifyAsync(username, password)` — the local password check.** It finds
-  the account (`IIdentityStore.FindUserByUsernameAsync`), verifies the password against `IUser.PasswordHash` with the
+  the account (`IUserCredentialStore.FindUserByUsernameAsync`), verifies the password against `IUser.PasswordHash` with the
   registered `IPasswordHasher<IUser>`, and refuses an inactive account, returning `CredentialCheck`: the account, why
   it failed (`CredentialFailure`: `UnknownUser`, `WrongPassword`, `Inactive`, `UnreadableHash`), and — when the
   stored hash was made with older settings — the same password hashed with the current ones to store instead. Every
   check costs one hash verification, unknown names included, and the password is verified before the account's state
   is read, so neither which names are accounts nor which accounts are inactive shows in response time.
-  `AddIyuIdentity` registers it, and ASP.NET Core Identity's `PasswordHasher<IUser>` unless the host registered a
-  hasher of its own — a dependency already in the shared framework, no new package. An application moving its own
-  password check onto this one keeps signing people in only if its stored hashes are in that hasher's format; for any
-  other, register an `IPasswordHasher<IUser>` that reads them. `IIdentityStore.FindUserByUsernameAsync` now states
-  that it returns inactive accounts too. README's sign-in recipes use it in place of the `VerifyPassword` they left to
+  `AddIyuUserCredentials()` turns it on (below), and registers ASP.NET Core Identity's `PasswordHasher<IUser>` unless
+  the host registered a hasher of its own — a dependency already in the shared framework, no new package. An
+  application moving its own password check onto this one keeps signing people in only if its stored hashes are in
+  that hasher's format; for any other, register an `IPasswordHasher<IUser>` that reads them.
+  `IUserCredentialStore.FindUserByUsernameAsync` states that it returns inactive accounts too. README's sign-in recipes use it in place of the `VerifyPassword` they left to
   the application.
 - **`Iyu.MainServer`: a permission code can count as holding others — `AddIyuIdentity(…, permissionImplications:)`.**
   `new PermissionImplication("orders.write", "orders.read")` lets whoever holds `orders.write` satisfy the
@@ -94,8 +94,37 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed — identity
 
+- 🔴 **`Iyu.MainServer`: each identity surface is turned on by its own call and asks for its own store.**
+  `AddIyuIdentity` used to register every identity service at once, so a host that only opens cookie sessions still
+  needed a service-client store and an account store — Development's container validation asked for both, and
+  outside it the first use failed — while `UserAccessTokenService`, documented as needing nothing but the claims
+  source, reached a store through the service-client token service. `AddIyuIdentity` is now the core (schemes,
+  policies, the session and access-token services) and needs no store.
+  - **`AddIyuServiceClients()`** turns on service clients: the `client_credentials` grant, the management endpoints
+    `MapIyuIdentity` maps under `/api/service-clients`, and the check of issued tokens against the store. A host with
+    service clients adds this call next to `AddIyuIdentity`.
+  - **`AddIyuUserCredentials()`** turns on `UserCredentialService`. A host that checks passwords adds this call.
+  - **`IIdentityStore` is gone.** Its service-client members (`FindServiceClientByClientIdAsync`,
+    `GetUserPermissionsAsync`, `GetServiceClientPermissionsAsync`, `TouchServiceClientAsync`,
+    `ListServiceClientsByOwnerAsync`) move to **`IServiceClientStore`**, which is now the service-client surface's
+    only port; `FindUserByUsernameAsync` moves to the new **`IUserCredentialStore`**. A store class that implemented
+    both interfaces drops `IIdentityStore` from its list and registers as `IServiceClientStore` alone; the
+    username lookup implements `IUserCredentialStore` (the same class can). A host that checks no passwords drops it.
+  - **`IdentityTokenService` is renamed `ServiceClientTokenService`** — it issues the `client_credentials` grant and
+    nothing else. 🔇 The operator log category for rejected client credentials moves with it, to
+    `Iyu.MainServer.Identity.ServiceClientTokenService`; a log filter on the old name stops matching.
+  - **Constructors** (only code that constructs these outside DI notices): `ServiceClientService(store, clock,
+    hierarchy)` takes the one `IServiceClientStore`; `UserAccessTokenService(claimsSource, options, clock, logger)`
+    no longer takes the service-client token service; `IdentityEndpointHandlers.TokenAsync(request, clients, ct,
+    users?)` takes a nullable `ServiceClientTokenService`.
+  - 🔇 **Without `AddIyuServiceClients`**, `grant_type=client_credentials` answers `unsupported_grant_type`, the
+    management endpoints are not mapped (404), and a bearer token carrying a service-client stamp is refused. A host
+    that registers `IServiceClientStore` or `IUserCredentialStore` without turning its surface on is refused at
+    startup, with the call to add in the message — so the upgrade cannot leave machine integrations failing quietly.
+  - README `## Identity` and the identity guide open with the table of surfaces, calls and stores.
+
 - **`Iyu.MainServer`: `PermissionScope.Effective` and `Exceeding` take the `PermissionHierarchy`**, and so do the
-  constructors of `IdentityTokenService` and `ServiceClientService` — the owner's set they compare against is the
+  constructors of `ServiceClientTokenService` and `ServiceClientService` — the owner's set they compare against is the
   owner's codes and everything those imply. Code that resolves the services from DI is unaffected; code that
   constructs them or calls `PermissionScope` passes `PermissionHierarchy.Flat` for the behavior it had.
 
@@ -132,9 +161,9 @@ onward; earlier entries state the same consequence in prose where it applies.
     token, assembled from the source like the cookie (`sub` from the subject); `Ok = false` with `invalid_grant` when
     the source refuses the subject. Registered by `AddIyuIdentity` — no refresh-token store needed. The lifetime
     argument defaults to `UserAccessTokenLifetime`, then `Lifetime`. `UserTokenService` issues its access half through
-    it, so the two cannot differ (its constructor takes `UserAccessTokenService` in place of `IdentityTokenService`
+    it, so the two cannot differ (its constructor takes `UserAccessTokenService` in place of the token service
     and `IUserClaimsSource` — only code that constructs it outside DI notices).
-  - **`IdentityTokenService.IssueUserToken` is no longer public.** It signed whatever claims the caller assembled, and a
+  - **`IdentityTokenService.IssueUserToken` is gone.** It signed whatever claims the caller assembled, and a
     bearer token is not re-read while it lives — so a hand-assembled token kept the permissions its caller wrote for
     its whole lifetime. Replace `IssueUserToken(claims, lifetimeOverride)` with
     `UserAccessTokenService.IssueAsync(subject, lifetime)`: the permission claims the call site used to add come from

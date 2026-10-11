@@ -28,8 +28,7 @@ public class RefreshTokenReuseIntervalTests
     private UserTokenService Service()
     {
         _claims.Set("u1", "orders.read");
-        var tokens = new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>());
-        var access = new UserAccessTokenService(tokens, _claims, _opts, new RecordingLogger<UserAccessTokenService>());
+        var access = new UserAccessTokenService(_claims, _opts, _clock, new RecordingLogger<UserAccessTokenService>());
         return new UserTokenService(access, _store, _opts, _clock, new RecordingLogger<UserTokenService>());
     }
 

@@ -43,9 +43,6 @@ public class UserSessionSignInTests
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
-        var store = new FakeIdentityStore();
-        builder.Services.AddSingleton<IIdentityStore>(store);
-        builder.Services.AddSingleton<IServiceClientStore>(store);
         builder.Services.AddSingleton<IRefreshTokenStore>(new FakeRefreshTokenStore());
         var claims = new ScriptedClaimsSource();
         builder.Services.AddSingleton<IUserClaimsSource>(claims);

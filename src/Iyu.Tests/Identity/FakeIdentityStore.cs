@@ -3,7 +3,7 @@ using Iyu.MainServer.Identity;
 
 namespace Iyu.Tests.Identity;
 
-public sealed class FakeIdentityStore : IIdentityStore, IServiceClientStore
+public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStore
 {
     private sealed record FakeUser(Guid Id, string Username, string PasswordHash, string DisplayName,
         string? Email, bool IsActive, DateTimeOffset? LastLoginAt) : IUser;

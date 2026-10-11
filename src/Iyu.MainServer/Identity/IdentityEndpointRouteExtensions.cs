@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Iyu.MainServer.Identity;
@@ -10,13 +11,23 @@ namespace Iyu.MainServer.Identity;
 /// <summary>Maps the identity runtime's HTTP surface: anonymous token issuance and owner-scoped service-client management.</summary>
 public static class IdentityEndpointRouteExtensions
 {
+    /// <summary>
+    /// Maps <c>POST /api/auth/token</c>, which answers the grants the application turned on —
+    /// <c>client_credentials</c> with <see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/>,
+    /// <c>refresh_token</c> with <see cref="IyuIdentityServiceCollectionExtensions.AddIyuRefreshTokens"/>, any other with
+    /// <c>unsupported_grant_type</c> — and, with service clients on, the owner's management endpoints under
+    /// <c>/api/service-clients</c>.
+    /// </summary>
     public static IEndpointRouteBuilder MapIyuIdentity(this IEndpointRouteBuilder app)
     {
         var auth = app.MapGroup("/api/auth");
         // Read by the handler rather than bound as a parameter: RFC 6749 clients send a form body or
         // a Basic header, and a record parameter binds only a JSON body.
-        auth.MapPost("/token", (HttpContext http, IdentityTokenService tokens, CancellationToken ct)
-            => IdentityEndpointHandlers.TokenAsync(http, tokens, ct)).AllowAnonymous();
+        auth.MapPost("/token", (HttpContext http, CancellationToken ct)
+            => IdentityEndpointHandlers.TokenAsync(http, ct)).AllowAnonymous();
+
+        if (!app.ServiceProvider.GetRequiredService<IServiceProviderIsService>().IsService(typeof(ServiceClientService)))
+            return app;
 
         var clients = app.MapGroup("/api/service-clients")
             .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName);

@@ -42,22 +42,70 @@ public class ServiceProviderValidationTests
         using var app = builder.Build();
     }
 
+    /// <summary>The core every host uses: a claims source, and no store of any kind.</summary>
     private static void IdentityWithItsRequiredStores(WebApplicationBuilder builder, bool claimsSource = true)
     {
-        var store = new FakeIdentityStore();
-        builder.Services.AddSingleton<IIdentityStore>(store);
-        builder.Services.AddSingleton<IServiceClientStore>(store);
         if (claimsSource) builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: ["orders.read"]);
     }
 
+    /// <summary>
+    /// Sessions and access tokens need nothing but the claims source — no service-client, credential or
+    /// refresh-token store.
+    /// </summary>
     [Fact]
-    public void Identity_without_refresh_tokens_needs_no_refresh_token_store()
+    public void Identity_alone_needs_no_store()
     {
         var builder = DevelopmentBuilder();
         IdentityWithItsRequiredStores(builder);
 
         BuildsAndDisposes(builder);
+    }
+
+    [Fact]
+    public void Service_clients_with_their_store_build()
+    {
+        var builder = DevelopmentBuilder();
+        IdentityWithItsRequiredStores(builder);
+        builder.Services.AddIyuServiceClients();
+        builder.Services.AddSingleton<IServiceClientStore>(new FakeIdentityStore());
+
+        BuildsAndDisposes(builder);
+    }
+
+    [Fact]
+    public void Service_clients_turned_on_without_a_store_is_refused_at_startup_naming_it()
+    {
+        var builder = DevelopmentBuilder();
+        IdentityWithItsRequiredStores(builder);
+        builder.Services.AddIyuServiceClients();
+
+        var error = Assert.Throws<AggregateException>(() => BuildsAndDisposes(builder));
+
+        Assert.Contains(nameof(IServiceClientStore), error.Message);
+    }
+
+    [Fact]
+    public void User_credentials_with_their_store_build()
+    {
+        var builder = DevelopmentBuilder();
+        IdentityWithItsRequiredStores(builder);
+        builder.Services.AddIyuUserCredentials();
+        builder.Services.AddSingleton<IUserCredentialStore>(new FakeIdentityStore());
+
+        BuildsAndDisposes(builder);
+    }
+
+    [Fact]
+    public void User_credentials_turned_on_without_a_store_is_refused_at_startup_naming_it()
+    {
+        var builder = DevelopmentBuilder();
+        IdentityWithItsRequiredStores(builder);
+        builder.Services.AddIyuUserCredentials();
+
+        var error = Assert.Throws<AggregateException>(() => BuildsAndDisposes(builder));
+
+        Assert.Contains(nameof(IUserCredentialStore), error.Message);
     }
 
     [Fact]

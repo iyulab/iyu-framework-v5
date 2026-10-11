@@ -68,9 +68,6 @@ public class UserSessionRevalidationTests
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
-        var store = new FakeIdentityStore();
-        builder.Services.AddSingleton<IIdentityStore>(store);
-        builder.Services.AddSingleton<IServiceClientStore>(store);
         var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-10-11T00:00:00Z"));
         builder.Services.AddSingleton<TimeProvider>(clock);
         var claims = new CountingClaimsSource();

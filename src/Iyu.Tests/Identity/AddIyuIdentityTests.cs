@@ -13,20 +13,38 @@ public class AddIyuIdentityTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IIdentityStore>(new FakeIdentityStore());       // 소비앱이 하는 concrete 등록 흉내
-        services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
+        services.AddSingleton<IServiceClientStore>(new FakeIdentityStore());       // 소비앱이 하는 concrete 등록 흉내
         services.AddIyuIdentity(
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", Issuer = "iyu", Audience = "iyu-api" },
             permissionCatalog: ["orders.read", "orders.write"]);
+        services.AddIyuServiceClients();
         return services.BuildServiceProvider();
     }
 
     [Fact]
-    public void Registers_TokenService_AndServiceClientService()
+    public void AddIyuServiceClients_registers_the_token_service_and_the_management_service()
     {
         using var sp = Build();
-        Assert.NotNull(sp.GetService<IdentityTokenService>());
+        Assert.NotNull(sp.GetService<ServiceClientTokenService>());
         Assert.NotNull(sp.GetService<ServiceClientService>());
+    }
+
+    /// <summary>
+    /// The core alone registers no service-client service — a host that does not issue machine credentials needs no
+    /// store for them, and Development's container validation does not ask for one.
+    /// </summary>
+    [Fact]
+    public void AddIyuIdentity_alone_registers_no_service_client_or_credential_service()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" },
+            permissionCatalog: ["orders.read"]);
+
+        Assert.DoesNotContain(services, d => d.ServiceType == typeof(ServiceClientTokenService)
+                                             || d.ServiceType == typeof(ServiceClientService)
+                                             || d.ServiceType == typeof(UserCredentialService));
+        Assert.Contains(services, d => d.ServiceType == typeof(UserAccessTokenService));
     }
 
     [Fact]
@@ -51,8 +69,6 @@ public class AddIyuIdentityTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
-        services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
 
         Assert.Throws<ArgumentException>(() =>
             services.AddIyuIdentity(
@@ -77,8 +93,6 @@ public class AddIyuIdentityTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(clock);
-        services.AddSingleton<IIdentityStore>(new FakeIdentityStore());
-        services.AddSingleton<IServiceClientStore>(sp => (FakeIdentityStore)sp.GetRequiredService<IIdentityStore>());
         services.AddIyuIdentity(
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", Issuer = "iyu", Audience = "iyu-api" },
             permissionCatalog: ["orders.read"]);

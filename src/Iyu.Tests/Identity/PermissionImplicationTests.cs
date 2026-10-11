@@ -102,7 +102,7 @@ public class PermissionImplicationTests
         public async Task<TokenResult> IssueAsync(string clientId, string secret, string? scope = null)
         {
             using var s = App.Services.CreateScope();
-            return await s.ServiceProvider.GetRequiredService<IdentityTokenService>()
+            return await s.ServiceProvider.GetRequiredService<ServiceClientTokenService>()
                 .IssueClientCredentialsAsync(clientId, secret, scope, default);
         }
 
@@ -127,7 +127,6 @@ public class PermissionImplicationTests
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         var store = new FakeIdentityStore();
-        builder.Services.AddSingleton<IIdentityStore>(store);
         builder.Services.AddSingleton<IServiceClientStore>(store);
         builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
         builder.Services.AddIyuIdentity(
@@ -135,6 +134,7 @@ public class PermissionImplicationTests
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", ServiceClientValidationWindow = TimeSpan.Zero },
             permissionCatalog: Catalog,
             permissionImplications: implications);
+        builder.Services.AddIyuServiceClients();
 
         var app = builder.Build();
         app.UseAuthentication();

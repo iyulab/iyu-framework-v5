@@ -1,11 +1,23 @@
 # Iyu Identity — 소비앱 통합 가이드
 
-AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 토큰 발급, 서비스 클라이언트)만 제공한다.
+AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 사람의 세션·액세스 토큰)만 제공한다.
+그 위의 표면은 각자 켜고, **켠 표면만 자기 저장소를 요구한다**:
+
+| 켜는 호출 | 표면 | 앱이 등록하는 저장소 |
+|---|---|---|
+| `AddIyuServiceClients()` | 서비스 클라이언트 — `client_credentials` grant · `/api/service-clients` 관리 끝점 · 발급된 토큰의 저장소 대조 | `IServiceClientStore` |
+| `AddIyuUserCredentials()` | 로컬 비밀번호 검사 — `UserCredentialService` | `IUserCredentialStore` |
+| `AddIyuRefreshTokens()` | 사람의 리프레시 토큰 — `UserTokenService` · `refresh_token` grant | `IRefreshTokenStore` |
+| `AddIyuExternalSignIn()` | 외부 로그인(OIDC 등) — 아래 7번 | `IExternalLoginResolver`(저장소가 아니라 판정) |
+
+저장소만 등록하고 그 표면을 켜지 않은 호스트는 **기동이 거부된다**(무엇을 호출할지 메시지가 말한다) — 켜지 않은 grant 는
+`unsupported_grant_type`, 관리 끝점은 매핑되지 않아, 그대로 두면 기계 연동이 «폐기된 자격»처럼 조용히 실패하기 때문이다.
+
 소비앱은 아래를 책임진다:
 
 1. **concrete 아이덴티티 모델**: mdd로 `@implements Iyu.Core.Identity.IUser`(또는 `@inherits Iyu.Core.Identity.IyuUser`) 등 계약 준수 엔티티 생성. (P2/P3)
-2. **store 등록**: `IIdentityStore`·`IServiceClientStore`의 EF 구현을 DI에 등록(앱 DbContext 위).
-   `IIdentityStore.ListServiceClientsByOwnerAsync` 의 계약은 아래 「저장소가 지켜야 할 것」 참조.
+2. **store 등록**: 켠 표면의 저장소만(위 표) EF 구현으로 DI에 등록(앱 DbContext 위).
+   `IServiceClientStore.ListServiceClientsByOwnerAsync` 의 계약은 아래 「저장소가 지켜야 할 것」 참조.
 3. **권한 카탈로그**: 도메인 권한 코드(`orders.read` 등)를 `AddIyuIdentity(..., permissionCatalog)`로 전달.
    넓은 권한이 좁은 권한을 덮으면 `permissionImplications: [new("orders.write", "orders.read")]` — `orders.write` 를 가진 쪽이
    `orders.read` 정책도 충족한다(추이적). 역할마다 두 코드를 짝으로 배정하지 않는다. 발급되는 세션·토큰은 받은 코드만 싣고,

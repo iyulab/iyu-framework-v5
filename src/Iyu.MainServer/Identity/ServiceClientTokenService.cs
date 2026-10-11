@@ -1,8 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Iyu.MainServer.Identity;
 
@@ -12,22 +10,23 @@ public sealed record TokenResult(bool Ok, string? Error, string? AccessToken, in
 /// Issues short-lived JWTs for the OAuth2 client_credentials grant, scoped to owner∩client permissions. A person's
 /// token is issued by <see cref="UserAccessTokenService"/> or <see cref="UserTokenService"/>.
 /// </summary>
-public sealed class IdentityTokenService
+/// <remarks>Registered by <see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/>.</remarks>
+public sealed class ServiceClientTokenService
 {
     // Dummy hash for a constant-time verify on the not-found/inactive/expired branch below,
     // so that path takes roughly the same time as the wrong-secret path (no timing oracle
     // that lets a caller distinguish "no such client" from "wrong secret").
     private static readonly string _dummyHash = ServiceClientSecrets.Hash("dummy");
 
-    private readonly IIdentityStore _store;
+    private readonly IServiceClientStore _store;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
 
     private readonly PermissionHierarchy _hierarchy;
-    private readonly ILogger<IdentityTokenService> _log;
+    private readonly ILogger<ServiceClientTokenService> _log;
 
-    public IdentityTokenService(IIdentityStore store, IdentityTokenOptions opts, TimeProvider clock,
-        PermissionHierarchy hierarchy, ILogger<IdentityTokenService> log)
+    public ServiceClientTokenService(IServiceClientStore store, IdentityTokenOptions opts, TimeProvider clock,
+        PermissionHierarchy hierarchy, ILogger<ServiceClientTokenService> log)
     {
         _store = store; _opts = opts; _clock = clock; _hierarchy = hierarchy; _log = log;
     }
@@ -91,7 +90,7 @@ public sealed class IdentityTokenService
         claims.Add(new Claim(IyuIdentityClaims.ServiceClientStampClaimType,
             ServiceClientStamp.Compute(_opts.SigningKey, client.SecretHash, effective)));
 
-        var jwt = SignToken(claims, _opts.Lifetime, now);
+        var jwt = IdentityTokenSigning.Sign(_opts, claims, _opts.Lifetime, now);
 
         await _store.TouchServiceClientAsync(client.Id, now, ct);
         return new(true, null, jwt, (int)_opts.Lifetime.TotalSeconds, granted);
@@ -122,44 +121,4 @@ public sealed class IdentityTokenService
     /// </remarks>
     private void LogRejection(string clientId, string reason) =>
         _log.LogWarning("client_credentials rejected for {ClientId}: {Reason}", clientId, reason);
-
-    /// <summary>
-    /// Signs a person's access token over claims already assembled from <see cref="IUserClaimsSource"/> — the
-    /// signing half of <see cref="UserAccessTokenService"/> and <see cref="UserTokenService"/>.
-    /// </summary>
-    /// <remarks>
-    /// Not public: a token signed over claims the caller put together is a session the claims source never
-    /// answered for, and nothing re-reads a bearer token while it lives — so the permission claims it carries
-    /// would be whatever the caller wrote, for as long as it lasts. Applications issue people's tokens through
-    /// the two services above.
-    /// </remarks>
-    /// <param name="claims">The assembled claims, the subject's identifier included.</param>
-    /// <param name="lifetimeOverride">Overrides <see cref="IdentityTokenOptions.Lifetime"/> for this token.</param>
-    internal TokenResult IssueUserToken(IEnumerable<Claim> claims, TimeSpan? lifetimeOverride = null)
-    {
-        ArgumentNullException.ThrowIfNull(claims);
-        var lifetime = lifetimeOverride ?? _opts.Lifetime;
-        if (lifetime <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(lifetimeOverride), lifetime, "Lifetime must be positive.");
-
-        var claimsList = claims as IReadOnlyCollection<Claim> ?? claims.ToList();
-        var now = _clock.GetUtcNow();
-
-        var jwt = SignToken(claimsList, lifetime, now);
-
-        var permissions = claimsList
-            .Where(c => c.Type == _opts.PermissionClaimType)
-            .Select(c => c.Value)
-            .ToArray();
-        return new(true, null, jwt, (int)lifetime.TotalSeconds, permissions);
-    }
-
-    private string SignToken(IEnumerable<Claim> claims, TimeSpan lifetime, DateTimeOffset now)
-    {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(_opts.Issuer, _opts.Audience, claims,
-            notBefore: now.UtcDateTime, expires: now.Add(lifetime).UtcDateTime, signingCredentials: creds);
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
 }
