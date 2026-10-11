@@ -17,7 +17,9 @@ namespace Iyu.MainServer;
 /// The exception handlers decide <i>what</i> a failure is — its status, its wording, optionally its
 /// code. This writer decides only the <i>format</i>, at the point the body is written, which is why a
 /// handler a consumer registers (one that classifies its provider's write failures, say) keeps working
-/// unchanged and simply comes out in the route's format.
+/// unchanged and simply comes out in the route's format. A failure answered with no body on the route
+/// (a policy's <c>401</c>/<c>403</c>, an unmatched path's <c>404</c>) reaches it through the status-code
+/// pages <c>UseIyuMainServer</c> enables for the route.
 /// </para>
 /// <para>
 /// <c>error.code</c> is the <c>code</c> extension when the problem carries a string one; otherwise the
@@ -29,10 +31,13 @@ namespace Iyu.MainServer;
 /// </remarks>
 internal sealed class IyuODataProblemDetailsWriter(string routePrefix) : IProblemDetailsWriter
 {
-    private readonly PathString _route = string.IsNullOrEmpty(routePrefix) ? PathString.Empty : new("/" + routePrefix);
+    private readonly string _routePrefix = routePrefix;
 
-    public bool CanWrite(ProblemDetailsContext context)
-        => _route == PathString.Empty || context.HttpContext.Request.Path.StartsWithSegments(_route);
+    public bool CanWrite(ProblemDetailsContext context) => IsUnderRoute(context.HttpContext.Request, _routePrefix);
+
+    /// <summary>Whether <paramref name="request"/> is under the OData route — the whole application when the prefix is empty.</summary>
+    internal static bool IsUnderRoute(HttpRequest request, string routePrefix)
+        => string.IsNullOrEmpty(routePrefix) || request.Path.StartsWithSegments("/" + routePrefix);
 
     public async ValueTask WriteAsync(ProblemDetailsContext context)
     {

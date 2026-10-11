@@ -169,7 +169,11 @@ onward; earlier entries state the same consequence in prose where it applies.
   own keeps classifying and its answer comes out in the route's format — a string `code` extension becomes
   `error.code`. Outside the route nothing changes. **If a client of `/$data` parsed `title`/`status` from these two
   responses**, read `error.code` and `error.message` instead. An `IProblemDetailsWriter` of your own registered before
-  `AddIyuMainServer` is still asked first. `ODataErrorCodes` gains `Conflict` and `InternalServerError`.
+  `AddIyuMainServer` is still asked first. The failures that had no body on the route at all — a set policy's `401`
+  and `403`, a path that names no set (`404`), a verb nothing on the path answers (`405`) — now carry the same error
+  object (`UseIyuMainServer` enables status-code pages for the route only; headers such as `WWW-Authenticate` are
+  untouched). `ODataErrorCodes` gains `Conflict`, `InternalServerError`, `Unauthorized`, `Forbidden`, `NotFound` and
+  `MethodNotAllowed`.
 - 🔇 **`Iyu.Server.OData`: `$metadata` marks every property an update cannot store as `Org.OData.Core.V1.Computed`.**
   Until now only a property named to `ExcludeFromWrite` carried the term. A property the read type has and the write
   type does not — what a view derives: a lookup, a rollup, a computed column — was refused by `PATCH`

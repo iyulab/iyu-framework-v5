@@ -442,7 +442,10 @@ one format per route, so a client that reads `error.code` reads these too:
 `innererror.traceId` names the request in the server's logs. The rule is the route, not the cause:
 any `ProblemDetails` written for a request under the OData route comes out in this shape, including
 one your own exception handler writes; give it a `code` extension and that is the `error.code`.
-Elsewhere — your `/api` endpoints — the default `application/problem+json` stays. An
+A failure that would otherwise have no body on the route — a set policy's `401`/`403`, a path that
+names no set (`404`, distinct from `KeyNotFound`), a verb nothing there answers (`405`) — carries the
+same object, with the status's name as its code. Elsewhere — your `/api` endpoints — the default
+`application/problem+json` stays, and body-less responses stay body-less. An
 `IProblemDetailsWriter` of your own registered before `AddIyuMainServer` is asked first, so an
 application with one error format for every surface keeps it.
 

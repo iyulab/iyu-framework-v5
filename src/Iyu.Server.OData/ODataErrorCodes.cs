@@ -53,6 +53,21 @@ public static class ODataErrorCodes
     /// </summary>
     public const string Conflict = "Conflict";
 
+    /// <summary><c>401</c> — the set's policy needs an authenticated caller and the request has none.</summary>
+    public const string Unauthorized = "Unauthorized";
+
+    /// <summary><c>403</c> — the caller is authenticated, and the set's policy refuses it.</summary>
+    public const string Forbidden = "Forbidden";
+
+    /// <summary>
+    /// <c>404</c> — the path names nothing this service serves (an entity set or a segment the model does not
+    /// have). A key that names no row of a set that exists is <see cref="KeyNotFound"/>.
+    /// </summary>
+    public const string NotFound = "NotFound";
+
+    /// <summary><c>405</c> — nothing on this path answers the verb (a <c>PUT</c> to a set, say).</summary>
+    public const string MethodNotAllowed = "MethodNotAllowed";
+
     /// <summary>
     /// <c>500</c> — the request failed on the server. <c>error.innererror.traceId</c> names it in the
     /// server's logs; the body says nothing about the cause.

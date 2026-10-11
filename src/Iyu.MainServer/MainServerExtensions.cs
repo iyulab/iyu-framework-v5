@@ -230,10 +230,18 @@ public static class MainServerExtensions
         // RestrictPolicyEndToEndTests) runs ahead of it, which is fine: this handler only cares
         // about write-path exceptions from inside the routed action, not the auth pipeline.
         app.UseExceptionHandler();
+
+        // A failure answered with no body under the OData route — a policy's 401/403, a path that names no set
+        // (404), a verb nothing serves (405) — gets an error body there too, written by the same problem-details
+        // writer as every other failure on the route. Scoped to the route: the rest of the host is left as it is.
+        var options = app.Services.GetRequiredService<IyuMainServerOptions>();
+        app.UseWhen(
+            context => IyuODataProblemDetailsWriter.IsUnderRoute(context.Request, options.ODataRoutePrefix),
+            route => route.UseStatusCodePages());
+
         app.UseRouting();
         app.MapControllers();
 
-        var options = app.Services.GetRequiredService<IyuMainServerOptions>();
         foreach (var surface in options.Surfaces)
             surface.MapEndpoints(app);
         return app;

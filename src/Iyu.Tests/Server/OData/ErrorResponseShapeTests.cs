@@ -426,6 +426,41 @@ public class ErrorResponseShapeTests
         Assert.Equal("404 application/json odata-error code='KeyNotFound'", await ShapeOf(response));
     }
 
+    /// <summary>A path naming no set is a route-level miss, distinct from <c>KeyNotFound</c>.</summary>
+    [Fact]
+    public async Task A_path_that_names_no_set()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/$data/Nope");
+
+        Assert.Equal("404 application/json odata-error code='NotFound'", await ShapeOf(response));
+    }
+
+    [Fact]
+    public async Task A_verb_nothing_on_the_path_answers()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.PutAsJsonAsync($"/$data/{Ledgers}", new { Title = "x" });
+
+        Assert.Equal("405 application/json odata-error code='MethodNotAllowed'", await ShapeOf(response));
+    }
+
+    /// <summary>A body-less failure outside the route stays as the host answers it.</summary>
+    [Fact]
+    public async Task A_path_off_the_route_that_names_nothing()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/api/nope");
+
+        Assert.Equal("404 (none) empty", await ShapeOf(response));
+    }
+
     /// <summary>
     /// A failure nothing classified is answered in the route's format, not as <c>application/problem+json</c> —
     /// the one kind of failure on this route a client reading <c>error.code</c> could not read before.

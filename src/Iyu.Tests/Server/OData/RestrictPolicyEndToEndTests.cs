@@ -126,6 +126,7 @@ public class RestrictPolicyEndToEndTests
             using var resp = await app.GetTestServer().CreateClient()
                 .SendAsync(Request(HttpMethod.Get, $"/$data/{Set}"));
             Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+            Assert.Contains($"\"code\":\"{ODataErrorCodes.Unauthorized}\"", await resp.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
     }
@@ -139,6 +140,7 @@ public class RestrictPolicyEndToEndTests
             using var resp = await app.GetTestServer().CreateClient()
                 .SendAsync(Request(HttpMethod.Get, $"/$data/{Set}", perm: "something.else"));
             Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            Assert.Contains($"\"code\":\"{ODataErrorCodes.Forbidden}\"", await resp.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
     }
