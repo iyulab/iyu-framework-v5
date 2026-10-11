@@ -91,7 +91,10 @@ public sealed class IyuMainServerOptions
     /// <remarks>
     /// The top-level <c>message</c> is always written: it says what is wrong with the request (an
     /// unknown property, a malformed literal), which a caller needs to correct it. What this
-    /// setting withholds is the part that only describes the server's internals.
+    /// setting withholds is the part that only describes the server's internals. A failure the
+    /// exception handling answers on the OData route always carries <c>innererror.traceId</c> — it names
+    /// the request in the server's logs and describes nothing about the exception, so this setting does
+    /// not govern it.
     /// </remarks>
     public bool? IncludeODataErrorDetails { get; set; }
 
