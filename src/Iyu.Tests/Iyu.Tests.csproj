@@ -38,7 +38,8 @@
   <ItemGroup>
     <!--
       ConsumerNamespaceGuidanceTests compiles against the namespace guidance the README
-      publishes, so it reads that file rather than a copy kept in test code. A copy is
+      publishes, and SignInRecipeCompilationTests compiles its sign-in recipes, so both read
+      that file rather than a copy kept in test code (ReadmeCompilation). A copy is
       the failure it exists to catch: the two disagree, the suite still passes, and the
       consumer is the one who finds out.
     -->
