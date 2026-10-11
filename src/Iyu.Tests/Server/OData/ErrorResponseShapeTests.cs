@@ -566,6 +566,28 @@ public class ErrorResponseShapeTests
         Assert.Equal("500 application/json json-other", await ShapeOf(response));
     }
 
+    /// <summary>
+    /// The body-less failures take the same path: status-code pages write through the problem-details service, so a
+    /// writer registered first answers them too — an application's one error format covers the route's 404 and 405.
+    /// </summary>
+    [Theory]
+    [InlineData("GET", "/$data/Nope", "404 application/json json-other")]
+    [InlineData("PUT", "/$data/" + Ledgers, "405 application/json json-other")]
+    public async Task A_writer_registered_first_answers_the_route_s_body_less_failures(string method, string path,
+        string expected)
+    {
+        await using var app = await StartAsync(servicesFirst: s => s.AddSingleton<IProblemDetailsWriter, HostErrorWriter>());
+        using var client = app.GetTestClient();
+
+        using var request = new HttpRequestMessage(new HttpMethod(method), path)
+        {
+            Content = method == "PUT" ? JsonContent.Create(new { Title = "x" }) : null,
+        };
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(expected, await ShapeOf(response));
+    }
+
     private sealed class HostErrorWriter : IProblemDetailsWriter
     {
         public bool CanWrite(ProblemDetailsContext context) => true;
