@@ -23,7 +23,7 @@ public class UserTokenServiceTests
 
     private UserTokenService Service()
     {
-        var tokens = new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, new RecordingLogger<IdentityTokenService>());
+        var tokens = new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>());
         var access = new UserAccessTokenService(tokens, _claims, _opts, new RecordingLogger<UserAccessTokenService>());
         return new UserTokenService(access, _store, _opts, _clock, new RecordingLogger<UserTokenService>());
     }
@@ -68,7 +68,7 @@ public class UserTokenServiceTests
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
         var (clientId, secret, hash) = ServiceClientSecrets.Generate();
         store.AddClient(clientId, hash, owner, perms: ["orders.read"]);
-        var client = await new IdentityTokenService(store, _opts, _clock, new RecordingLogger<IdentityTokenService>())
+        var client = await new IdentityTokenService(store, _opts, _clock, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>())
             .IssueClientCredentialsAsync(clientId, secret, default);
         Assert.Equal(3600, client.ExpiresInSeconds);
     }

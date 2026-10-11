@@ -7,6 +7,9 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
 2. **store 등록**: `IIdentityStore`·`IServiceClientStore`의 EF 구현을 DI에 등록(앱 DbContext 위).
    `IIdentityStore.ListServiceClientsByOwnerAsync` 의 계약은 아래 「저장소가 지켜야 할 것」 참조.
 3. **권한 카탈로그**: 도메인 권한 코드(`orders.read` 등)를 `AddIyuIdentity(..., permissionCatalog)`로 전달.
+   넓은 권한이 좁은 권한을 덮으면 `permissionImplications: [new("orders.write", "orders.read")]` — `orders.write` 를 가진 쪽이
+   `orders.read` 정책도 충족한다(추이적). 역할마다 두 코드를 짝으로 배정하지 않는다. 발급되는 세션·토큰은 받은 코드만 싣고,
+   전체 집합이 필요한 앱 코드는 `PermissionHierarchy.Expand` 로 얻는다.
 4. **서명키 주입**: `IdentityTokenOptions.SigningKey`를 구성값(.env/App Setting, >=32 bytes)으로 주입. 프레임워크는 키를 소유하지 않는다.
 5. **클레임 원천 등록(필수)**: `IUserClaimsSource` — 주체(계정 식별자)에 대해 «이 사람이 이 앱에서 무엇을 할 수 있는가»를 클레임으로 답한다
    (권한 코드마다 `IyuIdentityClaims.Permission(code)`, 계정이 없거나 비활성이면 `null`). **등록하지 않은 호스트는 기동이 거부된다.**
@@ -82,7 +85,8 @@ grant_type=client_credentials&scope=orders.read
 같은 `subset ⊆ owner` 규칙이 적용된다: 요청한 권한이 소유자 자신의 권한을 넘으면 `400
 { error: "permissions_exceed_owner", exceeding: [...] }`이고, 넘지 않는 요청은 소유자 권한과의
 교집합(`PermissionScope.Effective`)으로 **전체 교체**된다(병합이 아니다 — 이전 권한 중 새 목록에
-없는 것은 빠진다).
+없는 것은 빠진다). 소유자의 권한은 그 코드들이 함의하는 것까지다 — `orders.write` 만 가진 소유자도 `orders.read`
+클라이언트를 낼 수 있다(함의가 선언됐을 때).
 
 ### 저장소가 지켜야 할 것 — `ListServiceClientsByOwnerAsync`
 

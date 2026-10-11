@@ -99,6 +99,21 @@ built-in human sign-in endpoint, local or federated.** That is deliberate: how a
 authenticated — the credential check, the route, what the response says — is the consuming app's,
 the same way the generic OData controller leaves business validation to the consumer.
 
+**A wider permission can cover a narrower one.** Each catalog code is a policy of the same name, met by
+that code — and by any code declared to imply it:
+
+```csharp
+builder.Services.AddIyuIdentity(tokenOptions,
+    permissionCatalog: ["orders.read", "orders.write"],
+    permissionImplications: [new("orders.write", "orders.read")]);   // orders.write also meets orders.read
+```
+
+Implication is transitive, and it applies wherever the framework decides from codes: the policies, and
+the rule that a service client never exceeds its owner (an owner holding `orders.write` may give a client
+`orders.read`). What is issued is not expanded — a session or token carries the codes it was given.
+`PermissionHierarchy.Expand(codes)` gives application code the full set, e.g. to decide what a screen shows.
+A code named outside the catalog, or two codes implying each other, is refused at registration.
+
 **What the framework does own is the step after: opening the session.** Once the app knows which
 account it is, it names that account's subject and the framework assembles the session —
 `UserSessionService.SignInAsync(http, subject)` for the session cookie,

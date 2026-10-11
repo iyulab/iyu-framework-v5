@@ -28,7 +28,7 @@ public class IdentityTokenServiceTests
     {
         var (store, clientId, secret) = SeedClient(
             ownerPerms: ["orders.read", "orders.write"], clientPerms: ["orders.read", "settlement.write"]);
-        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
+        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>());
 
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
 
@@ -43,7 +43,7 @@ public class IdentityTokenServiceTests
     public async Task Issue_RejectsWrongSecret()
     {
         var (store, clientId, _) = SeedClient(["orders.read"], ["orders.read"]);
-        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
+        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>());
         var r = await svc.IssueClientCredentialsAsync(clientId, "wrong", default);
         Assert.False(r.Ok);
         Assert.Equal("invalid_client", r.Error);
@@ -53,7 +53,7 @@ public class IdentityTokenServiceTests
     public async Task Issue_RejectsInactiveOrExpiredClient()
     {
         var (store, clientId, secret) = SeedClient(["orders.read"], ["orders.read"], active: false);
-        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
+        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>());
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
         Assert.False(r.Ok);
     }
@@ -64,7 +64,7 @@ public class IdentityTokenServiceTests
         var pastExpiry = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var (store, clientId, secret) = SeedClient(
             ["orders.read"], ["orders.read"], active: true, expiresAt: pastExpiry);
-        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, new RecordingLogger<IdentityTokenService>());
+        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>());
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
         Assert.False(r.Ok);
         Assert.Equal("invalid_client", r.Error);
@@ -96,7 +96,7 @@ public class IdentityTokenServiceTests
                 perms: ["orders.read"]);
 
         var log = new RecordingLogger<IdentityTokenService>();
-        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, log);
+        var svc = new IdentityTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, log);
 
         var r = await svc.IssueClientCredentialsAsync(clientId, scenario == "wrong-secret" ? "nope" : secret, default);
 
@@ -116,7 +116,7 @@ public class IdentityTokenServiceTests
         var (store, clientId, secret) = SeedClient(ownerPerms: ["orders.read"], clientPerms: ["orders.read"]);
         var log = new RecordingLogger<IdentityTokenService>();
 
-        var r = await new IdentityTokenService(store, Opts(), TimeProvider.System, log)
+        var r = await new IdentityTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, log)
             .IssueClientCredentialsAsync(clientId, secret, default);
 
         Assert.True(r.Ok);

@@ -27,13 +27,25 @@ public static class IyuIdentityServiceCollectionExtensions
     /// cookie-only (human operators), never satisfied by the JWT bearer scheme service clients use.</summary>
     public const string CookiePolicyName = "iyu:identity:cookie";
 
+    /// <param name="services">The service collection.</param>
+    /// <param name="tokenOptions">Signing key, issuer, audience and lifetimes.</param>
+    /// <param name="permissionCatalog">Every permission code the application uses. Each becomes an authorization policy
+    /// of the same name.</param>
+    /// <param name="permissionClaimType">The claim type permission codes travel in.</param>
+    /// <param name="permissionImplications">Codes that also count as holding others — <c>new("orders.write",
+    /// "orders.read")</c> lets an <c>orders.write</c> holder satisfy the <c>orders.read</c> policy without being given
+    /// <c>orders.read</c> too. Transitive; every code named must be in the catalog. See <see cref="PermissionHierarchy"/>.</param>
     public static IServiceCollection AddIyuIdentity(
         this IServiceCollection services,
         IdentityTokenOptions tokenOptions,
         IEnumerable<string> permissionCatalog,
-        string permissionClaimType = "perm")
+        string permissionClaimType = "perm",
+        IEnumerable<PermissionImplication>? permissionImplications = null)
     {
         ArgumentNullException.ThrowIfNull(tokenOptions);
+        ArgumentNullException.ThrowIfNull(permissionCatalog);
+        var catalog = permissionCatalog.Distinct(StringComparer.Ordinal).ToList();
+        var hierarchy = new PermissionHierarchy(catalog, permissionImplications ?? []);
         if (string.IsNullOrEmpty(tokenOptions.SigningKey) ||
             System.Text.Encoding.UTF8.GetByteCount(tokenOptions.SigningKey) < 32)
             throw new ArgumentException(
@@ -47,6 +59,7 @@ public static class IyuIdentityServiceCollectionExtensions
 
         tokenOptions.PermissionClaimType = permissionClaimType;
         services.AddSingleton(tokenOptions);
+        services.AddSingleton(hierarchy);
         // TryAdd, not Add — see the same call in Iyu.FileServer's gateway registration: a host that
         // registered its own TimeProvider first would otherwise have it silently replaced here,
         // which is what token expiry and secret-rotation timestamps are read from.
@@ -116,10 +129,11 @@ public static class IyuIdentityServiceCollectionExtensions
 
         services.AddAuthorization(opts =>
         {
-            foreach (var perm in permissionCatalog.Distinct())
+            // A code's policy is met by the code itself or by any code that implies it.
+            foreach (var perm in catalog)
                 opts.AddPolicy(perm, p => p
                     .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme)
-                    .RequireClaim(permissionClaimType, perm));
+                    .RequireClaim(permissionClaimType, hierarchy.SatisfiedBy(perm)));
             opts.AddPolicy(CookiePolicyName, p => p
                 .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme)
                 .RequireAuthenticatedUser());

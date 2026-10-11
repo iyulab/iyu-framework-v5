@@ -22,7 +22,7 @@ public class UserAccessTokenServiceTests
     };
 
     private UserAccessTokenService Service(IUserClaimsSource? claims = null) => new(
-        new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, new RecordingLogger<IdentityTokenService>()),
+        new IdentityTokenService(new FakeIdentityStore(), _opts, _clock, PermissionHierarchy.Flat, new RecordingLogger<IdentityTokenService>()),
         claims ?? _claims, _opts, _log);
 
     private static JwtSecurityToken Read(TokenResult result) => new JwtSecurityTokenHandler().ReadJwtToken(result.AccessToken);

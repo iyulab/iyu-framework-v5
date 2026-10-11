@@ -11,21 +11,23 @@ public sealed class ServiceClientService
     private readonly IIdentityStore _store;
     private readonly IServiceClientStore _writes;
     private readonly TimeProvider _clock;
+    private readonly PermissionHierarchy _hierarchy;
 
-    public ServiceClientService(IIdentityStore store, IServiceClientStore writes, TimeProvider clock)
+    public ServiceClientService(IIdentityStore store, IServiceClientStore writes, TimeProvider clock,
+        PermissionHierarchy hierarchy)
     {
-        _store = store; _writes = writes; _clock = clock;
+        _store = store; _writes = writes; _clock = clock; _hierarchy = hierarchy;
     }
 
     public async Task<CreateResult> CreateAsync(Guid ownerUserId, string displayName,
         IReadOnlyList<string> requestedPermissions, DateTimeOffset? expiresAt, CancellationToken ct)
     {
         var ownerPerms = await _store.GetUserPermissionsAsync(ownerUserId, ct);
-        var exceeding = PermissionScope.Exceeding(requestedPermissions, ownerPerms);
+        var exceeding = PermissionScope.Exceeding(requestedPermissions, ownerPerms, _hierarchy);
         if (exceeding.Count > 0)
             return new(false, "permissions_exceed_owner", exceeding, null, null, Guid.Empty);
 
-        var effective = PermissionScope.Effective(requestedPermissions, ownerPerms);
+        var effective = PermissionScope.Effective(requestedPermissions, ownerPerms, _hierarchy);
         var (clientId, secret, hash) = ServiceClientSecrets.Generate();
         var id = await _writes.InsertAsync(clientId, hash, displayName, ownerUserId, expiresAt, effective, ct);
         return new(true, null, Array.Empty<string>(), clientId, secret, id);
@@ -50,11 +52,11 @@ public sealed class ServiceClientService
         IReadOnlyList<string> requestedPermissions, CancellationToken ct)
     {
         var ownerPerms = await _store.GetUserPermissionsAsync(ownerUserId, ct);
-        var exceeding = PermissionScope.Exceeding(requestedPermissions, ownerPerms);
+        var exceeding = PermissionScope.Exceeding(requestedPermissions, ownerPerms, _hierarchy);
         if (exceeding.Count > 0)
             return new(false, "permissions_exceed_owner", exceeding);
 
-        var effective = PermissionScope.Effective(requestedPermissions, ownerPerms);
+        var effective = PermissionScope.Effective(requestedPermissions, ownerPerms, _hierarchy);
         var ok = await _writes.UpdatePermissionsAsync(id, ownerUserId, effective, ct);
         return ok ? new(true, null, Array.Empty<string>()) : new(false, "not_found", Array.Empty<string>());
     }

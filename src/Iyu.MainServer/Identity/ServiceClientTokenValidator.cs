@@ -31,12 +31,13 @@ internal sealed class ServiceClientTokenValidator
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
     private readonly IMemoryCache _cache;
+    private readonly PermissionHierarchy _hierarchy;
     private readonly ILogger<ServiceClientTokenValidator> _log;
 
     public ServiceClientTokenValidator(IIdentityStore store, IdentityTokenOptions opts, TimeProvider clock,
-        IMemoryCache cache, ILogger<ServiceClientTokenValidator> log)
+        IMemoryCache cache, PermissionHierarchy hierarchy, ILogger<ServiceClientTokenValidator> log)
     {
-        _store = store; _opts = opts; _clock = clock; _cache = cache; _log = log;
+        _store = store; _opts = opts; _clock = clock; _cache = cache; _hierarchy = hierarchy; _log = log;
     }
 
     /// <returns><c>null</c> when the token is acceptable, otherwise the reason for the operator log.</returns>
@@ -65,7 +66,7 @@ internal sealed class ServiceClientTokenValidator
             var ownerPerms = await _store.GetUserPermissionsAsync(client.OwnerUserId, ct);
             var clientPerms = await _store.GetServiceClientPermissionsAsync(client.Id, ct);
             var current = ServiceClientStamp.Compute(_opts.SigningKey, client.SecretHash,
-                PermissionScope.Effective(clientPerms, ownerPerms));
+                PermissionScope.Effective(clientPerms, ownerPerms, _hierarchy));
             if (!ServiceClientStamp.Matches(current, stamp))
                 reason = "secret or permissions changed since the token was issued";
         }

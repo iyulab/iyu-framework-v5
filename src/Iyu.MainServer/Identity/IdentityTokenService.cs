@@ -23,12 +23,13 @@ public sealed class IdentityTokenService
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
 
+    private readonly PermissionHierarchy _hierarchy;
     private readonly ILogger<IdentityTokenService> _log;
 
     public IdentityTokenService(IIdentityStore store, IdentityTokenOptions opts, TimeProvider clock,
-        ILogger<IdentityTokenService> log)
+        PermissionHierarchy hierarchy, ILogger<IdentityTokenService> log)
     {
-        _store = store; _opts = opts; _clock = clock; _log = log;
+        _store = store; _opts = opts; _clock = clock; _hierarchy = hierarchy; _log = log;
     }
 
     public Task<TokenResult> IssueClientCredentialsAsync(string clientId, string secret, CancellationToken ct) =>
@@ -63,16 +64,20 @@ public sealed class IdentityTokenService
 
         var ownerPerms = await _store.GetUserPermissionsAsync(client.OwnerUserId, ct);
         var clientPerms = await _store.GetServiceClientPermissionsAsync(client.Id, ct);
-        var effective = PermissionScope.Effective(clientPerms, ownerPerms);
+        var effective = PermissionScope.Effective(clientPerms, ownerPerms, _hierarchy);
 
+        // A narrower token may name a code the client holds only through implication — a client with orders.write
+        // asking for orders.read gets a token that carries orders.read alone. Without a scope, the token carries the
+        // client's own codes and the policies know what they imply.
         var requested = (scope ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToList();
-        if (requested.Count > 0 && requested.Any(r => !effective.Contains(r, StringComparer.Ordinal)))
+        var available = _hierarchy.Expand(effective);
+        if (requested.Count > 0 && requested.Any(r => !available.Contains(r, StringComparer.Ordinal)))
         {
             LogRejection(clientId, "requested scope exceeds the client's permissions");
             return new(false, "invalid_scope", null, 0, empty);
         }
         var granted = requested.Count > 0
-            ? effective.Where(p => requested.Contains(p, StringComparer.Ordinal)).ToList()
+            ? available.Where(p => requested.Contains(p, StringComparer.Ordinal)).ToList()
             : effective;
 
         var claims = new List<Claim>

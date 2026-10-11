@@ -80,8 +80,24 @@ onward; earlier entries state the same consequence in prose where it applies.
   other, register an `IPasswordHasher<IUser>` that reads them. `IIdentityStore.FindUserByUsernameAsync` now states
   that it returns inactive accounts too. README's sign-in recipes use it in place of the `VerifyPassword` they left to
   the application.
+- **`Iyu.MainServer`: a permission code can count as holding others — `AddIyuIdentity(…, permissionImplications:)`.**
+  `new PermissionImplication("orders.write", "orders.read")` lets whoever holds `orders.write` satisfy the
+  `orders.read` policy without being given `orders.read` as well; implication is transitive. Until now the catalog was
+  a flat list, one policy per code met by that code alone, so «the wider permission covers the narrower one» was
+  either the same pair assigned to every role forever or a policy re-registered over the framework's. The declaration
+  also reaches delegation: an owner may give a service client a code they hold only through implication, and a
+  client's token may be narrowed (`scope`) to one. What is issued is not expanded — sessions and tokens carry the codes
+  they were given; the policies know what those imply. `PermissionHierarchy` (registered as a singleton) answers the
+  same questions for application code: `Expand(held)` for the full set a person may act under, `SatisfiedBy(code)`.
+  A code the implications name outside the catalog, a code implying itself, and two codes implying each other are
+  refused when `AddIyuIdentity` runs. README «Identity».
 
 ### Changed — identity
+
+- **`Iyu.MainServer`: `PermissionScope.Effective` and `Exceeding` take the `PermissionHierarchy`**, and so do the
+  constructors of `IdentityTokenService` and `ServiceClientService` — the owner's set they compare against is the
+  owner's codes and everything those imply. Code that resolves the services from DI is unaffected; code that
+  constructs them or calls `PermissionScope` passes `PermissionHierarchy.Flat` for the behavior it had.
 
 - 🔴 **`Iyu.MainServer`: a person's session is assembled by the framework, from one claims source.** Until now the
   cookie session was whatever `ClaimsPrincipal` the application's sign-in endpoint built by hand, while an access token
