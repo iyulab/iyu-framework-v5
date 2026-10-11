@@ -14,9 +14,8 @@ public class FakeIdentityStoreTests
         var user = await store.FindUserByUsernameAsync("admin", default);
         Assert.NotNull(user);
         Assert.Equal(uid, user!.Id);
-        var perms = await store.GetUserPermissionsAsync(uid, default);
-        Assert.Contains("orders.read", perms);
-        Assert.Equal(2, perms.Count);
+        var claims = await store.Claims.GetClaimsAsync(uid.ToString(), default);
+        Assert.Equal(["orders.read", "orders.write"], claims!.Select(c => c.Value).Order());
     }
 
     [Fact]

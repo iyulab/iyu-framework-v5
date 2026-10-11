@@ -33,13 +33,17 @@ public class IdentitySurfaceTests
         }
     }
 
-    private static async Task<Host> StartAsync(Action<IServiceCollection> configure)
+    private static async Task<Host> StartAsync(Action<IServiceCollection> configure, IUserClaimsSource? claims = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
-        var claims = new FakeUserClaimsSource();
-        claims.Set("person", Permission);
-        builder.Services.AddSingleton<IUserClaimsSource>(claims);
+        if (claims is null)
+        {
+            var people = new FakeUserClaimsSource();
+            people.Set("person", Permission);
+            claims = people;
+        }
+        builder.Services.AddSingleton(claims);
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = Key }, permissionCatalog: [Permission]);
         configure(builder.Services);
 
@@ -129,7 +133,7 @@ public class IdentitySurfaceTests
         var owner = store.AddUser("owner", "소유자", perms: [Permission]);
         var (clientId, secret, hash) = ServiceClientSecrets.Generate();
         store.AddClient(clientId, hash, owner, perms: [Permission]);
-        await using var issuing = await StartAsync(ServiceClients(store));
+        await using var issuing = await StartAsync(ServiceClients(store), store.Claims);
         string clientToken;
         using (var scope = issuing.App.Services.CreateScope())
             clientToken = (await scope.ServiceProvider.GetRequiredService<ServiceClientTokenService>()

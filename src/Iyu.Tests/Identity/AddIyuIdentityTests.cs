@@ -13,7 +13,9 @@ public class AddIyuIdentityTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IServiceClientStore>(new FakeIdentityStore());       // 소비앱이 하는 concrete 등록 흉내
+        var store = new FakeIdentityStore();
+        services.AddSingleton<IServiceClientStore>(store);       // 소비앱이 하는 concrete 등록 흉내
+        services.AddSingleton(store.Claims);
         services.AddIyuIdentity(
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", Issuer = "iyu", Audience = "iyu-api" },
             permissionCatalog: ["orders.read", "orders.write"]);

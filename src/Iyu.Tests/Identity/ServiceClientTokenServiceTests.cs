@@ -28,7 +28,7 @@ public class ServiceClientTokenServiceTests
     {
         var (store, clientId, secret) = SeedClient(
             ownerPerms: ["orders.read", "orders.write"], clientPerms: ["orders.read", "settlement.write"]);
-        var svc = new ServiceClientTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
+        var svc = new ServiceClientTokenService(store, store.Claims, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
 
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
 
@@ -43,7 +43,7 @@ public class ServiceClientTokenServiceTests
     public async Task Issue_RejectsWrongSecret()
     {
         var (store, clientId, _) = SeedClient(["orders.read"], ["orders.read"]);
-        var svc = new ServiceClientTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
+        var svc = new ServiceClientTokenService(store, store.Claims, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
         var r = await svc.IssueClientCredentialsAsync(clientId, "wrong", default);
         Assert.False(r.Ok);
         Assert.Equal("invalid_client", r.Error);
@@ -53,7 +53,7 @@ public class ServiceClientTokenServiceTests
     public async Task Issue_RejectsInactiveOrExpiredClient()
     {
         var (store, clientId, secret) = SeedClient(["orders.read"], ["orders.read"], active: false);
-        var svc = new ServiceClientTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
+        var svc = new ServiceClientTokenService(store, store.Claims, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
         Assert.False(r.Ok);
     }
@@ -64,7 +64,7 @@ public class ServiceClientTokenServiceTests
         var pastExpiry = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var (store, clientId, secret) = SeedClient(
             ["orders.read"], ["orders.read"], active: true, expiresAt: pastExpiry);
-        var svc = new ServiceClientTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
+        var svc = new ServiceClientTokenService(store, store.Claims, Opts(), TimeProvider.System, PermissionHierarchy.Flat, new RecordingLogger<ServiceClientTokenService>());
         var r = await svc.IssueClientCredentialsAsync(clientId, secret, default);
         Assert.False(r.Ok);
         Assert.Equal("invalid_client", r.Error);
@@ -84,10 +84,11 @@ public class ServiceClientTokenServiceTests
     [InlineData("revoked", "client is revoked")]
     [InlineData("expired", "client has expired")]
     [InlineData("wrong-secret", "secret does not match")]
+    [InlineData("owner-refused", "the claims source refuses the client's owner")]
     public async Task Rejection_records_its_cause_for_the_operator_without_revealing_it(string scenario, string expected)
     {
         var store = new FakeIdentityStore();
-        var owner = store.AddUser("owner", "owner", perms: ["orders.read"]);
+        var owner = store.AddUser("owner", "owner", perms: ["orders.read"], active: scenario != "owner-refused");
         var (clientId, secret, hash) = ServiceClientSecrets.Generate();
         if (scenario != "missing")
             store.AddClient(clientId, hash, owner,
@@ -96,7 +97,7 @@ public class ServiceClientTokenServiceTests
                 perms: ["orders.read"]);
 
         var log = new RecordingLogger<ServiceClientTokenService>();
-        var svc = new ServiceClientTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, log);
+        var svc = new ServiceClientTokenService(store, store.Claims, Opts(), TimeProvider.System, PermissionHierarchy.Flat, log);
 
         var r = await svc.IssueClientCredentialsAsync(clientId, scenario == "wrong-secret" ? "nope" : secret, default);
 
@@ -116,7 +117,7 @@ public class ServiceClientTokenServiceTests
         var (store, clientId, secret) = SeedClient(ownerPerms: ["orders.read"], clientPerms: ["orders.read"]);
         var log = new RecordingLogger<ServiceClientTokenService>();
 
-        var r = await new ServiceClientTokenService(store, Opts(), TimeProvider.System, PermissionHierarchy.Flat, log)
+        var r = await new ServiceClientTokenService(store, store.Claims, Opts(), TimeProvider.System, PermissionHierarchy.Flat, log)
             .IssueClientCredentialsAsync(clientId, secret, default);
 
         Assert.True(r.Ok);

@@ -56,8 +56,30 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
     public Task<IServiceClient?> FindServiceClientByClientIdAsync(string clientId, CancellationToken ct) =>
         Task.FromResult<IServiceClient?>(_clients.FirstOrDefault(c => c.ClientId == clientId));
 
-    public Task<IReadOnlyList<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<string>>(_userPerms.TryGetValue(userId, out var p) ? p : new());
+    /// <summary>
+    /// The claims source for the accounts added here: an active account's permissions, or <c>null</c> for an unknown or
+    /// inactive one — what a service client's owner is asked through.
+    /// </summary>
+    public IUserClaimsSource Claims => new AccountClaims(this);
+
+    /// <summary>Replaces an account's permissions, or deactivates it (<paramref name="active"/> false).</summary>
+    public void SetUser(Guid userId, IEnumerable<string> perms, bool active = true)
+    {
+        var i = _users.FindIndex(u => u.Id == userId);
+        _users[i] = _users[i] with { IsActive = active };
+        _userPerms[userId] = perms.ToList();
+    }
+
+    private sealed class AccountClaims(FakeIdentityStore store) : IUserClaimsSource
+    {
+        public Task<IReadOnlyCollection<System.Security.Claims.Claim>?> GetClaimsAsync(string subject, CancellationToken ct)
+        {
+            var user = Guid.TryParse(subject, out var id) ? store._users.FirstOrDefault(u => u.Id == id) : null;
+            return Task.FromResult<IReadOnlyCollection<System.Security.Claims.Claim>?>(user is { IsActive: true }
+                ? [.. store._userPerms[id].Select(p => IyuIdentityClaims.Permission(p))]
+                : null);
+        }
+    }
 
     public Task<IReadOnlyList<string>> GetServiceClientPermissionsAsync(Guid serviceClientId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>>(_clientPerms.TryGetValue(serviceClientId, out var p) ? p : new());

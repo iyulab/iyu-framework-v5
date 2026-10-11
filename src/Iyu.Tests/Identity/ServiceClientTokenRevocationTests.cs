@@ -68,7 +68,7 @@ public class ServiceClientTokenRevocationTests
 
         builder.Services.AddSingleton<IServiceClientStore>(store);
         builder.Services.AddSingleton<TimeProvider>(clock);
-        builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
+        builder.Services.AddSingleton(store.Claims);   // owners are asked through the claims source
         var options = new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" };
         configure?.Invoke(options);
         builder.Services.AddIyuIdentity(options, permissionCatalog: [Permission]);
@@ -173,13 +173,30 @@ public class ServiceClientTokenRevocationTests
         Assert.Equal(HttpStatusCode.OK, await h.ProbeAsync(token));
     }
 
+    /// <summary>
+    /// The owner is read from the claims source while the client's tokens live: deactivating the person who issued a
+    /// client ends what its tokens can do, and so does withdrawing the permission the client was given.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnerDeactivatedOrNarrowed_RejectsTokenIssuedBefore(bool deactivated)
+    {
+        await using var h = await StartAsync(NoCache);
+        var (_, token) = await h.IssueAsync();
+        Assert.Equal(HttpStatusCode.OK, await h.ProbeAsync(token));
+
+        h.Store.SetUser(h.OwnerId, deactivated ? [Permission] : [], active: !deactivated);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await h.ProbeAsync(token));
+    }
+
     [Fact]
     public async Task UserToken_IsNotSubjectToTheServiceClientCheck()
     {
         await using var h = await StartAsync(NoCache);
         using var scope = h.App.Services.CreateScope();
-        ((FakeUserClaimsSource)scope.ServiceProvider.GetRequiredService<IUserClaimsSource>()).Set("someone", Permission);
-        var user = await scope.ServiceProvider.GetRequiredService<UserAccessTokenService>().IssueAsync("someone");
+        var user = await scope.ServiceProvider.GetRequiredService<UserAccessTokenService>().IssueAsync(h.OwnerId.ToString());
 
         Assert.Equal(HttpStatusCode.OK, await h.ProbeAsync(user.AccessToken!));
     }

@@ -34,7 +34,7 @@ public class TokenEndpointRfc6749Tests : IAsyncLifetime
         store.AddClient(_clientId, hash, owner, perms: ["orders.read", "orders.write"]);
 
         builder.Services.AddSingleton<IServiceClientStore>(store);
-        builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
+        builder.Services.AddSingleton(store.Claims);   // owners are asked through the claims source
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef" },
             permissionCatalog: ["orders.read", "orders.write"]);
         builder.Services.AddIyuServiceClients();

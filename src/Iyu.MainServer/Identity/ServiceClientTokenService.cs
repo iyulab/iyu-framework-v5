@@ -19,16 +19,17 @@ public sealed class ServiceClientTokenService
     private static readonly string _dummyHash = ServiceClientSecrets.Hash("dummy");
 
     private readonly IServiceClientStore _store;
+    private readonly IUserClaimsSource _owners;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
 
     private readonly PermissionHierarchy _hierarchy;
     private readonly ILogger<ServiceClientTokenService> _log;
 
-    public ServiceClientTokenService(IServiceClientStore store, IdentityTokenOptions opts, TimeProvider clock,
-        PermissionHierarchy hierarchy, ILogger<ServiceClientTokenService> log)
+    public ServiceClientTokenService(IServiceClientStore store, IUserClaimsSource owners, IdentityTokenOptions opts,
+        TimeProvider clock, PermissionHierarchy hierarchy, ILogger<ServiceClientTokenService> log)
     {
-        _store = store; _opts = opts; _clock = clock; _hierarchy = hierarchy; _log = log;
+        _store = store; _owners = owners; _opts = opts; _clock = clock; _hierarchy = hierarchy; _log = log;
     }
 
     public Task<TokenResult> IssueClientCredentialsAsync(string clientId, string secret, CancellationToken ct) =>
@@ -61,7 +62,12 @@ public sealed class ServiceClientTokenService
             return new(false, "invalid_client", null, 0, empty);
         }
 
-        var ownerPerms = await _store.GetUserPermissionsAsync(client.OwnerUserId, ct);
+        // The owner as the claims source sees them now: an owner it refuses (deactivated) leaves the client nothing.
+        if (await ServiceClientOwner.PermissionsAsync(_owners, _opts, client.OwnerUserId, ct) is not { } ownerPerms)
+        {
+            LogRejection(clientId, "the claims source refuses the client's owner");
+            return new(false, "invalid_client", null, 0, empty);
+        }
         var clientPerms = await _store.GetServiceClientPermissionsAsync(client.Id, ct);
         var effective = PermissionScope.Effective(clientPerms, ownerPerms, _hierarchy);
 

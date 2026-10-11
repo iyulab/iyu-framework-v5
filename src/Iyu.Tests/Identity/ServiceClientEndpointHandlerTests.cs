@@ -11,7 +11,7 @@ public class ServiceClientEndpointHandlerTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read", "orders.write"]);
-        return (new ServiceClientService(store, TimeProvider.System, PermissionHierarchy.Flat), store, owner);
+        return (new ServiceClientService(store, store.Claims, new IdentityTokenOptions(), TimeProvider.System, PermissionHierarchy.Flat), store, owner);
     }
 
     [Fact]

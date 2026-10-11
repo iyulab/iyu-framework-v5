@@ -13,7 +13,7 @@ public class TokenEndpointHandlerTests
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read"]);
         (clientId, secret, var hash) = ServiceClientSecrets.Generate();
         store.AddClient(clientId, hash, owner, perms: ["orders.read"]);
-        return new ServiceClientTokenService(store, new IdentityTokenOptions
+        return new ServiceClientTokenService(store, store.Claims, new IdentityTokenOptions
         { SigningKey = "0123456789abcdef0123456789abcdef" }, TimeProvider.System, PermissionHierarchy.Flat,
             new RecordingLogger<ServiceClientTokenService>());
     }

@@ -128,7 +128,7 @@ public class PermissionImplicationTests
         builder.WebHost.UseTestServer();
         var store = new FakeIdentityStore();
         builder.Services.AddSingleton<IServiceClientStore>(store);
-        builder.Services.AddSingleton<IUserClaimsSource>(new FakeUserClaimsSource());
+        builder.Services.AddSingleton(store.Claims);   // owners are asked through the claims source
         builder.Services.AddIyuIdentity(
             // 매 요청 저장소 대조 — 위임된 권한의 지문이 검증 단계에서도 같게 계산되는지가 여기서 드러난다.
             new IdentityTokenOptions { SigningKey = "0123456789abcdef0123456789abcdef", ServiceClientValidationWindow = TimeSpan.Zero },

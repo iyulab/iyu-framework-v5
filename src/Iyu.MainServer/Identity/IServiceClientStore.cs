@@ -7,12 +7,13 @@ namespace Iyu.MainServer.Identity;
 /// <see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/> needs. Concrete impl lives in the
 /// consuming app (EF).
 /// </summary>
+/// <remarks>
+/// What a client's owner holds is not asked here: it is what <see cref="IUserClaimsSource"/> answers for the owner —
+/// the same answer the owner's own session is assembled from.
+/// </remarks>
 public interface IServiceClientStore
 {
     Task<IServiceClient?> FindServiceClientByClientIdAsync(string clientId, CancellationToken ct);
-
-    /// <summary>The permission codes the owner holds — a client never carries more than its owner.</summary>
-    Task<IReadOnlyList<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct);
     Task<IReadOnlyList<string>> GetServiceClientPermissionsAsync(Guid serviceClientId, CancellationToken ct);
     Task TouchServiceClientAsync(Guid serviceClientId, DateTimeOffset when, CancellationToken ct);
 

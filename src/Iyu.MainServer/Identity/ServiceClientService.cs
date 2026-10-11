@@ -6,21 +6,26 @@ public sealed record RotateResult(bool Ok, string? PlaintextSecret);
 public sealed record UpdatePermissionsResult(bool Ok, string? Error, IReadOnlyList<string> Exceeding);
 
 /// <summary>Owner-scoped service-client lifecycle: create (subset ⊆ owner), rotate, revoke.</summary>
+/// <remarks>What the owner holds is what <see cref="IUserClaimsSource"/> answers for them; an owner the source
+/// refuses holds nothing, so every requested code exceeds it.</remarks>
 public sealed class ServiceClientService
 {
     private readonly IServiceClientStore _store;
+    private readonly IUserClaimsSource _owners;
+    private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
     private readonly PermissionHierarchy _hierarchy;
 
-    public ServiceClientService(IServiceClientStore store, TimeProvider clock, PermissionHierarchy hierarchy)
+    public ServiceClientService(IServiceClientStore store, IUserClaimsSource owners, IdentityTokenOptions opts,
+        TimeProvider clock, PermissionHierarchy hierarchy)
     {
-        _store = store; _clock = clock; _hierarchy = hierarchy;
+        _store = store; _owners = owners; _opts = opts; _clock = clock; _hierarchy = hierarchy;
     }
 
     public async Task<CreateResult> CreateAsync(Guid ownerUserId, string displayName,
         IReadOnlyList<string> requestedPermissions, DateTimeOffset? expiresAt, CancellationToken ct)
     {
-        var ownerPerms = await _store.GetUserPermissionsAsync(ownerUserId, ct);
+        var ownerPerms = await ServiceClientOwner.PermissionsAsync(_owners, _opts, ownerUserId, ct) ?? [];
         var exceeding = PermissionScope.Exceeding(requestedPermissions, ownerPerms, _hierarchy);
         if (exceeding.Count > 0)
             return new(false, "permissions_exceed_owner", exceeding, null, null, Guid.Empty);
@@ -49,7 +54,7 @@ public sealed class ServiceClientService
     public async Task<UpdatePermissionsResult> UpdatePermissionsAsync(Guid id, Guid ownerUserId,
         IReadOnlyList<string> requestedPermissions, CancellationToken ct)
     {
-        var ownerPerms = await _store.GetUserPermissionsAsync(ownerUserId, ct);
+        var ownerPerms = await ServiceClientOwner.PermissionsAsync(_owners, _opts, ownerUserId, ct) ?? [];
         var exceeding = PermissionScope.Exceeding(requestedPermissions, ownerPerms, _hierarchy);
         if (exceeding.Count > 0)
             return new(false, "permissions_exceed_owner", exceeding);

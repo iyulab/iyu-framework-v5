@@ -28,16 +28,17 @@ namespace Iyu.MainServer.Identity;
 internal sealed class ServiceClientTokenValidator
 {
     private readonly IServiceClientStore _store;
+    private readonly IUserClaimsSource _owners;
     private readonly IdentityTokenOptions _opts;
     private readonly TimeProvider _clock;
     private readonly IMemoryCache _cache;
     private readonly PermissionHierarchy _hierarchy;
     private readonly ILogger<ServiceClientTokenValidator> _log;
 
-    public ServiceClientTokenValidator(IServiceClientStore store, IdentityTokenOptions opts, TimeProvider clock,
-        IMemoryCache cache, PermissionHierarchy hierarchy, ILogger<ServiceClientTokenValidator> log)
+    public ServiceClientTokenValidator(IServiceClientStore store, IUserClaimsSource owners, IdentityTokenOptions opts,
+        TimeProvider clock, IMemoryCache cache, PermissionHierarchy hierarchy, ILogger<ServiceClientTokenValidator> log)
     {
-        _store = store; _opts = opts; _clock = clock; _cache = cache; _hierarchy = hierarchy; _log = log;
+        _store = store; _owners = owners; _opts = opts; _clock = clock; _cache = cache; _hierarchy = hierarchy; _log = log;
     }
 
     /// <returns><c>null</c> when the token is acceptable, otherwise the reason for the operator log.</returns>
@@ -61,9 +62,10 @@ internal sealed class ServiceClientTokenValidator
         if (client is null) reason = "no such client";
         else if (!client.IsActive) reason = "client is revoked";
         else if (client.ExpiresAt is { } exp && exp <= now) reason = "client has expired";
+        else if (await ServiceClientOwner.PermissionsAsync(_owners, _opts, client.OwnerUserId, ct) is not { } ownerPerms)
+            reason = "the claims source refuses the client's owner";
         else
         {
-            var ownerPerms = await _store.GetUserPermissionsAsync(client.OwnerUserId, ct);
             var clientPerms = await _store.GetServiceClientPermissionsAsync(client.Id, ct);
             var current = ServiceClientStamp.Compute(_opts.SigningKey, client.SecretHash,
                 PermissionScope.Effective(clientPerms, ownerPerms, _hierarchy));

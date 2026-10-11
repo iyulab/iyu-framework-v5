@@ -105,16 +105,25 @@ onward; earlier entries state the same consequence in prose where it applies.
     service clients adds this call next to `AddIyuIdentity`.
   - **`AddIyuUserCredentials()`** turns on `UserCredentialService`. A host that checks passwords adds this call.
   - **`IIdentityStore` is gone.** Its service-client members (`FindServiceClientByClientIdAsync`,
-    `GetUserPermissionsAsync`, `GetServiceClientPermissionsAsync`, `TouchServiceClientAsync`,
-    `ListServiceClientsByOwnerAsync`) move to **`IServiceClientStore`**, which is now the service-client surface's
-    only port; `FindUserByUsernameAsync` moves to the new **`IUserCredentialStore`**. A store class that implemented
-    both interfaces drops `IIdentityStore` from its list and registers as `IServiceClientStore` alone; the
-    username lookup implements `IUserCredentialStore` (the same class can). A host that checks no passwords drops it.
+    `GetServiceClientPermissionsAsync`, `TouchServiceClientAsync`, `ListServiceClientsByOwnerAsync`) move to
+    **`IServiceClientStore`**, which is now the service-client surface's only port; `FindUserByUsernameAsync` moves to
+    the new **`IUserCredentialStore`**. A store class that implemented both interfaces drops `IIdentityStore` from its
+    list and registers as `IServiceClientStore` alone; the username lookup implements `IUserCredentialStore` (the
+    same class can). A host that checks no passwords drops it.
+  - **`GetUserPermissionsAsync` is gone too: what a client's owner holds is what `IUserClaimsSource` answers for
+    them** — asked by the owner's id as a GUID string, when a client is issued or re-scoped, when it obtains a token,
+    and while its tokens are checked. It was a second answer to the question the claims source already answers for
+    the owner's own session, and the two could differ. Delete the method; the claims source must answer for any
+    account that owns clients. 🔇 An owner the source refuses (`null` — deactivated) now leaves their clients
+    nothing: `client_credentials` answers `invalid_client` (the log names the cause), tokens already issued are
+    refused at their next check, and a request to issue or re-scope exceeds the owner. Before, a deactivated
+    person's clients kept every permission the store still listed for them.
   - **`IdentityTokenService` is renamed `ServiceClientTokenService`** — it issues the `client_credentials` grant and
     nothing else. 🔇 The operator log category for rejected client credentials moves with it, to
     `Iyu.MainServer.Identity.ServiceClientTokenService`; a log filter on the old name stops matching.
-  - **Constructors** (only code that constructs these outside DI notices): `ServiceClientService(store, clock,
-    hierarchy)` takes the one `IServiceClientStore`; `UserAccessTokenService(claimsSource, options, clock, logger)`
+  - **Constructors** (only code that constructs these outside DI notices): `ServiceClientService(store, claimsSource,
+    options, clock, hierarchy)` and `ServiceClientTokenService(store, claimsSource, options, clock, hierarchy, logger)`
+    take the one `IServiceClientStore` and ask the claims source about owners; `UserAccessTokenService(claimsSource, options, clock, logger)`
     no longer takes the service-client token service; `IdentityEndpointHandlers.TokenAsync(request, clients, ct,
     users?)` takes a nullable `ServiceClientTokenService`.
   - 🔇 **Without `AddIyuServiceClients`**, `grant_type=client_credentials` answers `unsupported_grant_type`, the

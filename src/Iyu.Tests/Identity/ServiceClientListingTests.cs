@@ -19,7 +19,7 @@ public class ServiceClientListingTests
     {
         var store = new FakeIdentityStore();
         var owner = store.AddUser("owner", "소유자", perms: ["orders.read", "orders.write"]);
-        return (new ServiceClientService(store, TimeProvider.System, PermissionHierarchy.Flat), store, owner);
+        return (new ServiceClientService(store, store.Claims, new IdentityTokenOptions(), TimeProvider.System, PermissionHierarchy.Flat), store, owner);
     }
 
     private static IReadOnlyList<ServiceClientSummary> Listed(IResult result)
@@ -195,7 +195,7 @@ public class ServiceClientListingTests
     {
         var store = new FakeIdentityStore();
         var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-01-02T03:04:05Z"));
-        var svc = new ServiceClientService(store, clock, PermissionHierarchy.Flat);
+        var svc = new ServiceClientService(store, store.Claims, new IdentityTokenOptions(), clock, PermissionHierarchy.Flat);
         var owner = store.AddUser("owner", "owner", perms: ["orders.read"]);
         var created = await svc.CreateAsync(owner, "connector", ["orders.read"], null, default);
 

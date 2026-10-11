@@ -100,6 +100,10 @@ grant_type=client_credentials&scope=orders.read
 없는 것은 빠진다). 소유자의 권한은 그 코드들이 함의하는 것까지다 — `orders.write` 만 가진 소유자도 `orders.read`
 클라이언트를 낼 수 있다(함의가 선언됐을 때).
 
+**소유자의 권한은 `IUserClaimsSource` 가 답한다**(소유자 id 의 GUID 문자열로 묻는다 — 소유자 자신의 세션이 조립되는 바로
+그 답). 발급·권한 변경·토큰 발급·발급된 토큰의 검사 때마다 묻는다. 원천이 소유자를 거절하면(`null` — 비활성) 그 클라이언트는
+아무것도 못 한다: 토큰 발급은 `invalid_client`, 이미 나간 토큰은 다음 검사에서 거부, 발급·변경 요청은 소유자를 넘는다.
+
 ### 저장소가 지켜야 할 것 — `ListServiceClientsByOwnerAsync`
 
 이 메서드는 **기본 구현이 없다.** 빈 목록을 돌려주는 기본 구현을 두면 갱신하지 않은 저장소가

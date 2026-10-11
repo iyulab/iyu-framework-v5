@@ -25,6 +25,12 @@ namespace Iyu.MainServer.Identity;
 /// Answer <c>null</c> to refuse — no account, or one that is deactivated. Nothing is signed in; a
 /// refresh fails and its token family is revoked.
 /// </para>
+/// <para>
+/// With service clients on (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/>) the source is
+/// also asked about each client's owner — by the owner's id as a GUID string — when a client is issued, re-scoped,
+/// obtains a token, and while its tokens are checked: a client never carries more than its owner holds now, and an
+/// owner the source refuses leaves their clients nothing.
+/// </para>
 /// </remarks>
 public interface IUserClaimsSource
 {

@@ -157,6 +157,9 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   answers an identifier naming someone else is an error, not a sign-in.
 - **A host with no `IUserClaimsSource` is refused at startup.** An application that signs no person in
   registers one that answers `null`.
+- **A service client's owner is asked too** (with `AddIyuServiceClients`) — by the owner's id as a GUID string,
+  when a client is issued or re-scoped, when it obtains a token, and while its tokens are checked. A client never
+  carries more than its owner holds now; an owner the source refuses (deactivated) leaves their clients nothing.
 - **The source is asked again while a cookie session lives** — every
   `IdentityTokenOptions.SessionRevalidationInterval` (default five minutes; `TimeSpan.Zero` asks on every
   request). A person the source now refuses is signed out; a narrowed permission set replaces the one in the
