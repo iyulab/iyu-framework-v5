@@ -159,6 +159,17 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- 🔇 **`Iyu.MainServer`: an unhandled exception and an unclassified write conflict under the OData route are answered
+  as OData errors.** Every refusal on `/$data` was already `{"error":{"code","message"}}`, but the two failures that
+  went through the exception handler — a `500`, and the `409` for a `DbUpdateException` — came back as
+  `application/problem+json`, so a client branching on `error.code` found no code on exactly those two. They now read
+  `{"error":{"code":"InternalServerError"|"Conflict","message":…,"innererror":{"traceId":…}}}` with the route's
+  `Content-Type` and `OData-Version`; the status codes are unchanged and the exception is still not described. The rule
+  is the route: any `ProblemDetails` written for a request under it takes this shape, so an exception handler of your
+  own keeps classifying and its answer comes out in the route's format — a string `code` extension becomes
+  `error.code`. Outside the route nothing changes. **If a client of `/$data` parsed `title`/`status` from these two
+  responses**, read `error.code` and `error.message` instead. An `IProblemDetailsWriter` of your own registered before
+  `AddIyuMainServer` is still asked first. `ODataErrorCodes` gains `Conflict` and `InternalServerError`.
 - 🔇 **`Iyu.Server.OData`: `$metadata` marks every property an update cannot store as `Org.OData.Core.V1.Computed`.**
   Until now only a property named to `ExcludeFromWrite` carried the term. A property the read type has and the write
   type does not — what a view derives: a lookup, a rollup, a computed column — was refused by `PATCH`

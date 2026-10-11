@@ -425,12 +425,26 @@ reported as done; see [What a `PATCH` can store](#what-a-patch-can-store).
 completed by `UseIyuMainServer`'s `app.UseExceptionHandler()`) so no unhandled write-path exception
 reaches a client raw. A `SaveChangesAsync` failure that surfaces as `DbUpdateException` — a
 unique-index violation, a foreign-key violation, an optimistic-concurrency conflict — is answered
-with a `409 Conflict` `application/problem+json` body; every other unhandled exception still falls
-through to a generic, structured `500`. Neither response includes the underlying exception's message
-or type: this framework stays provider-agnostic (no Npgsql/SqlClient package reference), so it does
-not attempt to distinguish *which* constraint failed — only that the write conflicted with the
-current state of the data. No opt-in is needed; a consumer that never hits either path pays nothing
-for it.
+with a `409 Conflict`; every other unhandled exception still falls through to a generic, structured
+`500`. Neither response includes the underlying exception's message or type: this framework stays
+provider-agnostic (no Npgsql/SqlClient package reference), so it does not attempt to distinguish
+*which* constraint failed — only that the write conflicted with the current state of the data. No
+opt-in is needed; a consumer that never hits either path pays nothing for it.
+
+**Under the OData route these are OData errors**, like every refusal the controller makes there —
+one format per route, so a client that reads `error.code` reads these too:
+
+```json
+{"error":{"code":"Conflict","message":"…","innererror":{"traceId":"00-…"}}}
+```
+
+`error.code` is `Conflict` (409) or `InternalServerError` (500) — both in `ODataErrorCodes` — and
+`innererror.traceId` names the request in the server's logs. The rule is the route, not the cause:
+any `ProblemDetails` written for a request under the OData route comes out in this shape, including
+one your own exception handler writes; give it a `code` extension and that is the `error.code`.
+Elsewhere — your `/api` endpoints — the default `application/problem+json` stays. An
+`IProblemDetailsWriter` of your own registered before `AddIyuMainServer` is asked first, so an
+application with one error format for every surface keeps it.
 
 ⚠ **This handling runs inside `UseIyuMainServer`, so it displaces an exception-catching middleware
 placed before it.** `UseIyuMainServer` calls `app.UseExceptionHandler()` as its first step; a

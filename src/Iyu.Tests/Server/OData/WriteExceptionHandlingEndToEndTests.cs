@@ -147,7 +147,7 @@ public class WriteExceptionHandlingEndToEndTests
     }
 
     [Fact]
-    public async Task Post_that_raises_a_DbUpdateException_returns_409_problem_details_without_leaking_the_exception_message()
+    public async Task Post_that_raises_a_DbUpdateException_returns_a_409_Conflict_error_without_leaking_the_exception_message()
     {
         var app = await StartConflictAppAsync();
         try
@@ -156,9 +156,10 @@ public class WriteExceptionHandlingEndToEndTests
                 .PostAsJsonAsync($"/$data/{ConflictSet}", new { Name = "irrelevant" });
 
             Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
-            Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
+            Assert.Equal("application/json", resp.Content.Headers.ContentType?.MediaType);
 
             var body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains($"\"code\":\"{ODataErrorCodes.Conflict}\"", body, StringComparison.Ordinal);
             Assert.DoesNotContain("simulated-conflict-must-not-leak-to-the-client", body, StringComparison.Ordinal);
             Assert.DoesNotContain("DbUpdateException", body, StringComparison.Ordinal);
         }
@@ -166,7 +167,7 @@ public class WriteExceptionHandlingEndToEndTests
     }
 
     [Fact]
-    public async Task Post_that_throws_an_unrelated_exception_returns_a_structured_500_without_leaking_the_message()
+    public async Task Post_that_throws_an_unrelated_exception_returns_a_500_InternalServerError_error_without_leaking_the_message()
     {
         var app = await StartBoomAppAsync();
         try
@@ -175,9 +176,10 @@ public class WriteExceptionHandlingEndToEndTests
                 .PostAsJsonAsync($"/$data/{BoomSet}", new { Name = "irrelevant" });
 
             Assert.Equal(HttpStatusCode.InternalServerError, resp.StatusCode);
-            Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
+            Assert.Equal("application/json", resp.Content.Headers.ContentType?.MediaType);
 
             var body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains($"\"code\":\"{ODataErrorCodes.InternalServerError}\"", body, StringComparison.Ordinal);
             Assert.DoesNotContain("simulated-unexpected-failure-must-not-leak-to-the-client", body, StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
@@ -222,7 +224,7 @@ public class WriteExceptionHandlingEndToEndTests
             var body = await resp.Content.ReadAsStringAsync();
             Assert.Equal(ClassifyingExceptionHandler.Body, body);
             // The framework's provider-neutral wording must not be what the client sees here.
-            Assert.DoesNotContain("conflicts with the current state of the data", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("conflicts with existing data", body, StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
     }
@@ -240,10 +242,11 @@ public class WriteExceptionHandlingEndToEndTests
                     .PostAsJsonAsync($"/$data/{ConflictSet}", new { Name = "irrelevant" });
 
                 Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
-                Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
+                Assert.Equal("application/json", resp.Content.Headers.ContentType?.MediaType);
 
                 var body = await resp.Content.ReadAsStringAsync();
-                Assert.Contains("conflicts with the current state of the data", body, StringComparison.Ordinal);
+                Assert.Contains($"\"code\":\"{ODataErrorCodes.Conflict}\"", body, StringComparison.Ordinal);
+                Assert.Contains("conflicts with existing data", body, StringComparison.Ordinal);
                 Assert.DoesNotContain("classified-by-the-consumer", body, StringComparison.Ordinal);
             }
             finally { await app.DisposeAsync(); }

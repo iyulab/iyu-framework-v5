@@ -18,7 +18,8 @@ namespace Iyu.MainServer;
 /// no reliable, provider-independent way to distinguish those causes without one. Any other
 /// exception is left unhandled (returns <see langword="false"/>) so ASP.NET Core's own
 /// <c>AddProblemDetails()</c> fallback still turns it into a structured — if generic — 500; this
-/// handler only narrows the one case it has an opinion about.
+/// handler only narrows the one case it has an opinion about. It decides the status and wording only:
+/// on the OData route the problem is written as an OData error (<see cref="IyuODataProblemDetailsWriter"/>).
 /// </remarks>
 public sealed class IyuWriteExceptionHandler : IExceptionHandler
 {

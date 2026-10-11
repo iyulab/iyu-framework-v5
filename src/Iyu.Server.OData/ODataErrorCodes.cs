@@ -1,8 +1,9 @@
 namespace Iyu.Server.OData;
 
 /// <summary>
-/// The <c>error.code</c> values <see cref="IyuODataController{TRead, TWrite}"/> answers with — a closed
-/// set, so a caller can branch on the code instead of the message text.
+/// The <c>error.code</c> values the OData route answers with — the refusals of
+/// <see cref="IyuODataController{TRead, TWrite}"/> and the failures the host's exception handling answers
+/// there — a closed set, so a caller can branch on the code instead of the message text.
 /// </summary>
 public static class ODataErrorCodes
 {
@@ -44,4 +45,17 @@ public static class ODataErrorCodes
     /// the current one. Read the row again (its <c>@odata.etag</c>), and decide whether to reapply.
     /// </summary>
     public const string PreconditionFailed = "PreconditionFailed";
+
+    /// <summary>
+    /// <c>409</c> — the data store refused the write, and nothing classified why (a unique or foreign-key
+    /// violation, a concurrency conflict). Not written by the controller: it is what a failure the
+    /// exception handlers answer reads as on this route.
+    /// </summary>
+    public const string Conflict = "Conflict";
+
+    /// <summary>
+    /// <c>500</c> — the request failed on the server. <c>error.innererror.traceId</c> names it in the
+    /// server's logs; the body says nothing about the cause.
+    /// </summary>
+    public const string InternalServerError = "InternalServerError";
 }

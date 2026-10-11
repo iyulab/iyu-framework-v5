@@ -2,6 +2,7 @@ using System.Reflection;
 using Iyu.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.OData;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +55,9 @@ public static class MainServerExtensions
         // how it reads what the request was refused (see IyuStringSearchBinder).
         services.AddHttpContextAccessor();
         services.AddExceptionHandler<IyuWriteExceptionHandler>();
+        // A problem answered under the OData route is written as an OData error, like every refusal the
+        // controller makes there (see IyuODataProblemDetailsWriter).
+        AddODataProblemDetailsWriter(services, new IyuODataProblemDetailsWriter(options.ODataRoutePrefix));
         services.AddProblemDetails();
 
         // The write-rule interceptor is attached here rather than in IyuDbContext.OnConfiguring
@@ -166,6 +170,31 @@ public static class MainServerExtensions
         services.AddSingleton(options);
 
         return services;
+    }
+
+    /// <summary>
+    /// Places the OData route's writer ahead of the writers ASP.NET Core supplies, wherever they were registered.
+    /// </summary>
+    /// <remarks>
+    /// The problem-details service asks writers in registration order and takes the first that can write. Appending
+    /// would leave the default writer first whenever the host called <c>AddProblemDetails()</c> (or
+    /// <c>AddControllers()</c>) before <c>AddIyuMainServer</c> — a common order that would silently undo this. A
+    /// writer of the host's own registered earlier is still asked first: that is the host choosing a format.
+    /// </remarks>
+    private static void AddODataProblemDetailsWriter(IServiceCollection services, IProblemDetailsWriter writer)
+    {
+        var descriptor = ServiceDescriptor.Singleton(writer);
+        for (var i = 0; i < services.Count; i++)
+        {
+            var existing = services[i];
+            if (existing.ServiceType == typeof(IProblemDetailsWriter)
+                && existing.ImplementationType?.Assembly.GetName().Name?.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) == true)
+            {
+                services.Insert(i, descriptor);
+                return;
+            }
+        }
+        services.Add(descriptor);
     }
 
     /// <summary>

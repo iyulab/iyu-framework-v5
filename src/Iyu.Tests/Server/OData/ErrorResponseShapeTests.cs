@@ -7,6 +7,7 @@ using Iyu.MainServer;
 using Iyu.Server.OData;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -95,11 +96,15 @@ public class ErrorResponseShapeTests
     private const string Notes = "TallyBookNotes";
     private const string Summaries = "TallyBookSummaries";
 
-    private static async Task<WebApplication> StartAsync(Action<IyuEdmModelBuilder>? model = null)
+    private static async Task<WebApplication> StartAsync(
+        Action<IyuEdmModelBuilder>? model = null,
+        Action<IServiceCollection>? servicesFirst = null,
+        Action<WebApplication>? endpoints = null)
     {
         var dbName = "errorshape-" + Guid.NewGuid().ToString("N");
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         builder.WebHost.UseTestServer();
+        servicesFirst?.Invoke(builder.Services);
 
         builder.Services.AddIyuMainServer<TallyBookContext>(
             configureDb: db => db.UseInMemoryDatabase(dbName),
@@ -116,8 +121,18 @@ public class ErrorResponseShapeTests
 
         var app = builder.Build();
         app.UseIyuMainServer();
+        endpoints?.Invoke(app);
         await app.StartAsync();
         return app;
+    }
+
+    private const string FailureText = "boom-must-not-reach-the-client";
+
+    /// <summary>An endpoint under the OData route and one outside it, both failing with an unhandled exception.</summary>
+    private static void MapFailures(WebApplication app)
+    {
+        app.MapGet("/$data/__boom", (Func<string>)(() => throw new InvalidOperationException(FailureText)));
+        app.MapGet("/api/boom", (Func<string>)(() => throw new InvalidOperationException(FailureText)));
     }
 
     private static async Task<Guid> SeedBookAsync(WebApplication app)
@@ -409,5 +424,121 @@ public class ErrorResponseShapeTests
         using var response = await client.DeleteAsync($"/$data/{Ledgers}({Guid.NewGuid()})");
 
         Assert.Equal("404 application/json odata-error code='KeyNotFound'", await ShapeOf(response));
+    }
+
+    /// <summary>
+    /// A failure nothing classified is answered in the route's format, not as <c>application/problem+json</c> —
+    /// the one kind of failure on this route a client reading <c>error.code</c> could not read before.
+    /// </summary>
+    [Fact]
+    public async Task An_unhandled_exception_on_the_route()
+    {
+        await using var app = await StartAsync(endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/$data/__boom");
+
+        Assert.Equal("500 application/json odata-error code='InternalServerError'", await ShapeOf(response));
+    }
+
+    /// <summary>Outside the OData route the host keeps the default <c>ProblemDetails</c>.</summary>
+    [Fact]
+    public async Task An_unhandled_exception_off_the_route()
+    {
+        await using var app = await StartAsync(endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/api/boom");
+
+        Assert.Equal("500 application/problem+json problem-details", await ShapeOf(response));
+    }
+
+    /// <summary>The answer names the request in the server's logs and says nothing about the exception.</summary>
+    [Fact]
+    public async Task An_unhandled_exception_names_the_request_and_not_the_exception()
+    {
+        await using var app = await StartAsync(endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/$data/__boom");
+        var body = await response.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(body);
+        var error = doc.RootElement.GetProperty("error");
+        Assert.False(string.IsNullOrEmpty(error.GetProperty("message").GetString()));
+        Assert.False(string.IsNullOrEmpty(error.GetProperty("innererror").GetProperty("traceId").GetString()));
+        Assert.DoesNotContain(FailureText, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(nameof(InvalidOperationException), body, StringComparison.Ordinal);
+    }
+
+    /// <summary>The headers a client negotiates on are those of every other error on the route.</summary>
+    [Fact]
+    public async Task An_unhandled_exception_carries_the_route_s_headers()
+    {
+        await using var app = await StartAsync(endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var refusal = await client.GetAsync($"/$data/{Ledgers}({Guid.NewGuid()})");
+        using var failure = await client.GetAsync("/$data/__boom");
+
+        Assert.Equal(refusal.Content.Headers.ContentType?.ToString(), failure.Content.Headers.ContentType?.ToString());
+        Assert.Equal(refusal.Headers.GetValues("OData-Version"), failure.Headers.GetValues("OData-Version"));
+    }
+
+    /// <summary>A <c>code</c> the host puts on the problem is the error's code.</summary>
+    [Fact]
+    public async Task A_code_the_host_supplies_is_the_error_code()
+    {
+        await using var app = await StartAsync(
+            servicesFirst: s => s.AddProblemDetails(o => o.CustomizeProblemDetails = c => c.ProblemDetails.Extensions["code"] = "Unavailable"),
+            endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/$data/__boom");
+
+        Assert.Equal("500 application/json odata-error code='Unavailable'", await ShapeOf(response));
+    }
+
+    /// <summary>
+    /// A host that called <c>AddProblemDetails()</c> before <c>AddIyuMainServer</c> — which registers ASP.NET Core's
+    /// default writer first — still gets the route's format.
+    /// </summary>
+    [Fact]
+    public async Task A_host_that_adds_problem_details_first_still_gets_the_route_format()
+    {
+        await using var app = await StartAsync(servicesFirst: s => s.AddProblemDetails(), endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/$data/__boom");
+
+        Assert.Equal("500 application/json odata-error code='InternalServerError'", await ShapeOf(response));
+    }
+
+    /// <summary>
+    /// A writer the host registers before <c>AddIyuMainServer</c> answers first — the same ordering rule the
+    /// exception handlers follow — so an application with one error format for every surface keeps it.
+    /// </summary>
+    [Fact]
+    public async Task A_writer_registered_first_answers_on_the_route()
+    {
+        await using var app = await StartAsync(
+            servicesFirst: s => s.AddSingleton<IProblemDetailsWriter, HostErrorWriter>(),
+            endpoints: MapFailures);
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/$data/__boom");
+
+        Assert.Equal("500 application/json json-other", await ShapeOf(response));
+    }
+
+    private sealed class HostErrorWriter : IProblemDetailsWriter
+    {
+        public bool CanWrite(ProblemDetailsContext context) => true;
+
+        public ValueTask WriteAsync(ProblemDetailsContext context)
+        {
+            context.HttpContext.Response.ContentType = "application/json";
+            return new(context.HttpContext.Response.WriteAsync("""{"fault":"host"}"""));
+        }
     }
 }

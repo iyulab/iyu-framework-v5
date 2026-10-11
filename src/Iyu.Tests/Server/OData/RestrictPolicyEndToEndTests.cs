@@ -222,8 +222,8 @@ public class RestrictPolicyEndToEndTests
     /// <c>AddProblemDetails()</c> pair so that no unhandled exception —
     /// not just a write-path <see cref="Microsoft.EntityFrameworkCore.DbUpdateException"/> — reaches
     /// a client raw, that same exception no longer escapes the TestServer call: it is caught and
-    /// turned into a structured 500 <c>ProblemDetails</c> like every other unhandled exception this
-    /// framework's pipeline sees. Pinned here so a future change to either convention does not
+    /// turned into a structured 500 like every other unhandled exception this framework's pipeline sees
+    /// (on the OData route, an OData error — see <c>ErrorResponseShapeTests</c>). Pinned here so a future change to either convention does not
     /// silently alter this to something else.
     /// </summary>
     [Fact]
@@ -246,7 +246,7 @@ public class RestrictPolicyEndToEndTests
         {
             using var resp = await app.GetTestServer().CreateClient().GetAsync($"/$data/{Set}");
             Assert.Equal(HttpStatusCode.InternalServerError, resp.StatusCode);
-            Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
+            Assert.Equal("application/json", resp.Content.Headers.ContentType?.MediaType);
         }
         finally { await app.DisposeAsync(); }
     }
