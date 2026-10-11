@@ -32,7 +32,7 @@ public class UserCredentialServiceTests
 
         Assert.True(check.Ok);
         Assert.Null(check.Failure);
-        Assert.Equal(id, check.User!.Id);
+        Assert.Equal(id, check.User.Id);
         Assert.Null(check.UpgradedPasswordHash);
     }
 

@@ -172,7 +172,7 @@ app.MapPost("/api/auth/login", async (LoginRequest req, UserCredentialService cr
     var check = await credentials.VerifyAsync(req.Username, req.Password, ct);
     if (!check.Ok) return Results.Unauthorized();
 
-    return await sessions.SignInAsync(http, check.User!.Id.ToString(), ct: ct) ? Results.Ok() : Results.Unauthorized();
+    return await sessions.SignInAsync(http, check.User.Id.ToString(), ct: ct) ? Results.Ok() : Results.Unauthorized();
 }).AllowAnonymous();
 ```
 
@@ -261,7 +261,7 @@ app.MapPost("/api/auth/mobile-login", async (LoginRequest req, UserCredentialSer
     var check = await credentials.VerifyAsync(req.Username, req.Password, ct);
     if (!check.Ok) return Results.Unauthorized();
 
-    var result = await tokens.IssueAsync(check.User!.Id.ToString(), TimeSpan.FromDays(30), ct);
+    var result = await tokens.IssueAsync(check.User.Id.ToString(), TimeSpan.FromDays(30), ct);
     return result.Ok
         ? Results.Ok(new { access_token = result.AccessToken, expires_in = result.ExpiresInSeconds })
         : Results.Unauthorized();
@@ -293,7 +293,7 @@ app.MapPost("/api/auth/mobile-login", async (LoginRequest req, UserCredentialSer
     var check = await credentials.VerifyAsync(req.Username, req.Password, ct);
     if (!check.Ok) return Results.Unauthorized();
 
-    var pair = await users.IssueAsync(check.User!.Id.ToString(), ct);
+    var pair = await users.IssueAsync(check.User.Id.ToString(), ct);
     return pair.Ok
         ? Results.Ok(new { access_token = pair.AccessToken, expires_in = pair.ExpiresInSeconds, refresh_token = pair.RefreshToken })
         : Results.Unauthorized();

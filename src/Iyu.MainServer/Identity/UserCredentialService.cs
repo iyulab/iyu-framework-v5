@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Iyu.Core.Identity;
@@ -121,8 +122,9 @@ public sealed class UserCredentialService
 /// </param>
 public sealed record CredentialCheck(IUser? User, CredentialFailure? Failure, string? UpgradedPasswordHash)
 {
-    /// <summary>The password is the account's and the account is active.</summary>
-    public bool Ok => Failure is null;
+    /// <summary>The password is the account's and the account is active. When true, <see cref="User"/> is set.</summary>
+    [MemberNotNullWhen(true, nameof(User))]
+    public bool Ok => Failure is null && User is not null;
 
     internal static CredentialCheck Succeeded(IUser user, string? upgradedHash) => new(user, null, upgradedHash);
     internal static CredentialCheck Failed(CredentialFailure failure, IUser? user = null) => new(user, failure, null);
