@@ -1169,9 +1169,20 @@ Behaviour worth knowing before deploying it:
   cap uploads below it. Ceilings the gateway cannot raise still apply and must be
   configured by the operator: IIS out-of-process (`maxAllowedContentLength`) and
   any reverse proxy.
+- **An upload token writes once.** A token minted for `FileTokenOp.Upload` creates
+  the object at its key; presented again while it is still valid — or for a key
+  that already holds an object — it is refused with `409` and
+  `{"error":"already_exists"}`, and what is stored is left as it was. What your
+  application recorded when the upload finished (size, hash) therefore stays true
+  of the object. An upload that was refused part-way stored nothing, so the same
+  token can retry it; a client that lost the response to an upload that did
+  succeed sees `409` on its retry, and can treat it as done. For a key whose
+  content is meant to change — a template, an avatar — mint the token for
+  `FileTokenOp.Replace` instead: it writes over whatever the key holds, and
+  creates the object when there is none.
 - **Rejections are structured**, so a caller can tell them apart:
-  `413` with `{"Error":"too_large"}`; `400` with
-  `{"Error":"content_type_not_allowed"}` or `{"Error":"content_type_required"}`.
+  `413` with `{"error":"too_large"}`; `409` with `{"error":"already_exists"}`; `400` with
+  `{"error":"content_type_not_allowed"}` or `{"error":"content_type_required"}`.
   An oversized body answers `413` whichever layer noticed it — the header check,
   the gateway's stream ceiling, or the host's guard.
 - **`AllowedContentTypes` checks the type the token declares**, not the bytes
@@ -1319,7 +1330,7 @@ when, and exposing report generation over HTTP are all consumer-application conc
 design, not by omission.
 
 The parts a registry and a history are made of are already here. A template is a file —
-`Iyu.FileServer` stores it, and an admin replacing it is an upload. Which template a document
+`Iyu.FileServer` stores it, and an admin replacing it is an upload with a `FileTokenOp.Replace` token. Which template a document
 uses is a row of your own model (document code → attachment, active flag, version), and so is
 each generated output (who, when, which template, the output's attachment) — declared like any
 other entity, it gets the same read/write API and policies as the rest of your data. Rendering is

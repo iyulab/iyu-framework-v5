@@ -18,7 +18,8 @@ public static class FileGatewayHandlers
         IAttachmentStorage storage, FileGatewayOptions gw, CancellationToken ct, ILogger? logger = null)
     {
         var raw = token ?? BearerToken(request);
-        if (raw is null || !tokens.TryValidate(raw, gw.SigningKey, out var t) || t!.Op != FileTokenOp.Upload)
+        if (raw is null || !tokens.TryValidate(raw, gw.SigningKey, out var t)
+            || t!.Op is not (FileTokenOp.Upload or FileTokenOp.Replace))
             return Unauthorized(logger, FileTokenOp.Upload, raw is not null);
 
         // Deliberately here — after the token proves out, before any of the checks below. Placing it after
@@ -64,7 +65,20 @@ public static class FileGatewayHandlers
         using var limited = new LimitedStream(request.Body, gw.MaxBytes);
         try
         {
-            await storage.SaveAsync(limited, t.StorageKey, t.ContentType, ct);
+            // What the token grants decides the write. An upload token creates the object and nothing more: used
+            // again while it lives, it finds the key taken. Only a token minted to replace may write over one.
+            if (t.Op == FileTokenOp.Replace)
+            {
+                await storage.SaveAsync(limited, t.StorageKey, t.ContentType, ct);
+            }
+            else if (!await storage.TryCreateAsync(limited, t.StorageKey, t.ContentType, ct))
+            {
+                logger?.LogInformation(
+                    "File gateway rejected an upload of {StorageKey}: an object is already stored there, and an " +
+                    "upload token creates one only. Replacing it takes a token minted for FileTokenOp.Replace.",
+                    t.StorageKey);
+                return Results.Json(new { Error = "already_exists" }, statusCode: StatusCodes.Status409Conflict);
+            }
         }
         catch (PayloadTooLargeException)
         {

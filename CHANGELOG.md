@@ -29,9 +29,29 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`
+
+### Changed
+
+- 🔇 **`Iyu.FileServer`, `Iyu.Core`: an upload token writes once; replacing an object takes a token minted for it.**
+  A token for `FileTokenOp.Upload` used to write its key every time it was presented until it expired, so a client
+  holding one could replace an attachment after the upload had finished — after the application had recorded its
+  size or hash, or shown it to someone. The gateway now creates the object with an upload token and refuses a second
+  write, or a write to a key that already holds an object, with `409` and `{"error":"already_exists"}`, leaving what
+  is stored as it was. `FileTokenOp.Replace` is new and is the grant for a key whose content is meant to change: it
+  writes over whatever the key holds and creates the object when there is none. **If your application re-uploads to
+  a key it already wrote** — a template, an avatar, anything stored under a fixed key — mint those tokens with
+  `FileTokenOp.Replace`; left as `Upload` they are refused once the key holds an object. An upload refused part-way
+  stored nothing and can be retried with the same token; a retry of an upload that did succeed is answered `409`.
+  A custom `IAttachmentStorage` needs no change — the gateway calls its `TryCreateAsync`, part of the interface since
+  0.37.0.
 
 ### Fixed
+
+- **README: the file gateway's rejection bodies are keyed `error`, not `Error`.** The README showed
+  `{"Error":"too_large"}` and its siblings; what the gateway sends is `{"error":"too_large"}` — the property is
+  named by the host's JSON options, camel case unless the host changed them. Nothing on the wire changed in this
+  release; a client written from the README that matched the key case-sensitively was not matching.
 
 - **`Iyu.FileServer`: `FileSystemAttachmentStorage.TryCreateAsync` could tell two concurrent creators of one key that
   each had won — off Windows.** The create published its bytes with a move that does not overwrite. On Windows that

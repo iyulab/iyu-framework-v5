@@ -46,6 +46,99 @@ public sealed class FileGatewayHandlerTests
         Assert.True(storage.Objects.ContainsKey("2026/07/abc"));
     }
 
+    private static HttpRequest Body(string content)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(content));
+        return ctx.Request;
+    }
+
+    private static string Stored(FakeAttachmentStorage storage, string key = "2026/07/abc") =>
+        Encoding.UTF8.GetString(storage.Objects[key]);
+
+    /// <summary>
+    /// An upload token creates the object once. Presented again while it is still valid — the same token, as a
+    /// client holding it could — it is refused and what was stored stays as it was.
+    /// </summary>
+    [Fact]
+    public async Task Upload_token_cannot_write_the_object_a_second_time()
+    {
+        var storage = new FakeAttachmentStorage();
+        var token = Token(FileTokenOp.Upload);
+
+        var first = await FileGatewayHandlers.UploadAsync(Body("the attachment"), token, Tokens, storage, Gw, default);
+        var second = await FileGatewayHandlers.UploadAsync(Body("something else"), token, Tokens, storage, Gw, default);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(first);
+        var refused = Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.IStatusCodeHttpResult>(second);
+        Assert.Equal(409, refused.StatusCode);
+        var payload = Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.IValueHttpResult>(second).Value;
+        Assert.Equal("already_exists", payload!.GetType().GetProperty("Error")!.GetValue(payload));
+        Assert.Equal("the attachment", Stored(storage));
+    }
+
+    /// <summary>The refusal is about the key, not the token: another upload token for a key that holds an object is refused too.</summary>
+    [Fact]
+    public async Task Upload_token_is_refused_for_a_key_that_already_holds_an_object()
+    {
+        var storage = new FakeAttachmentStorage();
+        await storage.SaveAsync(new MemoryStream(Encoding.UTF8.GetBytes("stored earlier")), "2026/07/abc", null);
+
+        var result = await FileGatewayHandlers.UploadAsync(Body("new bytes"), Token(FileTokenOp.Upload), Tokens, storage, Gw, default);
+
+        Assert.Equal(409, Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Equal("stored earlier", Stored(storage));
+    }
+
+    /// <summary>An upload that was refused part-way stored nothing, so the same token can still create the object.</summary>
+    [Fact]
+    public async Task Upload_token_can_be_used_again_after_an_upload_that_stored_nothing()
+    {
+        var storage = new FakeAttachmentStorage();
+        var smallGw = new FileGatewayOptions { SigningKey = Key, MaxBytes = 8 };
+        var token = Token(FileTokenOp.Upload);
+
+        var tooLarge = await FileGatewayHandlers.UploadAsync(Body("far more than eight bytes"), token, Tokens, storage, smallGw, default);
+        var retried = await FileGatewayHandlers.UploadAsync(Body("fits"), token, Tokens, storage, smallGw, default);
+
+        Assert.Equal(413, Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.IStatusCodeHttpResult>(tooLarge).StatusCode);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(retried);
+        Assert.Equal("fits", Stored(storage));
+    }
+
+    /// <summary>Replacing is a grant of its own: a token minted for it writes over the object, and creates it when absent.</summary>
+    [Fact]
+    public async Task Replace_token_writes_over_the_object_and_creates_it_when_absent()
+    {
+        var storage = new FakeAttachmentStorage();
+        var token = Token(FileTokenOp.Replace);
+
+        var created = await FileGatewayHandlers.UploadAsync(Body("version one"), token, Tokens, storage, Gw, default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(created);
+        Assert.Equal("version one", Stored(storage));
+
+        var replaced = await FileGatewayHandlers.UploadAsync(Body("version two"), token, Tokens, storage, Gw, default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(replaced);
+        Assert.Equal("version two", Stored(storage));
+    }
+
+    /// <summary>A token that may replace an object is not thereby one that may read or delete it.</summary>
+    [Fact]
+    public async Task Replace_token_grants_neither_reading_nor_deleting()
+    {
+        var storage = new FakeAttachmentStorage();
+        await storage.SaveAsync(new MemoryStream([1]), "2026/07/abc", null);
+        var token = Token(FileTokenOp.Replace);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.UnauthorizedHttpResult>(
+            await FileGatewayHandlers.DownloadAsync(token, Tokens, storage, Gw, default));
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.UnauthorizedHttpResult>(
+            await FileGatewayHandlers.ExistsAsync(token, Tokens, storage, Gw, default));
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.UnauthorizedHttpResult>(
+            await FileGatewayHandlers.DeleteAsync(token, new DefaultHttpContext().Request, Tokens, storage, Gw, default));
+        Assert.True(storage.Objects.ContainsKey("2026/07/abc"));
+    }
+
     [Fact]
     public async Task Upload_rejects_download_token()
     {

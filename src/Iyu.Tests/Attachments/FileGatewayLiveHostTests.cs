@@ -56,6 +56,34 @@ public sealed class FileGatewayLiveHostTests : IAsyncLifetime
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
+    /// <summary>
+    /// Over HTTP, against the filesystem backend: the same upload token presented twice stores the first body and
+    /// refuses the second with a body a client can branch on; a replace token then writes over it.
+    /// </summary>
+    [Fact]
+    public async Task Upload_token_writes_once_and_a_replace_token_writes_over()
+    {
+        var tokens = new FileAccessTokenService();
+        string Mint(FileTokenOp op) => tokens.Sign(
+            new FileAccessToken(Guid.NewGuid(), "2026/10/once", op, "once.txt", "text/plain",
+                DateTimeOffset.UtcNow.AddMinutes(5)), Key);
+        var stored = Path.Combine(_root, "2026", "10", "once");
+        var upload = Mint(FileTokenOp.Upload);
+
+        var first = await _client.PutAsync($"/files?token={upload}", new StringContent("the attachment"));
+        var second = await _client.PutAsync($"/files?token={upload}", new StringContent("something else"));
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, second.StatusCode);
+        Assert.Equal("""{"error":"already_exists"}""", await second.Content.ReadAsStringAsync());
+        Assert.Equal("the attachment", await File.ReadAllTextAsync(stored));
+
+        var replaced = await _client.PutAsync($"/files?token={Mint(FileTokenOp.Replace)}", new StringContent("version two"));
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, replaced.StatusCode);
+        Assert.Equal("version two", await File.ReadAllTextAsync(stored));
+    }
+
     [Fact]
     public async Task Upload_above_the_host_default_limit_but_within_MaxBytes_succeeds()
     {
@@ -84,7 +112,7 @@ public sealed class FileGatewayLiveHostTests : IAsyncLifetime
         var response = await _client.PutAsync($"/files?token={smallKeyed}", content);
 
         Assert.Equal(System.Net.HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
-        Assert.Contains("too_large", await response.Content.ReadAsStringAsync());
+        Assert.Equal("""{"error":"too_large"}""", await response.Content.ReadAsStringAsync());
         Assert.False(File.Exists(Path.Combine(_root, "2026", "07", "toobig")));
     }
 
