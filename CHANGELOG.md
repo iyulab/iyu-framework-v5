@@ -58,7 +58,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   now public, `UseIyuMainServer()` is exactly `UseIyuErrorResponses()`, `UseRouting()`, `MapIyuMainServer()`, and
   the README has «Placing your own middleware». **If your host composes its pipeline by hand**, replace the lines
   that mirror `UseIyuMainServer()` with those two calls. Often no hand composition is needed at all: middleware
-  added after `UseIyuMainServer()` already runs after routing and before the endpoints.
+  added after `UseIyuMainServer()` already runs after routing and before the endpoints. A host that maps the
+  endpoints without the error responses now logs one warning at startup (category `Iyu.MainServer.Pipeline`)
+  naming the missing call — the only signal there is, since such a host starts and serves.
 
 ### Fixed — identity
 

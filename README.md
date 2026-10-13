@@ -117,7 +117,9 @@ app.MapIyuMainServer();       // the OData controllers and every optional surfac
 
 Compose from these two pieces rather than from what they contain: what `UseIyuMainServer()` gains in a later
 release it gains in one of them. A pipeline that leaves `UseIyuErrorResponses()` out starts and serves — the
-failures under the OData route simply answer with no body.
+failures under the OData route simply answer with no body — so the host says it once at startup: a warning
+under the log category `Iyu.MainServer.Pipeline`. It is a warning, not a refusal to start, because a host may
+write those responses itself.
 
 ## Identity
 

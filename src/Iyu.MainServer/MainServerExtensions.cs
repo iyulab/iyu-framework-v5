@@ -170,6 +170,11 @@ public static class MainServerExtensions
         // Stash the options so UseIyuMainServer can finish the pipeline wiring.
         services.AddSingleton(options);
 
+        // A pipeline composed by hand can leave the error responses out without anything failing — said once
+        // at startup. See PipelineCompositionCheck.
+        services.AddSingleton<PipelineComposition>();
+        services.AddHostedService<PipelineCompositionCheck>();
+
         return services;
     }
 
@@ -266,6 +271,7 @@ public static class MainServerExtensions
         app.UseWhen(
             context => IyuODataProblemDetailsWriter.IsUnderRoute(context.Request, options.ODataRoutePrefix),
             route => route.UseStatusCodePages());
+        app.ApplicationServices.GetRequiredService<PipelineComposition>().ErrorResponsesUsed = true;
         return app;
     }
 
@@ -285,6 +291,7 @@ public static class MainServerExtensions
         var options = endpoints.ServiceProvider.GetRequiredService<IyuMainServerOptions>();
         foreach (var surface in options.Surfaces)
             surface.MapEndpoints(endpoints);
+        endpoints.ServiceProvider.GetRequiredService<PipelineComposition>().EndpointsMapped = true;
         return endpoints;
     }
 

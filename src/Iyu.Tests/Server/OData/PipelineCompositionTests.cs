@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Iyu.Tests.Server.OData;
@@ -31,10 +33,38 @@ public class PipelineCompositionTests
         public Dictionary<string, string?> ByPath { get; } = new();
     }
 
+    /// <summary>The warnings the host logged, with their categories.</summary>
+    private sealed class Warnings : ILoggerProvider
+    {
+        public ConcurrentQueue<(string Category, string Message)> Entries { get; } = new();
+        public ILogger CreateLogger(string categoryName) => new Logger(this, categoryName);
+        public void Dispose() { }
+
+        private sealed class Logger(Warnings owner, string category) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel >= LogLevel.Warning) owner.Entries.Enqueue((category, formatter(state, exception)));
+            }
+        }
+    }
+
     private static async Task<(WebApplication App, EndpointSeen Seen)> StartAsync(Action<WebApplication, RequestDelegate?> compose)
+    {
+        var (app, seen, _) = await StartLoggedAsync(a => compose(a, null));
+        return (app, seen);
+    }
+
+    private static async Task<(WebApplication App, EndpointSeen Seen, Warnings Log)> StartLoggedAsync(Action<WebApplication> compose)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         builder.WebHost.UseTestServer();
+        var log = new Warnings();
+        builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(log);
         var dbName = "pipeline-" + Guid.NewGuid().ToString("N");
         builder.Services.AddIyuMainServer<TallyBookContext>(
             configureDb: db => db.UseInMemoryDatabase(dbName),
@@ -47,9 +77,69 @@ public class PipelineCompositionTests
         builder.Services.AddSingleton(seen);
 
         var app = builder.Build();
-        compose(app, null);
+        compose(app);
         await app.StartAsync();
-        return (app, seen);
+        return (app, seen, log);
+    }
+
+    private const string PipelineCategory = "Iyu.MainServer.Pipeline";
+
+    /// <summary>
+    /// The endpoints mapped without the error responses: the host starts and serves, so the one place this can be
+    /// said is the startup log — once, as a warning that names the missing call.
+    /// </summary>
+    [Fact]
+    public async Task Endpoints_mapped_without_the_error_responses_are_warned_about_at_startup()
+    {
+        var (app, _, log) = await StartLoggedAsync(a =>
+        {
+            a.UseRouting();
+            a.MapIyuMainServer();
+        });
+        await using var __ = app;
+
+        var warning = Assert.Single(log.Entries, e => e.Category == PipelineCategory);
+        Assert.Contains("UseIyuErrorResponses()", warning.Message);
+    }
+
+    /// <summary>Nothing is said when both pieces are there — through the one call, or by hand in either order.</summary>
+    [Theory]
+    [InlineData("one call")]
+    [InlineData("by hand")]
+    [InlineData("by hand, endpoints first")]
+    public async Task A_complete_pipeline_is_not_warned_about(string composition)
+    {
+        var (app, _, log) = await StartLoggedAsync(a =>
+        {
+            switch (composition)
+            {
+                case "one call":
+                    a.UseIyuMainServer();
+                    break;
+                case "by hand":
+                    a.UseIyuErrorResponses();
+                    a.UseRouting();
+                    a.MapIyuMainServer();
+                    break;
+                default:
+                    a.MapIyuMainServer();
+                    a.UseIyuErrorResponses();
+                    break;
+            }
+        });
+        await using var __ = app;
+
+        Assert.DoesNotContain(log.Entries, e => e.Category == PipelineCategory);
+    }
+
+    /// <summary>A host that registered the services and maps nothing of the runtime's is not told anything either.</summary>
+    [Fact]
+    public async Task A_host_that_maps_none_of_the_runtime_s_endpoints_is_not_warned_about()
+    {
+        var (app, _, log) = await StartLoggedAsync(_ => { });
+        await using var __ = app;
+
+        Assert.DoesNotContain(log.Entries, e => e.Category == PipelineCategory);
     }
 
     /// <summary>The host's middleware: records the endpoint routing chose for the request, then goes on.</summary>
