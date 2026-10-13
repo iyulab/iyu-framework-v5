@@ -89,6 +89,32 @@ internal sealed class OidcStandIn : HttpMessageHandler
     }
 
     /// <summary>
+    /// A logout token as this provider would post it to the application's back-channel logout endpoint: signed with
+    /// the provider's key, naming <see cref="SessionId"/>, and — like providers in use — carrying no expiry.
+    /// </summary>
+    /// <param name="change">Edits the claims before signing: remove one, add one, replace one.</param>
+    /// <param name="signedWith">Another key to sign with; the provider's own when omitted.</param>
+    /// <param name="unsigned">Leave the token unsigned (<c>alg: none</c>).</param>
+    public string LogoutToken(Action<Dictionary<string, object>>? change = null, SecurityKey? signedWith = null, bool unsigned = false)
+    {
+        var claims = new Dictionary<string, object>
+        {
+            ["iss"] = Issuer,
+            ["aud"] = new[] { ClientId },
+            ["iat"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            ["jti"] = Guid.NewGuid().ToString(),
+            ["events"] = new Dictionary<string, object> { ["http://schemas.openid.net/event/backchannel-logout"] = new Dictionary<string, object>() },
+        };
+        if (SessionId is not null) claims["sid"] = SessionId;
+        change?.Invoke(claims);
+        return new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(new SecurityTokenDescriptor
+        {
+            Claims = claims,
+            SigningCredentials = unsigned ? null : new SigningCredentials(signedWith ?? _key, SecurityAlgorithms.RsaSha256),
+        });
+    }
+
+    /// <summary>
     /// Follows a challenge to this provider and back: reads the nonce and state off the redirect, posts the
     /// authorization response to the handler's callback, and returns that response — the handler's redirect onward,
     /// with the cookies it set.

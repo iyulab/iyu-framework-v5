@@ -22,6 +22,22 @@ public class MainServerPackageBoundaryTests
         Assert.DoesNotContain("Iyu.Server.GraphQL", references);
     }
 
+    /// <summary>
+    /// Receiving an OpenID Connect provider's logout notices is optional too, and it is the only part of the identity
+    /// runtime that needs the OpenID Connect handler: a host that signs people in some other way carries no handler.
+    /// </summary>
+    [Fact]
+    public void The_composite_host_assembly_references_no_OpenID_Connect_handler()
+    {
+        var references = typeof(IyuMainServerOptions).Assembly.GetReferencedAssemblies()
+            .Select(a => a.Name ?? string.Empty)
+            .ToList();
+
+        Assert.DoesNotContain("Microsoft.AspNetCore.Authentication.OpenIdConnect", references);
+        Assert.Contains("Microsoft.AspNetCore.Authentication.OpenIdConnect",
+            typeof(Iyu.MainServer.Identity.BackChannelLogoutOptions).Assembly.GetReferencedAssemblies().Select(a => a.Name));
+    }
+
     [Fact]
     public void Options_compose_the_GraphQL_surface_only_when_it_is_asked_for()
     {

@@ -7,7 +7,7 @@ generator-produced entities, plus optional modules for identity, attachments,
 chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
-Targets .NET 10. All eleven projects share one version and ship as separate
+Targets .NET 10. All twelve projects share one version and ship as separate
 NuGet packages.
 
 ## Role in the stack
@@ -30,6 +30,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer sessions; service clients, local credentials and refresh tokens each turned on by their own call). Serves OData; carries no GraphQL dependency |
 | `Iyu.MainServer.GraphQL` | The GraphQL surface for `AddIyuMainServer` — `options.GraphQL`, `/graphql`. Reference it only if the host serves GraphQL (below) |
+| `Iyu.MainServer.OpenIdConnect` | `AddIyuBackChannelLogout` / `MapIyuBackChannelLogout` — receives an OpenID Connect provider's logout notices and ends the sessions opened from the session they name. Reference it only if the host signs people in through an OpenID Connect provider and wants that (see «Identity») |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
@@ -351,6 +352,42 @@ every session opened from it ends the next time its cookie is presented — on t
 from a provider (and on no other request): keep it cheap, and shared — over `AddDistributedMemoryCache()`
 the record lives in one process, which is right for a single instance and ends the session on one
 instance only behind a load balancer. A session whose provider sent no `sid` cannot be ended this way.
+
+**What calls it for an OpenID Connect provider is the provider's own logout notice** — OpenID Connect
+Back-Channel Logout 1.0, received by the `Iyu.MainServer.OpenIdConnect` package:
+
+```csharp
+builder.Services.AddSingleton<IExternalSessionEndStore, DistributedCacheExternalSessionEndStore>();
+builder.Services.AddIyuBackChannelLogout();          // turns AddIyuExternalSessionEnds on as well
+// ...
+app.MapIyuBackChannelLogout();                       // POST /api/auth/external/{provider}/backchannel-logout
+```
+
+Register the endpoint's absolute address with the provider as the client's `backchannel_logout_uri`
+(`https://app.example/api/auth/external/oidc/backchannel-logout` for a handler added as `"oidc"`), together
+with `backchannel_logout_session_required: true`. When the person's session at the provider ends — in
+another application, or at the provider — the provider posts a signed logout token there, and every
+session this application opened from that session ends on its next request.
+
+- **The token is checked against the handler itself**: the issuer and signing keys of the provider that
+  `AddOpenIdConnect("oidc", …)` points at, and its `ClientId` as the audience. Nothing about the provider
+  is configured a second time. An identity token is not a logout token and is refused, as is a token that
+  carries a `nonce`, lacks the logout event, or is unsigned.
+- **The token must name the session** (`sid`). One that names only a person (`sub`) is refused with a 400
+  rather than half honoured — sessions are not kept by the provider's subject here. That is what
+  `backchannel_logout_session_required` asks the provider for.
+- **Expiry.** The specification requires `exp` on a logout token; providers in use send none. A token that
+  carries one is held to it. One that does not is accepted while it is young — five minutes from `iat` by
+  default (`MaxAgeWithoutExpiration`), plus the handler's clock skew — or refused outright with
+  `AddIyuBackChannelLogout(o => o.RequireExpiration = true)`.
+- **Answers.** 200 with no body when the token is accepted, whether or not anyone here held a session from
+  it; 400 with `{"error":"invalid_request","error_description":…}` when it is refused; 404 when
+  `{provider}` is not an OpenID Connect handler. The endpoint is anonymous — the signature is what
+  authenticates the provider — so it must be reachable from the provider, not only from browsers.
+- **What it does not cover.** A notice the provider failed to deliver is not retried by anything here, and
+  revalidation cannot make up for it: the claims source knows the account, not the provider's session.
+  Tokens the application issued separately (`UserAccessTokenService`, refresh tokens) are not tied to the
+  provider's session and are not ended by a notice.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
 session verifies the user by whichever means the app already uses (the local check above, or an
@@ -1462,7 +1499,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All eleven `Iyu.*` packages share one version, so a new number does not by itself mean the
+All twelve `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking

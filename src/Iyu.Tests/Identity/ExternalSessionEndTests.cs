@@ -41,8 +41,12 @@ public class ExternalSessionEndTests
             return Task.CompletedTask;
         }
 
+        /// <summary>The store cannot be read — its cache is down, say.</summary>
+        public bool Failing { get; set; }
+
         public Task<bool> HasEndedAsync(ExternalSession session, CancellationToken ct)
         {
+            if (Failing) throw new InvalidOperationException("the store cannot be read");
             Asked++;
             return Task.FromResult(Ended.ContainsKey(session));
         }
@@ -209,6 +213,20 @@ public class ExternalSessionEndTests
         using var anonymous = await host.Http.GetAsync("/api/auth/external/complete");
 
         Assert.Equal(3, host.Store.Asked);
+    }
+
+    [Fact]
+    public async Task A_store_that_cannot_be_read_fails_the_request_rather_than_letting_the_session_through()
+    {
+        // Whether the session has ended is not known, so it is not treated as one that has not.
+        await using var host = await StartAsync();
+        var session = await ExternalSessionAsync(host);
+        host.Store.Failing = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.StatusAsync(session));
+
+        host.Store.Failing = false;
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(session));
     }
 
     [Fact]

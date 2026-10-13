@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`
+**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new)
 
 ### Changed — document conversion
 
@@ -63,6 +63,20 @@ onward; earlier entries state the same consequence in prose where it applies.
   its `IDistributedCache`. It is read on every request of such a session and must be shared by every instance. A
   host that turns this on without a store, or registers a store without turning it on, is refused at startup.
   Nothing changes for a host that does not call it.
+- **New package `Iyu.MainServer.OpenIdConnect`: an OpenID Connect provider's logout notice is received —
+  `AddIyuBackChannelLogout()` + `MapIyuBackChannelLogout()`.** OpenID Connect Back-Channel Logout 1.0: the
+  provider posts a signed logout token to `POST /api/auth/external/{provider}/backchannel-logout` (register it as
+  the client's `backchannel_logout_uri`, with `backchannel_logout_session_required: true`), and every session the
+  application opened from the session it names ends on its next request (the entry above). The token is checked
+  against the OpenID Connect handler it names — the provider's issuer and signing keys, the handler's `ClientId` —
+  so the provider is not configured twice; an identity token, a token with a `nonce`, one without the logout event
+  and an unsigned one are refused. A token must name its session (`sid`): one naming only a person is answered 400.
+  **About expiry:** the specification requires `exp` and providers in use omit it, so a token without one is
+  accepted while young (five minutes from `iat` by default, `MaxAgeWithoutExpiration`) unless
+  `RequireExpiration` is set; a token that carries one is always held to it. This is a package of its own because
+  it is the only part of the identity runtime that needs `Microsoft.AspNetCore.Authentication.OpenIdConnect`:
+  `Iyu.MainServer` still does not reference it. The README's «Identity» section has the recipe and what a notice
+  does not cover (tokens the application issued separately; a notice the provider never delivered).
 - **`Iyu.MainServer`: `UseIyuMainServer()` is made of two public pieces — `UseIyuErrorResponses()` and
   `MapIyuMainServer()`.** A host that put its own middleware at a particular place could not call
   `UseIyuMainServer()`, and had to re-create what it does from the source. The piece it could not know to re-create
