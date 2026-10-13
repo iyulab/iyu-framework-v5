@@ -201,7 +201,12 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
 
         // The same decision IyuSearch makes for an endpoint outside OData — one home for «which references may this
         // caller search».
-        http.Items[IyuStringSearchBinder.AllowedNavigationsItem] = await search.AllowedNavigationsAsync(addressed.ReadType, http.User);
+        // Listed for the addressed type alone. A search that binds another type (one nested in an expand) finds
+        // nothing listed for it, and leaves that type's protected references out.
+        http.Items[IyuStringSearchBinder.AllowedNavigationsItem] = new Dictionary<Type, IReadOnlySet<string>>
+        {
+            [addressed.ReadType] = await search.AllowedNavigationsAsync(addressed.ReadType, http.User),
+        };
     }
 
     /// <summary>A query this filter could not account for in full — refused, with words for the caller.</summary>

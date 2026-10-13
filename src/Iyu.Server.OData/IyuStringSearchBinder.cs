@@ -57,10 +57,16 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
     : ISearchBinder
 {
     /// <summary>
-    /// The <see cref="HttpContext.Items"/> key under which a request lists, as a set of property names, the searchable
-    /// navigations to a policy-protected set that its caller may search — filled by the host's authorization before
-    /// the query is bound. A protected navigation not listed is left out.
+    /// The <see cref="HttpContext.Items"/> key under which a request lists the searchable navigations to a
+    /// policy-protected set that its caller may search — filled by the host's authorization before the query is
+    /// bound. The value is an <see cref="IReadOnlyDictionary{TKey,TValue}"/> from a read type to the names of that
+    /// type's allowed navigations. A protected navigation not listed <em>for the type being searched</em> is left out.
     /// </summary>
+    /// <remarks>
+    /// Keyed by type because a name says nothing on its own: two read types may each have a reference called
+    /// <c>Owner</c> that lead to different sets, and a search nested in an expand binds a type other than the one
+    /// the request addressed. Permission to search one type's <c>Owner</c> is not permission to search another's.
+    /// </remarks>
     public const string AllowedNavigationsItem = "Iyu.Search.AllowedNavigations";
 
     /// <summary>The response header naming the searchable navigations a search left out for this caller.</summary>
@@ -84,7 +90,10 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
         // wrapped in exactly one lambda — nesting lambdas per node would not be
         // EF-Core translatable.
         var http = httpContext?.HttpContext;
-        var allowed = http?.Items[AllowedNavigationsItem] as IReadOnlySet<string>;
+        // What the request allows for this type, and only for this type. Nothing listed for it — a type reached by
+        // a nested search, say — is nothing allowed.
+        var allowed = (http?.Items[AllowedNavigationsItem] as IReadOnlyDictionary<Type, IReadOnlySet<string>>)
+            ?.GetValueOrDefault(context.ElementClrType);
         var (navigations, excluded) = Partition(registry, context.ElementClrType, allowed);
         if (excluded.Count > 0 && http is { Response.HasStarted: false })
             http.Response.Headers[ExcludedHeader] = string.Join(", ", excluded);

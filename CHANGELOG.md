@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new)
+**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new), `Iyu.Server.OData`
 
 ### Changed — document conversion
 
@@ -107,6 +107,15 @@ onward; earlier entries state the same consequence in prose where it applies.
   refusals are new for everyone, both `400 InvalidQuery`: an option given under both spellings at once
   (`$filter=…&filter=…` — until now an unhandled `500`), and a query using a construct the check has no rule
   for. A malformed query is still a `400`, now worded by this check rather than by the query pipeline.
+- 🔇 **`Iyu.Server.OData`: what a request may search is listed per read type, not by navigation name.** The list of
+  searchable references a caller may search (`IyuStringSearchBinder.AllowedNavigationsItem`) was a set of bare
+  navigation names computed for the addressed type, and the binder applied it to whichever type it was binding. A
+  search bound for another type — one nested in an expand — would have followed that type's reference of the same
+  name into a set the caller may not read. The item is now a dictionary from read type to names; a type with nothing
+  listed has nothing allowed. Found by reading, not by a report, and no generated model is known to reach it (it
+  takes a collection navigation with a nested `$search`). **If your host fills that item itself**, write the
+  dictionary: a bare set is no longer read, which leaves every protected reference out — the safe direction, and
+  silent.
 
 ### Fixed — identity
 

@@ -61,7 +61,8 @@ public sealed class RefCustomersController(RefContext ctx) : IyuODataController<
 public class SearchableReferenceTests
 {
     private static Func<RefOrderExt, bool> Bind(
-        string term, bool registerCustomers, bool protectCustomers = false, ISet<string>? allowed = null, bool withRequest = true)
+        string term, bool registerCustomers, bool protectCustomers = false, ISet<string>? allowed = null, bool withRequest = true,
+        Type? allowedFor = null)
     {
         var builder = new IyuEdmModelBuilder();
         builder.AddEntityPair<RefOrderExt, RefOrder>("RefOrders");
@@ -71,7 +72,10 @@ public class SearchableReferenceTests
 
         var accessor = new HttpContextAccessor { HttpContext = withRequest ? new DefaultHttpContext() : null };
         if (allowed is not null)
-            accessor.HttpContext!.Items[IyuStringSearchBinder.AllowedNavigationsItem] = new HashSet<string>(allowed);
+            accessor.HttpContext!.Items[IyuStringSearchBinder.AllowedNavigationsItem] = new Dictionary<Type, IReadOnlySet<string>>
+            {
+                [allowedFor ?? typeof(RefOrderExt)] = new HashSet<string>(allowed),
+            };
 
         var binder = new IyuStringSearchBinder(builder.Registry, accessor);
         var lambda = Assert.IsAssignableFrom<LambdaExpression>(
@@ -109,6 +113,15 @@ public class SearchableReferenceTests
         Assert.True(Bind("acme", registerCustomers: true, protectCustomers: true,
             allowed: new HashSet<string> { "Customer" })(OrderOf("ACME Corp")));
     }
+
+    /// <summary>
+    /// A name says nothing on its own. What the request allows is allowed for one type; a search that binds another
+    /// type — one nested in an expand — is not let into a reference of the same name.
+    /// </summary>
+    [Fact]
+    public void What_the_request_allows_for_another_type_opens_nothing_on_this_one()
+        => Assert.False(Bind("acme", registerCustomers: true, protectCustomers: true,
+            allowed: new HashSet<string> { "Customer" }, allowedFor: typeof(RefCustomerExt))(OrderOf("ACME Corp")));
 
     // ---- through the host: the caller's read policy on the referenced set decides ----
 
