@@ -1412,6 +1412,20 @@ be one of the MIME types `GotenbergDocumentConverter` maps to a LibreOffice-read
 guessing. `source` is read but not disposed; the caller keeps ownership, same convention as
 `IAttachmentStorage.SaveAsync`.
 
+**A failure is one of four things, whichever backend is behind the interface:**
+
+| Thrown | It means | Retry? |
+|---|---|---|
+| `NotSupportedException` | the content type is not one this converter handles — nothing was sent | no |
+| `DocumentConverterUnavailableException` | the converter could not be reached, did not answer within `GotenbergOptions.Timeout`, or answered `5xx`, `408` or `429` | yes — nothing is wrong with the document |
+| `DocumentConversionFailedException` | the converter received the document and could not convert it (any other `4xx` — a damaged file) | no |
+| `OperationCanceledException` | your own `CancellationToken` was cancelled | — |
+
+So an endpoint that serves a converted document can answer "conversion is unavailable" (a `502` or `503`)
+for the second, a client error for the third, and leave everything else to its global handler — without
+knowing the converter speaks HTTP. The transport's own exception is the `InnerException`. A timeout is
+reported as unavailable, not as cancellation, although the HTTP client raises the same type for both.
+
 **Not part of `Iyu.Report`.** `Iyu.Report` fills a template with data; `Iyu.DocConvert` takes
 an already-produced Office file and renders it to PDF — the two compose (bind a template, then
 convert the result) but neither depends on the other. `Iyu.DocConvert` has no `Iyu.Core`

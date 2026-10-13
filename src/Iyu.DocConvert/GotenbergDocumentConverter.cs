@@ -68,20 +68,50 @@ public sealed class GotenbergDocumentConverter : IDocumentConverter
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(sourceContentType);
         form.Add(fileContent, "files", "document" + extension);
 
-        using var response = await _httpClient
-            .PostAsync("forms/libreoffice/convert", form, ct)
-            .ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
+        // From here on every failure is the transport's or the backend's, and none of them leaves in its own
+        // type: the interface says what a failure is (see IDocumentConverter), and a caller must not have to
+        // know this implementation speaks HTTP to tell "unavailable" from "broken".
+        try
         {
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            throw new HttpRequestException(
-                $"Gotenberg conversion failed with {(int)response.StatusCode} {response.ReasonPhrase}: {body}");
-        }
+            using var response = await _httpClient
+                .PostAsync("forms/libreoffice/convert", form, ct)
+                .ConfigureAwait(false);
 
-        var result = new MemoryStream();
-        await response.Content.CopyToAsync(result, ct).ConfigureAwait(false);
-        result.Position = 0;
-        return result;
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var message = $"Gotenberg answered {(int)response.StatusCode} {response.ReasonPhrase}: {body}";
+                throw IsBackendUnavailable(response.StatusCode)
+                    ? new DocumentConverterUnavailableException(message)
+                    : new DocumentConversionFailedException(message);
+            }
+
+            var result = new MemoryStream();
+            await response.Content.CopyToAsync(result, ct).ConfigureAwait(false);
+            result.Position = 0;
+            return result;
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            // Not the caller's cancellation: the client's own timeout elapsed. HttpClient reports that with the
+            // same exception type as a cancelled call, which is why it is told apart by whose token fired.
+            throw new DocumentConverterUnavailableException(
+                $"Gotenberg did not answer within the configured timeout ({_httpClient.Timeout}).", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            // Never reached, or reached and lost: the client reads the whole response before returning it, so a
+            // connection that breaks part-way through the converted bytes arrives here as well.
+            throw new DocumentConverterUnavailableException(
+                $"Gotenberg could not be reached, or the connection was lost before it answered: {ex.Message}", ex);
+        }
     }
+
+    /// <summary>
+    /// Whether a non-success status says the backend cannot serve now (any 5xx, a request timeout, too many
+    /// requests) rather than that it will not convert this document (any other 4xx).
+    /// </summary>
+    private static bool IsBackendUnavailable(System.Net.HttpStatusCode status) =>
+        (int)status >= 500
+        || status is System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.TooManyRequests;
 }
