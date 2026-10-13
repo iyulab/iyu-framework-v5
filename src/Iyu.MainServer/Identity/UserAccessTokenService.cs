@@ -56,6 +56,14 @@ public sealed class UserAccessTokenService
     /// The token, or — when the source refuses the subject — <c>Ok = false</c> with <c>invalid_grant</c> and no token.
     /// </returns>
     public async Task<TokenResult> IssueAsync(string subject, TimeSpan? lifetime = null, CancellationToken ct = default)
+        => (await IssueWithStampAsync(subject, lifetime, ct)).Token;
+
+    /// <summary>
+    /// <see cref="IssueAsync"/>, and the security stamp the source answered with the claims — what a refresh
+    /// token issued alongside is opened under.
+    /// </summary>
+    internal async Task<(TokenResult Token, string? SecurityStamp)> IssueWithStampAsync(
+        string subject, TimeSpan? lifetime, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         if (lifetime is { } requested && requested <= TimeSpan.Zero)
@@ -65,7 +73,7 @@ public sealed class UserAccessTokenService
         if (claims is null)
         {
             _log.LogWarning("access token refused for {Subject}: the claims source declined the subject", subject);
-            return new(false, "invalid_grant", null, 0, []);
+            return (new(false, "invalid_grant", null, 0, []), null);
         }
 
         // The subject is written here, not left to the source: a token and a cookie opened for the same person
@@ -79,6 +87,7 @@ public sealed class UserAccessTokenService
 
         var jwt = IdentityTokenSigning.Sign(_opts, assembled, effective, _clock.GetUtcNow());
         var permissions = assembled.Where(c => c.Type == _opts.PermissionClaimType).Select(c => c.Value).ToArray();
-        return new(true, null, jwt, (int)effective.TotalSeconds, permissions);
+        return (new(true, null, jwt, (int)effective.TotalSeconds, permissions),
+            IyuIdentityClaims.FindSecurityStamp(assembled));
     }
 }

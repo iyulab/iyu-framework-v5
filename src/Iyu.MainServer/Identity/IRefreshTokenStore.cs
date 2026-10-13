@@ -19,6 +19,12 @@ namespace Iyu.MainServer.Identity;
 /// retried refresh within <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/> find, and retire,
 /// the replacement its lost response carried.
 /// </param>
+/// <param name="SecurityStamp">
+/// The account's security stamp (<see cref="IyuIdentityClaims.SecurityStampClaimType"/>) as the claims source
+/// answered it when this token was issued; <c>null</c> when the source answers none. Persist it with the token:
+/// a refresh compares it with the source's answer then, and a different one — or one that was not kept — ends
+/// the family instead of extending it.
+/// </param>
 public sealed record RefreshTokenRecord(
     Guid Id,
     Guid FamilyId,
@@ -28,7 +34,8 @@ public sealed record RefreshTokenRecord(
     DateTimeOffset ExpiresAt,
     DateTimeOffset? UsedAt = null,
     DateTimeOffset? RevokedAt = null,
-    Guid? ParentId = null);
+    Guid? ParentId = null,
+    string? SecurityStamp = null);
 
 /// <summary>
 /// Where refresh tokens are kept. The concrete implementation lives in the consuming app, like

@@ -24,8 +24,63 @@ public static class IyuIdentityClaims
     /// </summary>
     public const string ServiceClientStampClaimType = "sc_stamp";
 
+    /// <summary>
+    /// The claim a claims source answers to say which state of the account a session belongs to — its
+    /// <em>security stamp</em>. A session, or a refresh token, opened under one stamp ends when the source
+    /// answers another.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Answer a value that changes whenever every open session of the account must end: the password was
+    /// changed or reset, a second factor was added or removed, the person asked to be signed out everywhere.
+    /// The framework keeps the value the session was opened with and compares it each time it asks the source
+    /// again — the cookie at its revalidation (<see cref="IdentityTokenOptions.SessionRevalidationInterval"/>),
+    /// a refresh token when it is presented. A different value ends the session rather than refreshing it.
+    /// </para>
+    /// <para>
+    /// A source that answers no such claim keeps what it had before: sessions follow the account's claims and
+    /// end only when the source refuses the subject. Once a source starts answering one, a session or refresh
+    /// token opened without it has no stamp to compare and is ended the next time the source is asked.
+    /// </para>
+    /// <para>
+    /// The value travels in the session cookie and in access tokens, and an access token is readable by whoever
+    /// holds it. Answer something that reveals nothing — a random value stored with the account and replaced when
+    /// sessions must end, or a keyed digest — never a credential hash itself.
+    /// </para>
+    /// </remarks>
+    public const string SecurityStampClaimType = "sec_stamp";
+
     public static Claim Permission(string code, string claimType = DefaultPermissionClaimType)
         => new(claimType, code);
+
+    /// <summary>The claim that states an account's security stamp — see <see cref="SecurityStampClaimType"/>.</summary>
+    public static Claim SecurityStamp(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        return new(SecurityStampClaimType, value);
+    }
+
+    /// <summary>
+    /// The security stamp among <paramref name="claims"/>, or <c>null</c> when they state none. Two different
+    /// values are a source's mistake — a session cannot belong to two states of the account.
+    /// </summary>
+    internal static string? FindSecurityStamp(IEnumerable<Claim> claims)
+    {
+        string? stamp = null;
+        foreach (var claim in claims)
+        {
+            if (claim.Type != SecurityStampClaimType) continue;
+            if (stamp is not null && !string.Equals(stamp, claim.Value, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"The claims carry more than one '{SecurityStampClaimType}' value. A claims source answers "
+                    + "one security stamp for an account, or none.");
+            stamp = claim.Value;
+        }
+        return stamp;
+    }
+
+    /// <summary>Whether a session opened under <paramref name="opened"/> still belongs to the account as it is now.</summary>
+    internal static bool SameSecurityStamp(string? opened, string? now) => string.Equals(opened, now, StringComparison.Ordinal);
 
     /// <summary>
     /// The identifier of whoever <paramref name="principal"/> is — the subject a person's session was

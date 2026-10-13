@@ -32,6 +32,14 @@ namespace Iyu.MainServer.Identity;
 /// hand) is re-assembled from the source the first time it is presented, by the identifier it carries;
 /// one that carries none is signed out.
 /// </para>
+/// <para>
+/// <b>A session belongs to the state of the account it was opened in.</b> When the source answers a security
+/// stamp (<see cref="IyuIdentityClaims.SecurityStampClaimType"/>), the session keeps the one it was opened
+/// under, and asking again compares the two before anything is replaced: a different stamp — the password was
+/// changed, the person signed out everywhere — ends the session instead of refreshing it. Code that inspects
+/// the principal after this service has revalidated it sees the account as it is now, not the session as it
+/// was opened; the stamp is where "is this still that session" is decided.
+/// </para>
 /// </remarks>
 public sealed class UserSessionService
 {
@@ -129,34 +137,80 @@ public sealed class UserSessionService
     }
 
     /// <summary>
-    /// Asks the source again for the session being validated: replaces its claims with the answer, or
-    /// ends it when the source refuses the subject or the cookie names none.
+    /// Asks the source again for the session being validated. The session ends when the source refuses the
+    /// subject, when the cookie names none, or when the account's security stamp is no longer the one the session
+    /// was opened under; otherwise its claims become the answer.
     /// </summary>
-    internal async Task RevalidateAsync(CookieValidatePrincipalContext context)
+    /// <remarks>
+    /// The cookie is written again only when there is something to write: claims that changed, or — where an
+    /// interval is set — the time of this answer, which is what the next request compares. With no interval that
+    /// time decides nothing, so a session the source answers the same for is left exactly as it arrived.
+    /// </remarks>
+    internal async Task RevalidateAsync(CookieValidatePrincipalContext context, IdentityTokenOptions options)
     {
-        var subject = context.Principal is null ? null : IyuIdentityClaims.FindSubject(context.Principal);
+        var current = context.Principal;
+        var subject = current is null ? null : IyuIdentityClaims.FindSubject(current);
         var principal = subject is null
             ? null
             : await CreatePrincipalAsync(subject, context.HttpContext.RequestAborted);
 
         if (principal is null)
         {
-            _log.LogInformation(
-                "session ended for {Subject}: {Reason}", subject ?? "(no identifier)",
+            await EndAsync(context, subject,
                 subject is null ? "the cookie names no subject" : "the claims source declined the subject");
-            context.RejectPrincipal();
-            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return;
         }
 
+        // The stamp says which state of the account the session was opened in. The source's answer is always the
+        // account as it is now, so replacing the claims first would make every later comparison pass: the question
+        // "is this still that session" has to be asked here, before the answer is taken.
+        if (!IyuIdentityClaims.SameSecurityStamp(
+                IyuIdentityClaims.FindSecurityStamp(current!.Claims), IyuIdentityClaims.FindSecurityStamp(principal.Claims)))
+        {
+            await EndAsync(context, subject, "the account's security stamp is not the one the session was opened under");
+            return;
+        }
+
+        var unchanged = SameClaims(current, principal);
+        var timed = options.SessionRevalidationInterval > TimeSpan.Zero;
+        if (unchanged && !timed) return;
+
         var now = _clock.GetUtcNow();
         MarkValidated(context.Properties, now);
-        context.ReplacePrincipal(principal);
+        if (!unchanged) context.ReplacePrincipal(principal);
         context.ShouldRenew = true;
         // Renewal re-issues the cookie for the span ExpiresUtc − IssuedUtc counted from now. Without sliding
         // expiration that must not push the session's end further out than the sign-in set it: with IssuedUtc at
         // now, the span is the time left, and the end stays where it was.
         if (!context.Options.SlidingExpiration) context.Properties.IssuedUtc = now;
+    }
+
+    private async Task EndAsync(CookieValidatePrincipalContext context, string? subject, string reason)
+    {
+        _log.LogInformation("session ended for {Subject}: {Reason}", subject ?? "(no identifier)", reason);
+        context.RejectPrincipal();
+        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>
+    /// Whether the session already is what the source answered: one identity of the session's own kind, carrying
+    /// the same claims — as a multiset, since order means nothing and a claim may repeat.
+    /// </summary>
+    private static bool SameClaims(ClaimsPrincipal current, ClaimsPrincipal answered)
+    {
+        if (current.Identities.Count() != 1) return false;
+        if (current.Identity!.AuthenticationType != answered.Identity!.AuthenticationType) return false;
+
+        var counts = new Dictionary<(string Type, string Value), int>();
+        foreach (var claim in answered.Claims)
+            counts[(claim.Type, claim.Value)] = counts.GetValueOrDefault((claim.Type, claim.Value)) + 1;
+        foreach (var claim in current.Claims)
+        {
+            if (!counts.TryGetValue((claim.Type, claim.Value), out var left)) return false;
+            if (left == 1) counts.Remove((claim.Type, claim.Value));
+            else counts[(claim.Type, claim.Value)] = left - 1;
+        }
+        return counts.Count == 0;
     }
 
     /// <summary>

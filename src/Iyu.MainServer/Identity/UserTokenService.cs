@@ -71,7 +71,7 @@ public sealed class UserTokenService
     public Task<UserTokenPair> IssueAsync(string subject, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
-        return IssuePairAsync(subject, Guid.NewGuid(), parentId: null, ct);
+        return IssuePairAsync(subject, Guid.NewGuid(), exchanged: null, ct);
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public sealed class UserTokenService
         if (token.ExpiresAt <= now) return Reject(token, "refresh token has expired");
         if (!await _store.TryMarkUsedAsync(token.Id, now, ct)) return await ReuseAsync(token, now, ct);
 
-        return await IssuePairAsync(token.Subject, token.FamilyId, token.Id, ct);
+        return await IssuePairAsync(token.Subject, token.FamilyId, token, ct);
     }
 
     /// <summary>Ends the sign-in a refresh token belongs to (sign-out on one device). Unknown tokens are ignored.</summary>
@@ -125,10 +125,12 @@ public sealed class UserTokenService
         return Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
     }
 
-    private async Task<UserTokenPair> IssuePairAsync(string subject, Guid familyId, Guid? parentId, CancellationToken ct)
+    // exchanged: the refresh token this pair is issued in exchange for; null at sign-in.
+    private async Task<UserTokenPair> IssuePairAsync(
+        string subject, Guid familyId, RefreshTokenRecord? exchanged, CancellationToken ct)
     {
         // The access half is the same token UserAccessTokenService issues on its own — assembled from the source.
-        var access = await _access.IssueAsync(subject, ct: ct);
+        var (access, stamp) = await _access.IssueWithStampAsync(subject, lifetime: null, ct);
         var now = _clock.GetUtcNow();
         if (!access.Ok)
         {
@@ -137,9 +139,22 @@ public sealed class UserTokenService
             return UserTokenPair.Refused;
         }
 
+        // A refresh extends the sign-in it descends from, and that sign-in belongs to the state of the account
+        // it was opened in. The source has just answered the account as it is now; a different stamp means the
+        // sign-in was ended since (a password change, a sign-out everywhere), so the family ends here.
+        if (exchanged is not null && !IyuIdentityClaims.SameSecurityStamp(exchanged.SecurityStamp, stamp))
+        {
+            await _store.RevokeFamilyAsync(familyId, now, ct);
+            return Reject(exchanged, exchanged.SecurityStamp is null
+                ? "the account now has a security stamp and the refresh token carries none — it was issued before "
+                  + "the claims source answered one, or the store does not persist RefreshTokenRecord.SecurityStamp; "
+                  + "its family is revoked"
+                : "the account's security stamp is not the one the refresh token was issued under — its family is revoked");
+        }
+
         var refresh = Base64Url(RandomNumberGenerator.GetBytes(32));
         await _store.InsertAsync(new RefreshTokenRecord(Guid.NewGuid(), familyId, subject, HashRefreshToken(refresh),
-            now, now.Add(_opts.RefreshTokenLifetime), ParentId: parentId), ct);
+            now, now.Add(_opts.RefreshTokenLifetime), ParentId: exchanged?.Id, SecurityStamp: stamp), ct);
         return new(true, null, access.AccessToken, access.ExpiresInSeconds, refresh, access.Permissions);
     }
 
@@ -170,7 +185,7 @@ public sealed class UserTokenService
         _log.LogInformation(
             "refresh token presented again within the reuse interval for {Subject} (family {FamilyId}); its unused replacement is retired",
             token.Subject, token.FamilyId);
-        return await IssuePairAsync(token.Subject, token.FamilyId, token.Id, ct);
+        return await IssuePairAsync(token.Subject, token.FamilyId, token, ct);
     }
 
     private async Task<UserTokenPair> ReuseAsync(RefreshTokenRecord token, DateTimeOffset now, CancellationToken ct)

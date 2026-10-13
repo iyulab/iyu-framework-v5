@@ -41,7 +41,7 @@ public class ExternalSignInEndpointTests
     }
 
     /// <param name="registerResolver">Whether the application registers its <see cref="IExternalLoginResolver"/>.</param>
-    /// <param name="revalidateEveryRequest">Ask the claims source again on every request (the session cookie is re-issued).</param>
+    /// <param name="revalidateEveryRequest">Ask the claims source again on every request (the session cookie is re-issued when its answer changed).</param>
     private static async Task<Host> StartAsync(bool registerResolver = true, bool revalidateEveryRequest = false)
     {
         var provider = new OidcStandIn();
@@ -261,7 +261,8 @@ public class ExternalSignInEndpointTests
         await using var host = await StartAsync(revalidateEveryRequest: true);
         var session = await ExternalSessionAsync(host);
 
-        // Asked again on this request, the claims source's answer re-issues the cookie.
+        // Asked again on this request, the claims source answers something new, and that re-issues the cookie.
+        host.Accounts.Set(LocalAccount, ClaimedPermission);
         using var whoami = await host.Http.SendAsync(With(HttpMethod.Get, "/whoami", session));
         Assert.Equal(LocalAccount, await whoami.Content.ReadAsStringAsync());
         var reissued = CookiesFrom(whoami);

@@ -73,7 +73,12 @@ public sealed class FakeUserClaimsSource : IUserClaimsSource
     private readonly Dictionary<string, string[]?> _permissions = new();
 
     /// <summary>Sets the subject's permissions; <c>null</c> refuses the subject (deactivated).</summary>
+    private readonly Dictionary<string, string> _stamps = new();
+
     public void Set(string subject, params string[]? permissions) => _permissions[subject] = permissions;
+
+    /// <summary>The security stamp answered for the subject from now on — what a password change replaces.</summary>
+    public void Stamp(string subject, string stamp) => _stamps[subject] = stamp;
 
     public Task<IReadOnlyCollection<Claim>?> GetClaimsAsync(string subject, CancellationToken ct)
     {
@@ -81,6 +86,7 @@ public sealed class FakeUserClaimsSource : IUserClaimsSource
             return Task.FromResult<IReadOnlyCollection<Claim>?>(null);
         var claims = new List<Claim> { new("sub", subject) };
         claims.AddRange(perms.Select(p => IyuIdentityClaims.Permission(p)));
+        if (_stamps.TryGetValue(subject, out var stamp)) claims.Add(IyuIdentityClaims.SecurityStamp(stamp));
         return Task.FromResult<IReadOnlyCollection<Claim>?>(claims);
     }
 }

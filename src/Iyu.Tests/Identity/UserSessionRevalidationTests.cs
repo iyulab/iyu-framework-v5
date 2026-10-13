@@ -27,16 +27,24 @@ public class UserSessionRevalidationTests
     private sealed class CountingClaimsSource : IUserClaimsSource
     {
         private readonly Dictionary<string, string[]?> _permissions = new();
+        private readonly Dictionary<string, string> _stamps = new();
 
         public int Asked { get; private set; }
 
         public void Set(string subject, params string[]? permissions) => _permissions[subject] = permissions;
 
+        /// <summary>The security stamp answered for the subject from now on — what a password change replaces.</summary>
+        public void Stamp(string subject, string stamp) => _stamps[subject] = stamp;
+
         public Task<IReadOnlyCollection<Claim>?> GetClaimsAsync(string subject, CancellationToken ct)
         {
             Asked++;
-            return Task.FromResult<IReadOnlyCollection<Claim>?>(
-                _permissions.GetValueOrDefault(subject)?.Select(p => IyuIdentityClaims.Permission(p)).ToArray());
+            if (_permissions.GetValueOrDefault(subject) is not { } permissions)
+                return Task.FromResult<IReadOnlyCollection<Claim>?>(null);
+
+            var claims = permissions.Select(p => IyuIdentityClaims.Permission(p)).ToList();
+            if (_stamps.TryGetValue(subject, out var stamp)) claims.Add(IyuIdentityClaims.SecurityStamp(stamp));
+            return Task.FromResult<IReadOnlyCollection<Claim>?>(claims);
         }
     }
 
@@ -166,6 +174,115 @@ public class UserSessionRevalidationTests
         host.Claims.Set("u1", "orders.read");
 
         Assert.Equal(HttpStatusCode.Forbidden, await host.StatusAsync(HttpMethod.Post, "/orders"));
+    }
+
+    /// <summary>
+    /// The session belongs to the state of the account it was opened in. A new stamp — the password was changed —
+    /// ends every session opened under the old one at its next revalidation, while one opened after the change
+    /// goes on. The comparison happens before the claims are replaced; made after, it would always pass.
+    /// </summary>
+    [Fact]
+    public async Task A_changed_security_stamp_ends_the_sessions_opened_under_the_old_one()
+    {
+        await using var host = await StartAsync(o => o.SessionRevalidationInterval = TimeSpan.Zero);
+        host.Claims.Set("u1", "orders.read");
+        host.Claims.Stamp("u1", "stamp-1");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        var before = host.Cookies;
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+
+        host.Claims.Stamp("u1", "stamp-2");                              // the password was changed elsewhere
+
+        var ended = await host.SendAsync(HttpMethod.Get, "/orders");
+        Assert.Equal(HttpStatusCode.Unauthorized, ended.StatusCode);
+        Assert.Contains(ended.Headers.GetValues("Set-Cookie"), v => v.Contains("expires=Thu, 01 Jan 1970"));
+
+        // The browser that changed it signs in again and holds a session opened under the new stamp.
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        Assert.NotEqual(before, host.Cookies);
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+    }
+
+    /// <summary>The same with an interval: the old session lasts until it is next due, and ends there.</summary>
+    [Fact]
+    public async Task With_an_interval_a_changed_stamp_ends_the_session_when_it_is_next_due()
+    {
+        await using var host = await StartAsync();
+        host.Claims.Set("u1", "orders.read");
+        host.Claims.Stamp("u1", "stamp-1");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+
+        host.Claims.Stamp("u1", "stamp-2");
+        host.Clock.Advance(Interval - TimeSpan.FromSeconds(1));
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+
+        host.Clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.StatusAsync(HttpMethod.Get, "/orders"));
+    }
+
+    /// <summary>
+    /// A session with no stamp cannot be compared with an account that now has one: a cookie opened before the
+    /// source answered stamps, or one built by hand, ends rather than quietly acquiring the current stamp.
+    /// </summary>
+    [Fact]
+    public async Task A_session_opened_without_a_stamp_ends_once_the_source_answers_one()
+    {
+        await using var host = await StartAsync(o => o.SessionRevalidationInterval = TimeSpan.Zero);
+        host.Claims.Set("u1", "orders.read");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+
+        host.Claims.Stamp("u1", "stamp-1");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.StatusAsync(HttpMethod.Get, "/orders"));
+    }
+
+    /// <summary>
+    /// Asking on every request does not mean writing on every request: while the source answers what the session
+    /// already carries, the cookie is not re-issued — on a protected endpoint or an anonymous one.
+    /// </summary>
+    [Fact]
+    public async Task With_a_zero_interval_an_unchanged_answer_does_not_re_issue_the_cookie()
+    {
+        await using var host = await StartAsync(o => o.SessionRevalidationInterval = TimeSpan.Zero);
+        host.Claims.Set("u1", "orders.read", "orders.write");
+        host.Claims.Stamp("u1", "stamp-1");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        var asked = host.Claims.Asked;
+
+        for (var i = 0; i < 5; i++)
+        {
+            var response = await host.SendAsync(HttpMethod.Get, i % 2 == 0 ? "/orders" : "/whoami");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.False(response.Headers.Contains("Set-Cookie"), "an unchanged session was re-issued");
+        }
+        Assert.Equal(asked + 5, host.Claims.Asked);                      // every request still asked
+
+        // A change is written — once — and the next unchanged answer is quiet again.
+        host.Claims.Set("u1", "orders.read");
+        var changed = await host.SendAsync(HttpMethod.Get, "/orders");
+        Assert.True(changed.Headers.Contains("Set-Cookie"), "a changed answer was not written to the cookie");
+        Assert.Equal(HttpStatusCode.Forbidden, await host.StatusAsync(HttpMethod.Post, "/orders"));
+        Assert.False((await host.SendAsync(HttpMethod.Get, "/orders")).Headers.Contains("Set-Cookie"));
+    }
+
+    /// <summary>
+    /// With an interval the cookie records when the source last answered, so an unchanged answer is still written
+    /// once per interval — and not again inside it.
+    /// </summary>
+    [Fact]
+    public async Task With_an_interval_an_unchanged_answer_is_written_once_per_interval()
+    {
+        await using var host = await StartAsync();
+        host.Claims.Set("u1", "orders.read");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+
+        host.Clock.Advance(Interval + TimeSpan.FromSeconds(1));
+        Assert.True((await host.SendAsync(HttpMethod.Get, "/orders")).Headers.Contains("Set-Cookie"));
+        var asked = host.Claims.Asked;
+
+        Assert.False((await host.SendAsync(HttpMethod.Get, "/orders")).Headers.Contains("Set-Cookie"));
+        Assert.Equal(asked, host.Claims.Asked);
     }
 
     /// <summary>

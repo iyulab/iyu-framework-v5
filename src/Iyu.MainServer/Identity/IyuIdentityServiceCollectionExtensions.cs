@@ -94,7 +94,7 @@ public static class IyuIdentityServiceCollectionExtensions
                 // A session is re-read from the claims source while it lives — see UserSessionService. Whether one
                 // is due is decided from the cookie alone; the scoped service is resolved only when it is.
                 opts.Events.OnValidatePrincipal = ctx => UserSessionService.IsRevalidationDue(ctx, tokenOptions)
-                    ? ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>().RevalidateAsync(ctx)
+                    ? ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>().RevalidateAsync(ctx, tokenOptions)
                     : Task.CompletedTask;
             })
             .AddJwtBearer(opts =>

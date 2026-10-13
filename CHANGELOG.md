@@ -29,7 +29,31 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.FileServer`
+**Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`
+
+### Fixed — identity
+
+- 🔇 **`Iyu.MainServer`: a session can end because the account's state changed, not only because the account is
+  refused — the security stamp.** Since 0.38.0 the session cookie is re-assembled from the claims source while it
+  lives, and the re-assembly replaced the cookie's claims with the source's answer. The answer is always the account
+  as it is now, so nothing could tell a session opened before a password change from one opened after it: **an
+  application that compared a fingerprint of the credential in `OnValidatePrincipal`, after the framework's handler,
+  was comparing the new answer with itself, and changing a password stopped ending the account's other sessions —
+  with no build or startup signal.** The source can now answer `IyuIdentityClaims.SecurityStamp(value)`; the session
+  keeps the stamp it was opened under, and revalidation compares the two before anything is replaced. A different
+  stamp ends the session. Refresh tokens carry it too (`RefreshTokenRecord.SecurityStamp`, new and optional): one
+  presented under an older stamp is refused and its family revoked. **If your application ended sessions on a
+  password change with a check of its own**, answer the stamp from your claims source and remove the check; until
+  you do, on 0.38.0 that check works only when it runs before the framework's handler. **Adopting it ends existing
+  sessions once**: a cookie or refresh token opened before the source answered a stamp has none to compare and is
+  ended the next time the source is asked. A refresh-token store must persist the new field — one that drops it
+  makes every refresh fail once a stamp is answered, and the rejection log says so. The stamp travels in access
+  tokens, which are readable: answer a random value or a keyed digest, not a credential hash.
+- 🔇 **`Iyu.MainServer`: a session that has not changed is not re-issued.** Revalidation re-issued the session cookie
+  every time the source was asked, whether or not the answer differed. With
+  `SessionRevalidationInterval = TimeSpan.Zero` that was a `Set-Cookie` on every response that presented the cookie,
+  anonymous endpoints included. The cookie is now written only when the claims changed or, with an interval, to
+  record the time of the answer — once per interval. With no interval an unchanged session is left as it arrived.
 
 ### Changed
 

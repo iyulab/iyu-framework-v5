@@ -46,6 +46,55 @@ public class UserTokenServiceTests
         Assert.Equal(_clock.GetUtcNow().AddDays(30), stored.ExpiresAt);
     }
 
+    /// <summary>
+    /// A refresh extends the sign-in it descends from, and that sign-in belongs to the state of the account it was
+    /// opened in: once the stamp changes — the password was changed — the old sign-in's refresh token is refused
+    /// and its whole family revoked, while a sign-in made after the change refreshes as usual.
+    /// </summary>
+    [Fact]
+    public async Task A_changed_security_stamp_ends_the_sign_ins_made_under_the_old_one()
+    {
+        _claims.Set("u1", "orders.read");
+        _claims.Stamp("u1", "stamp-1");
+        var svc = Service();
+        var old = await svc.IssueAsync("u1", default);
+        Assert.Equal("stamp-1", Assert.Single(_store.Tokens).SecurityStamp);
+
+        var rotated = await svc.RefreshAsync(old.RefreshToken!, default);          // same stamp: an ordinary refresh
+        Assert.True(rotated.Ok);
+
+        _claims.Stamp("u1", "stamp-2");
+        var fresh = await svc.IssueAsync("u1", default);                            // signed in again after the change
+
+        var refused = await svc.RefreshAsync(rotated.RefreshToken!, default);
+        Assert.False(refused.Ok);
+        Assert.Equal("invalid_grant", refused.Error);
+        Assert.Null(refused.AccessToken);
+        var oldFamily = _store.Tokens.Where(t => t.SecurityStamp == "stamp-1").ToArray();
+        Assert.NotEmpty(oldFamily);
+        Assert.All(oldFamily, t => Assert.NotNull(t.RevokedAt));
+
+        Assert.True((await svc.RefreshAsync(fresh.RefreshToken!, default)).Ok);
+    }
+
+    /// <summary>
+    /// A refresh token with no stamp cannot be compared with an account that now has one — issued before the
+    /// source answered stamps, or kept by a store that drops the field. It ends rather than acquiring the stamp.
+    /// </summary>
+    [Fact]
+    public async Task A_refresh_token_issued_without_a_stamp_ends_once_the_source_answers_one()
+    {
+        _claims.Set("u1", "orders.read");
+        var svc = Service();
+        var pair = await svc.IssueAsync("u1", default);
+        Assert.Null(Assert.Single(_store.Tokens).SecurityStamp);
+
+        _claims.Stamp("u1", "stamp-1");
+
+        Assert.False((await svc.RefreshAsync(pair.RefreshToken!, default)).Ok);
+        Assert.All(_store.Tokens, t => Assert.NotNull(t.RevokedAt));
+    }
+
     [Fact]
     public async Task A_person_s_access_lifetime_is_set_apart_from_service_client_tokens()
     {

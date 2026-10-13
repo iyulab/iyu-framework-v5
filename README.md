@@ -165,7 +165,22 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   request). A person the source now refuses is signed out; a narrowed permission set replaces the one in the
   cookie, which is re-issued. That is what a refresh does for an access token, and the interval is the longest
   a deactivation or a withdrawn permission takes to reach the cookie. A request inside the interval costs a
-  timestamp comparison.
+  timestamp comparison. The cookie is written again only when there is something to write — claims that
+  changed, or, with an interval, the time of the answer (once per interval). With `TimeSpan.Zero` a session the
+  source answers the same for is not re-issued at all.
+- **A session belongs to the state of the account it was opened in — answer a security stamp to end the
+  others.** Have the source include `IyuIdentityClaims.SecurityStamp(value)` in its answer, with a value that
+  changes whenever every open session of the account must end: the password was changed or reset, a second
+  factor was added, the person signed out everywhere. A session cookie keeps the stamp it was opened under and
+  ends at its next revalidation when the source answers another; a refresh token keeps it too
+  (`RefreshTokenRecord.SecurityStamp` — persist it), and presenting one issued under an older stamp revokes its
+  family. The comparison is made before the session's claims are replaced by the new answer — a check of your
+  own placed after the framework's revalidation sees the account as it is now and always passes, so this is
+  where "is this still that session" is decided. A source that answers no stamp changes nothing; once it
+  answers one, a session or refresh token opened without it ends the next time the source is asked (one
+  sign-in at adoption). The stamp travels in the cookie and in access tokens, which are readable: use a random
+  value stored with the account or a keyed digest, never a credential hash itself. An access token is not
+  re-read while it lives — keep its lifetime short, or compare the stamp it carries yourself where that matters.
 - **A session cookie written by hand is not exempt.** One an endpoint signed in itself, without
   `UserSessionService`, is re-assembled from the source the first time it is presented, by the identifier it
   carries (`ClaimTypes.NameIdentifier` or `sub`): claims the endpoint added and the source does not answer are
