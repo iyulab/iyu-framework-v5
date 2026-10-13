@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.OData;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -221,30 +222,70 @@ public static class MainServerExtensions
     /// the endpoints of any optional surface (GraphQL at <c>/graphql</c>). Call once in <c>Program.cs</c>
     /// after <c>var app = builder.Build();</c>.
     /// </summary>
+    /// <remarks>
+    /// It is three calls in this order — <see cref="UseIyuErrorResponses"/>, <c>UseRouting()</c>,
+    /// <see cref="MapIyuMainServer"/> — and nothing else. A host that needs its own middleware at a particular
+    /// place makes those three calls itself; whatever this method gains in a later release it gains in one of
+    /// the two named pieces, so a pipeline composed from them does not fall behind.
+    /// </remarks>
     public static WebApplication UseIyuMainServer(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        // First in the pipeline so it wraps everything UseIyuMainServer maps below it — the
-        // authentication/authorization middleware a consumer adds before calling this (see
-        // RestrictPolicyEndToEndTests) runs ahead of it, which is fine: this handler only cares
-        // about write-path exceptions from inside the routed action, not the auth pipeline.
+        app.UseIyuErrorResponses();
+        app.UseRouting();
+        app.MapIyuMainServer();
+        return app;
+    }
+
+    /// <summary>
+    /// The middleware that gives the runtime's failures their response bodies: the exception handler that
+    /// answers an unhandled exception (a write conflict as <c>409</c>, anything else as <c>500</c>), and, under
+    /// the OData route, an error body for a failure that would otherwise have none — a set policy's
+    /// <c>401</c>/<c>403</c>, a path that names no set (<c>404</c>), a verb nothing there answers (<c>405</c>).
+    /// </summary>
+    /// <remarks>
+    /// Place it before <c>UseRouting()</c> and before any middleware whose failures it should answer.
+    /// <see cref="UseIyuMainServer"/> calls it first; call it yourself only when composing the pipeline by hand.
+    /// Left out, nothing fails loudly: the same statuses are returned with no body.
+    /// </remarks>
+    public static IApplicationBuilder UseIyuErrorResponses(this IApplicationBuilder app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        // First in the pipeline so it wraps everything mapped below it — the authentication/authorization
+        // middleware a consumer adds before this (see RestrictPolicyEndToEndTests) runs ahead of it, which is
+        // fine: this handler only cares about write-path exceptions from inside the routed action, not the
+        // auth pipeline.
         app.UseExceptionHandler();
 
         // A failure answered with no body under the OData route — a policy's 401/403, a path that names no set
         // (404), a verb nothing serves (405) — gets an error body there too, written by the same problem-details
         // writer as every other failure on the route. Scoped to the route: the rest of the host is left as it is.
-        var options = app.Services.GetRequiredService<IyuMainServerOptions>();
+        var options = app.ApplicationServices.GetRequiredService<IyuMainServerOptions>();
         app.UseWhen(
             context => IyuODataProblemDetailsWriter.IsUnderRoute(context.Request, options.ODataRoutePrefix),
             route => route.UseStatusCodePages());
-
-        app.UseRouting();
-        app.MapControllers();
-
-        foreach (var surface in options.Surfaces)
-            surface.MapEndpoints(app);
         return app;
+    }
+
+    /// <summary>
+    /// Maps the runtime's endpoints: the OData controllers, and the endpoints of every optional surface the
+    /// host turned on (GraphQL at <c>/graphql</c>).
+    /// </summary>
+    /// <remarks>
+    /// <see cref="UseIyuMainServer"/> calls it last; call it yourself only when composing the pipeline by hand,
+    /// after <c>UseRouting()</c> and whatever middleware belongs between routing and the endpoints.
+    /// </remarks>
+    public static IEndpointRouteBuilder MapIyuMainServer(this IEndpointRouteBuilder endpoints)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+
+        endpoints.MapControllers();
+        var options = endpoints.ServiceProvider.GetRequiredService<IyuMainServerOptions>();
+        foreach (var surface in options.Surfaces)
+            surface.MapEndpoints(endpoints);
+        return endpoints;
     }
 
     /// <summary>

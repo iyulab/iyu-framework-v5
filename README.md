@@ -88,6 +88,37 @@ Resulting endpoints:
 - `GET /$data/Orders?$filter=Status eq 'confirmed'` — OData query
 - `POST /graphql` with `{ orders(first: 50) { nodes { ... } pageInfo { hasNextPage endCursor } } }` — GraphQL query (a cursor connection, at most `options.GraphQL.MaxPageSize` rows per request)
 
+### Placing your own middleware
+
+`UseIyuMainServer()` is three calls and nothing else — `UseIyuErrorResponses()`, `UseRouting()`,
+`MapIyuMainServer()`.
+
+**Middleware added after it already runs between routing and the endpoints.** The endpoints execute at the end of
+the pipeline, so this is the place for middleware that needs the endpoint routing chose — authorization, or
+anything of your own that reads it:
+
+```csharp
+app.UseAuthentication();   // before or after UseIyuMainServer — it does not read the endpoint
+app.UseIyuMainServer();
+app.UseAuthorization();    // routing has run; the endpoint has not
+app.UseMiddleware<AuditMiddleware>();
+```
+
+**When that is not the place you need, make the three calls yourself:**
+
+```csharp
+app.UseIyuErrorResponses();   // the exception handler, and error bodies for the OData route's 401/403/404/405
+app.UseMiddleware<RequestTimingMiddleware>();   // e.g. something that must run before routing
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapIyuMainServer();       // the OData controllers and every optional surface's endpoints
+```
+
+Compose from these two pieces rather than from what they contain: what `UseIyuMainServer()` gains in a later
+release it gains in one of them. A pipeline that leaves `UseIyuErrorResponses()` out starts and serves — the
+failures under the OData route simply answer with no body.
+
 ## Identity
 
 `AddIyuIdentity` wires authentication/authorization *infrastructure*: dual-scheme authentication
@@ -455,7 +486,8 @@ reported as done; see [What a `PATCH` can store](#what-a-patch-can-store).
 ### Write failure responses
 
 `AddIyuMainServer` wires a global exception handler (`AddExceptionHandler` + `AddProblemDetails`,
-completed by `UseIyuMainServer`'s `app.UseExceptionHandler()`) so no unhandled write-path exception
+completed by `app.UseExceptionHandler()` in `UseIyuErrorResponses()`, the first thing `UseIyuMainServer`
+calls) so no unhandled write-path exception
 reaches a client raw. A `SaveChangesAsync` failure that surfaces as `DbUpdateException` — a
 unique-index violation, a foreign-key violation, an optimistic-concurrency conflict — is answered
 with a `409 Conflict`; every other unhandled exception still falls through to a generic, structured

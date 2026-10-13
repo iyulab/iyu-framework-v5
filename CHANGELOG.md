@@ -31,6 +31,18 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`
 
+### Added
+
+- **`Iyu.MainServer`: `UseIyuMainServer()` is made of two public pieces — `UseIyuErrorResponses()` and
+  `MapIyuMainServer()`.** A host that put its own middleware at a particular place could not call
+  `UseIyuMainServer()`, and had to re-create what it does from the source. The piece it could not know to re-create
+  failed nothing when it was missing: without the route's status-code handling, the OData route's `401`, `403`,
+  `404` and `405` kept their statuses and lost their error bodies (the bodies 0.38.0 introduced). The two pieces are
+  now public, `UseIyuMainServer()` is exactly `UseIyuErrorResponses()`, `UseRouting()`, `MapIyuMainServer()`, and
+  the README has «Placing your own middleware». **If your host composes its pipeline by hand**, replace the lines
+  that mirror `UseIyuMainServer()` with those two calls. Often no hand composition is needed at all: middleware
+  added after `UseIyuMainServer()` already runs after routing and before the endpoints.
+
 ### Fixed — identity
 
 - 🔇 **`Iyu.MainServer`: a session can end because the account's state changed, not only because the account is
