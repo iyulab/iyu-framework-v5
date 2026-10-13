@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Iyu.Core.Attachments;
 
 namespace Iyu.FileServer;
@@ -31,21 +32,72 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
     {
         ArgumentNullException.ThrowIfNull(content);
         var path = Resolve(storageKey);
-        // Cheap early answer for the common case; the move below is what decides a race.
+        // Cheap early answer for the common case; publishing below is what decides a race.
         if (File.Exists(path)) return false;
 
         var staged = await StageAsync(content, path, ct).ConfigureAwait(false);
         try
         {
-            File.Move(staged, path, overwrite: false);
-            return true;
+            return PublishIfAbsent(staged, path);
         }
-        catch (IOException) when (File.Exists(path))
+        finally
         {
+            // Gone already when it was moved into place; still there when the key was taken, when it was linked
+            // into place, or when publishing failed.
             TryDelete(staged);
-            return false;
         }
     }
+
+    /// <summary>
+    /// Gives the staged file the object's name only if nothing has that name — one step in the file system, so of
+    /// two creators exactly one is told it won. <c>false</c> when the name is taken.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On Windows a move that does not overwrite is that step. Elsewhere it is not: the runtime's
+    /// <see cref="File.Move(string, string, bool)"/> looks for the destination and then renames, and a rename
+    /// replaces whatever is there — two creators that both looked before either renamed both succeed, and the
+    /// later one replaces the earlier one's object. A hard link is the step there: creating the second name fails
+    /// when the name exists, and never replaces.
+    /// </para>
+    /// <para>
+    /// A volume that cannot hard-link (some network and FAT-family mounts) fails the create with the system's
+    /// error rather than falling back to a step that can lose a race — a store that cannot keep "only if absent"
+    /// says so.
+    /// </para>
+    /// </remarks>
+    private static bool PublishIfAbsent(string staged, string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                File.Move(staged, path, overwrite: false);
+                return true;
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                return false;
+            }
+        }
+
+        if (link(staged, path) == 0) return true;
+
+        var error = Marshal.GetLastPInvokeError();
+        if (error == FileExists) return false;
+        throw new IOException(
+            $"Could not create '{path}' only-if-absent: linking the staged file into place failed with " +
+            $"'{Marshal.GetPInvokeErrorMessage(error)}' (errno {error}). The storage root must be on a volume " +
+            "that supports hard links.");
+    }
+
+    /// <summary><c>EEXIST</c> — the same value on Linux and macOS.</summary>
+    private const int FileExists = 17;
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int link(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string existingPath,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string newPath);
 
     /// <summary>The stored file itself — no copy. Disposing the result leaves it in place.</summary>
     public Task<LocalAttachmentFile?> OpenLocalFileAsync(string storageKey, CancellationToken ct = default)

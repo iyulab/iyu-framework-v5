@@ -146,17 +146,38 @@ public sealed class FileSystemAttachmentStorageTests : IDisposable
         Assert.Equal("first", await ReadAsync(key));
     }
 
-    /// <summary>The check and the write are one step: of many concurrent creators, exactly one wins.</summary>
+    /// <summary>
+    /// The check and the write are one step: of many concurrent creators, exactly one wins, and what is stored is
+    /// what the winner wrote.
+    /// </summary>
+    /// <remarks>
+    /// Many rounds, because one round can pass by luck where the step is not atomic: the window in which two
+    /// creators both find the key absent is narrow, and a single race lost it only now and then. A creator told it
+    /// won whose bytes were then replaced by another's is the failure this guards — so the content is compared with
+    /// the winner's, not merely with any writer's.
+    /// </remarks>
     [Fact]
     public async Task Concurrent_creators_of_one_key_produce_exactly_one_winner()
     {
-        const string key = "2026/10/race";
-        var results = await Task.WhenAll(Enumerable.Range(0, 16)
-            .Select(i => Task.Run(() => _storage.TryCreateAsync(Bytes($"writer-{i}"), key, null))));
+        const int rounds = 200, writers = 16;
+        for (var round = 0; round < rounds; round++)
+        {
+            var key = $"2026/10/race-{round}";
+            using var start = new ManualResetEventSlim();
+            var creators = Enumerable.Range(0, writers).Select(i => Task.Run(async () =>
+            {
+                start.Wait();
+                return await _storage.TryCreateAsync(Bytes($"writer-{i}"), key, null);
+            })).ToArray();
+            start.Set();
+            var results = await Task.WhenAll(creators);
 
-        Assert.Single(results, r => r);
-        Assert.StartsWith("writer-", await ReadAsync(key));
-        Assert.Equal(["race"], Directory.GetFiles(Path.Combine(_root, "2026", "10")).Select(Path.GetFileName));
+            var winner = Assert.Single(Enumerable.Range(0, writers), i => results[i]);
+            Assert.Equal($"writer-{winner}", await ReadAsync(key));
+        }
+
+        // Nothing staged is left beside the objects, whoever lost.
+        Assert.Equal(rounds, Directory.GetFiles(Path.Combine(_root, "2026", "10")).Length);
     }
 
     [Fact]

@@ -1196,9 +1196,12 @@ Behaviour worth knowing before deploying it:
 
 - **`TryCreateAsync`** writes only if nothing is stored at the key and returns
   `false` otherwise, having written nothing — one step in the backend
-  (`If-None-Match: *` on Blob), so of two concurrent writers exactly one wins. This
+  (`If-None-Match: *` on Blob; on disk, a move that does not overwrite on Windows
+  and a hard link elsewhere), so of two concurrent writers exactly one wins. This
   is the write for an object that must not change once stored: a content-addressed
-  key, or one another process may already be reading.
+  key, or one another process may already be reading. Off Windows the filesystem
+  backend therefore needs a storage root on a volume that supports hard links; on
+  one that does not, the create fails and says so.
 - **`OpenLocalFileAsync`** gives the object as a file path, for a tool that opens a
   path rather than a stream (a converter, a renderer, a scanner run as a process).
   The filesystem backend hands out the stored file itself, with no copy; any other

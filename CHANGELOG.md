@@ -27,6 +27,22 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.FileServer`
+
+### Fixed
+
+- **`Iyu.FileServer`: `FileSystemAttachmentStorage.TryCreateAsync` could tell two concurrent creators of one key that
+  each had won — off Windows.** The create published its bytes with a move that does not overwrite. On Windows that
+  is one step in the file system. Elsewhere the runtime looks for the destination and then renames, and a rename
+  replaces what is there: two creators that both looked before either renamed both returned `true`, and the later
+  one replaced the earlier one's object — the opposite of "only if nothing is stored". The create now links the
+  staged file into place there, which fails when the name exists and never replaces. It affects 0.37.0 and 0.38.0 on
+  Linux and macOS, only when creators of the same key overlap; `SaveAsync`, the Azure Blob backend and Windows hosts
+  were not affected. **A storage root on a volume that cannot hard-link** (some network and FAT-family mounts) now
+  fails `TryCreateAsync` with an `IOException` that says so, instead of a create that can lose a race.
+
 ## [0.38.0] - 2026-10-11
 
 **Packages affected:** `Iyu.Core`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`
