@@ -30,6 +30,12 @@ internal sealed class OidcStandIn : HttpMessageHandler
     /// <summary>The person's identifier at the provider — the ID token's <c>sub</c>.</summary>
     public string Subject { get; set; } = "provider-subject-1";
 
+    /// <summary>
+    /// The provider's own session the sign-in belongs to — the ID token's <c>sid</c>. <c>null</c> for a provider that
+    /// names none.
+    /// </summary>
+    public string? SessionId { get; set; } = "provider-session-1";
+
     /// <summary>The nonce the handler sent with the challenge, which the ID token must echo.</summary>
     public string Nonce { get; set; } = "";
 
@@ -57,6 +63,13 @@ internal sealed class OidcStandIn : HttpMessageHandler
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        var claims = new Dictionary<string, object>
+        {
+            ["sub"] = Subject,
+            ["nonce"] = Nonce,
+            [IyuIdentityClaims.DefaultPermissionClaimType] = ClaimedPermission,
+        };
+        if (SessionId is not null) claims["sid"] = SessionId;
         var idToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Issuer,
@@ -64,12 +77,7 @@ internal sealed class OidcStandIn : HttpMessageHandler
             IssuedAt = DateTime.UtcNow,
             NotBefore = DateTime.UtcNow.AddMinutes(-1),
             Expires = DateTime.UtcNow.AddMinutes(5),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = Subject,
-                ["nonce"] = Nonce,
-                [IyuIdentityClaims.DefaultPermissionClaimType] = ClaimedPermission,
-            },
+            Claims = claims,
             SigningCredentials = new SigningCredentials(_key, SecurityAlgorithms.RsaSha256),
         });
         LastIdToken = idToken;

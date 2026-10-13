@@ -135,6 +135,7 @@ for its store**:
 | `AddIyuUserCredentials()` | The local password check — `UserCredentialService` | `IUserCredentialStore` |
 | `AddIyuRefreshTokens()` | People's refresh tokens — `UserTokenService`, the `refresh_token` grant | `IRefreshTokenStore` |
 | `AddIyuExternalSignIn()` | Sign-in through external providers | `IExternalLoginResolver` |
+| `AddIyuExternalSessionEnds()` | Ending a session when the provider's own session behind it ends | `IExternalSessionEndStore` |
 
 A host that registers a surface's store without turning the surface on is refused at startup, with
 the call to add in the message. `MapIyuIdentity` maps `POST /api/auth/token` — which answers the
@@ -331,6 +332,25 @@ keeps its tokens — set `SaveTokens = true` on it; without it the provider is a
 knowing which session. A session with no provider behind it simply ends, and the browser goes to
 `returnUrl` (or `/`). Use a form `POST`, not a fetch: the response is a redirect for the browser to follow.
 With external sign-in on, a `SignOutAsync()` that names no scheme still ends the session cookie.
+
+**When the provider's session ends somewhere else** — the person signed out of another application under
+the same provider, or at the provider itself — nothing above notices: the account has not changed, so no
+revalidation would end the session here. A session opened through `MapIyuExternalSignIn` remembers the
+provider's session behind it (the identity token's `sid`, when the provider sends one — kept beside the
+session's claims, never among them), and `AddIyuExternalSessionEnds()` makes that usable:
+
+```csharp
+builder.Services.AddStackExchangeRedisCache(o => { /* ... */ });                     // a cache every instance shares
+builder.Services.AddSingleton<IExternalSessionEndStore, DistributedCacheExternalSessionEndStore>();
+builder.Services.AddIyuExternalSessionEnds();
+```
+
+`ExternalSessionService.EndAsync(provider, sessionId)` records that the provider's session is over, and
+every session opened from it ends the next time its cookie is presented — on that very request, whatever
+`SessionRevalidationInterval` is. The store is therefore read on every request of a session that came
+from a provider (and on no other request): keep it cheap, and shared — over `AddDistributedMemoryCache()`
+the record lives in one process, which is right for a single instance and ends the session on one
+instance only behind a load balancer. A session whose provider sent no `sid` cannot be ended this way.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
 session verifies the user by whichever means the app already uses (the local check above, or an

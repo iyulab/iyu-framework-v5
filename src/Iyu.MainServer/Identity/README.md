@@ -9,6 +9,7 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
 | `AddIyuUserCredentials()` | 로컬 비밀번호 검사 — `UserCredentialService` | `IUserCredentialStore` |
 | `AddIyuRefreshTokens()` | 사람의 리프레시 토큰 — `UserTokenService` · `refresh_token` grant | `IRefreshTokenStore` |
 | `AddIyuExternalSignIn()` | 외부 로그인(OIDC 등) — 아래 7번 | `IExternalLoginResolver`(저장소가 아니라 판정) |
+| `AddIyuExternalSessionEnds()` | 공급자 쪽 세션이 끝나면 그 세션에서 열린 이 앱의 세션도 끝낸다 — `ExternalSessionService.EndAsync(provider, sessionId)` 가 기록하고, 그런 세션의 쿠키는 «요청마다» 묻는다(재검증 간격과 무관) | `IExternalSessionEndStore`(직접 구현하거나 `IDistributedCache` 위의 `DistributedCacheExternalSessionEndStore` — 모든 인스턴스가 공유해야 한다) |
 
 저장소만 등록하고 그 표면을 켜지 않은 호스트는 **기동이 거부된다**(무엇을 호출할지 메시지가 말한다) — 켜지 않은 grant 는
 `unsupported_grant_type`, 관리 끝점은 매핑되지 않아, 그대로 두면 기계 연동이 «폐기된 자격»처럼 조용히 실패하기 때문이다.

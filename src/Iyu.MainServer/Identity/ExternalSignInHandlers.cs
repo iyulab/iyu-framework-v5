@@ -16,6 +16,9 @@ internal static class ExternalSignInHandlers
     /// <summary>The name an OpenID Connect handler stores the provider's identity token under (with <c>SaveTokens</c>).</summary>
     private const string IdTokenName = "id_token";
 
+    /// <summary>The claim an OpenID Connect provider names its own session with, in the identity token (<c>sid</c>).</summary>
+    private const string ProviderSessionClaimType = "sid";
+
     /// <summary>
     /// <c>POST /api/auth/sign-out?returnUrl=…</c> — ends the session, and for a session opened through a provider that
     /// supports it, the person's session at the provider too (<see cref="UserSessionService.SignOutAsync"/>). The browser
@@ -94,9 +97,13 @@ internal static class ExternalSignInHandlers
             }
 
             // The session remembers which provider opened it — and the identity token the provider issued, when its
-            // handler kept one (SaveTokens) — so signing out can end the person's session there too.
+            // handler kept one (SaveTokens) — so signing out can end the person's session there too. It remembers the
+            // provider's own session as well, when the provider named one, so that session ending can end this one
+            // (ExternalSessionService). Neither is a claim: the session's claims are the claims source's answer.
             var session = new AuthenticationProperties();
             session.Items[UserSessionService.ProviderKey] = provider;
+            if (external.Principal.FindFirstValue(ProviderSessionClaimType) is { Length: > 0 } providerSession)
+                session.Items[ExternalSessionService.SessionIdKey] = providerSession;
             if (external.Properties?.GetTokenValue(IdTokenName) is { Length: > 0 } idToken)
                 session.StoreTokens([new AuthenticationToken { Name = IdTokenName, Value = idToken }]);
 

@@ -20,7 +20,8 @@ namespace Iyu.MainServer.Identity;
 /// surface is turned on by its own call and asks for its own store: <see cref="AddIyuServiceClients"/>
 /// (<see cref="IServiceClientStore"/>), <see cref="AddIyuUserCredentials"/> (<see cref="IUserCredentialStore"/>),
 /// <see cref="AddIyuRefreshTokens"/> (<see cref="IRefreshTokenStore"/>), <see cref="AddIyuExternalSignIn"/>
-/// (<see cref="IExternalLoginResolver"/>).
+/// (<see cref="IExternalLoginResolver"/>), <see cref="AddIyuExternalSessionEnds"/>
+/// (<see cref="IExternalSessionEndStore"/>).
 /// </summary>
 public static class IyuIdentityServiceCollectionExtensions
 {
@@ -92,10 +93,12 @@ public static class IyuIdentityServiceCollectionExtensions
                 opts.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
                 opts.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
                 // A session is re-read from the claims source while it lives — see UserSessionService. Whether one
-                // is due is decided from the cookie alone; the scoped service is resolved only when it is.
-                opts.Events.OnValidatePrincipal = ctx => UserSessionService.IsRevalidationDue(ctx, tokenOptions)
-                    ? ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>().RevalidateAsync(ctx, tokenOptions)
-                    : Task.CompletedTask;
+                // is due is decided from the cookie alone; the scoped service is resolved only when it is. A session
+                // opened from an external provider's session is first asked whether that one has ended — on every
+                // request, since nothing else would notice — see ExternalSessionService.
+                opts.Events.OnValidatePrincipal = ctx => ExternalSessionService.SessionOf(ctx.Properties) is { } external
+                    ? ValidateExternalSessionAsync(ctx, external, tokenOptions)
+                    : RevalidateIfDue(ctx, tokenOptions);
             })
             .AddJwtBearer(opts =>
             {
@@ -143,6 +146,21 @@ public static class IyuIdentityServiceCollectionExtensions
                 .RequireAuthenticatedUser().Build();
         });
         return services;
+    }
+
+    private static Task RevalidateIfDue(CookieValidatePrincipalContext ctx, IdentityTokenOptions options)
+        => UserSessionService.IsRevalidationDue(ctx, options)
+            ? ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>().RevalidateAsync(ctx, options)
+            : Task.CompletedTask;
+
+    private static async Task ValidateExternalSessionAsync(
+        CookieValidatePrincipalContext ctx, ExternalSession external, IdentityTokenOptions options)
+    {
+        // Only AddIyuExternalSessionEnds registers the service. Without it nothing records an end to ask about.
+        if (ctx.HttpContext.RequestServices.GetService<ExternalSessionService>() is { } ends
+            && await ends.EndIfEndedAsync(ctx, external))
+            return;
+        await RevalidateIfDue(ctx, options);
     }
 
     /// <summary>
@@ -243,6 +261,30 @@ public static class IyuIdentityServiceCollectionExtensions
                 o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
             });
         services.AddHostedService<ExternalLoginResolverGuard>();
+        return services;
+    }
+
+    /// <summary>
+    /// Lets a session opened through an external provider end when the provider's own session does: registers
+    /// <see cref="ExternalSessionService"/>, and has every such session ask, each time its cookie is presented, whether
+    /// the provider's session behind it has ended.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The app registers <see cref="IExternalSessionEndStore"/> itself — its own, or
+    /// <see cref="DistributedCacheExternalSessionEndStore"/> over its distributed cache. A host that calls this without
+    /// a store is refused at startup, and so is one that registers a store without calling this.
+    /// </para>
+    /// <para>
+    /// This is the half that remembers and notices. What tells the application that a provider's session ended — an
+    /// OpenID Connect back-channel logout notice, or a channel of the application's own — calls
+    /// <see cref="ExternalSessionService.EndAsync"/>.
+    /// </para>
+    /// </remarks>
+    public static IServiceCollection AddIyuExternalSessionEnds(this IServiceCollection services)
+    {
+        services.TryAddScoped<ExternalSessionService>();
+        services.AddHostedService<ExternalSessionEndStoreGuard>();
         return services;
     }
 }

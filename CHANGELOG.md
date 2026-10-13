@@ -50,6 +50,19 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **`Iyu.MainServer`: a session opened through an external provider can end when the provider's own session
+  does — `AddIyuExternalSessionEnds()`.** Until now such a session ended only through the application itself (its
+  own sign-out, or the claims source refusing the account): a person who signed out of another application under
+  the same provider, or at the provider, stayed signed in here, and no revalidation interval would ever notice — the
+  account had not changed. A session opened through `MapIyuExternalSignIn` now remembers the provider's session
+  behind it (the `sid` of the identity token, when the provider sends one; it is kept beside the claims, not among
+  them). With `AddIyuExternalSessionEnds()` on, `ExternalSessionService.EndAsync(provider, sessionId)` records
+  that the provider's session is over, and every session opened from it ends **the next time its cookie is
+  presented** — on that request, whatever `SessionRevalidationInterval` is. The record lives in an
+  `IExternalSessionEndStore` the application registers: its own, or `DistributedCacheExternalSessionEndStore` over
+  its `IDistributedCache`. It is read on every request of such a session and must be shared by every instance. A
+  host that turns this on without a store, or registers a store without turning it on, is refused at startup.
+  Nothing changes for a host that does not call it.
 - **`Iyu.MainServer`: `UseIyuMainServer()` is made of two public pieces — `UseIyuErrorResponses()` and
   `MapIyuMainServer()`.** A host that put its own middleware at a particular place could not call
   `UseIyuMainServer()`, and had to re-create what it does from the source. The piece it could not know to re-create
