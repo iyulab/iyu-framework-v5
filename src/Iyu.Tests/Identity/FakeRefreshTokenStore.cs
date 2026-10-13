@@ -80,6 +80,9 @@ public sealed class FakeUserClaimsSource : IUserClaimsSource
     /// <summary>The security stamp answered for the subject from now on — what a password change replaces.</summary>
     public void Stamp(string subject, string stamp) => _stamps[subject] = stamp;
 
+    /// <summary>The source stops answering a stamp for the subject — a source changed, or one that lost the value.</summary>
+    public void Unstamp(string subject) => _stamps.Remove(subject);
+
     public Task<IReadOnlyCollection<Claim>?> GetClaimsAsync(string subject, CancellationToken ct)
     {
         if (!_permissions.TryGetValue(subject, out var perms) || perms is null)

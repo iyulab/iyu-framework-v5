@@ -95,6 +95,27 @@ public class UserTokenServiceTests
         Assert.All(_store.Tokens, t => Assert.NotNull(t.RevokedAt));
     }
 
+    /// <summary>
+    /// The other direction: a token issued under a stamp is not the account's as it is now once the source
+    /// answers none — it ends, and its family with it.
+    /// </summary>
+    [Fact]
+    public async Task A_refresh_token_issued_under_a_stamp_ends_once_the_source_stops_answering_one()
+    {
+        _claims.Set("u1", "orders.read");
+        _claims.Stamp("u1", "stamp-1");
+        var svc = Service();
+        var pair = await svc.IssueAsync("u1", default);
+        Assert.Equal("stamp-1", Assert.Single(_store.Tokens).SecurityStamp);
+
+        _claims.Unstamp("u1");
+
+        var refused = await svc.RefreshAsync(pair.RefreshToken!, default);
+        Assert.False(refused.Ok);
+        Assert.Equal("invalid_grant", refused.Error);
+        Assert.All(_store.Tokens, t => Assert.NotNull(t.RevokedAt));
+    }
+
     [Fact]
     public async Task A_person_s_access_lifetime_is_set_apart_from_service_client_tokens()
     {

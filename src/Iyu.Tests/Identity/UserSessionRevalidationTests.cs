@@ -36,6 +36,9 @@ public class UserSessionRevalidationTests
         /// <summary>The security stamp answered for the subject from now on — what a password change replaces.</summary>
         public void Stamp(string subject, string stamp) => _stamps[subject] = stamp;
 
+        /// <summary>The source stops answering a stamp for the subject — a source changed, or one that lost the value.</summary>
+        public void Unstamp(string subject) => _stamps.Remove(subject);
+
         public Task<IReadOnlyCollection<Claim>?> GetClaimsAsync(string subject, CancellationToken ct)
         {
             Asked++;
@@ -235,6 +238,30 @@ public class UserSessionRevalidationTests
         host.Claims.Stamp("u1", "stamp-1");
 
         Assert.Equal(HttpStatusCode.Unauthorized, await host.StatusAsync(HttpMethod.Get, "/orders"));
+    }
+
+    /// <summary>
+    /// The comparison is of what the session was opened under with what the source answers now, in both
+    /// directions: a source that answered a stamp and no longer does has not answered the same thing, and the
+    /// session opened under the stamp ends.
+    /// </summary>
+    [Fact]
+    public async Task A_session_opened_under_a_stamp_ends_once_the_source_stops_answering_one()
+    {
+        await using var host = await StartAsync(o => o.SessionRevalidationInterval = TimeSpan.Zero);
+        host.Claims.Set("u1", "orders.read");
+        host.Claims.Stamp("u1", "stamp-1");
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+
+        host.Claims.Unstamp("u1");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.StatusAsync(HttpMethod.Get, "/orders"));
+
+        // Signing in again opens a session with no stamp, which a source answering none leaves alone.
+        await host.SendAsync(HttpMethod.Post, "/sign-in/u1");
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
+        Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(HttpMethod.Get, "/orders"));
     }
 
     /// <summary>

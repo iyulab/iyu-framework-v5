@@ -209,9 +209,10 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   (`RefreshTokenRecord.SecurityStamp` — persist it), and presenting one issued under an older stamp revokes its
   family. The comparison is made before the session's claims are replaced by the new answer — a check of your
   own placed after the framework's revalidation sees the account as it is now and always passes, so this is
-  where "is this still that session" is decided. A source that answers no stamp changes nothing; once it
-  answers one, a session or refresh token opened without it ends the next time the source is asked (one
-  sign-in at adoption). The stamp travels in the cookie and in access tokens, which are readable: use a random
+  where "is this still that session" is decided. A source that never answers a stamp changes nothing. The
+  comparison runs both ways: once a source starts answering one, a session or refresh token opened without it
+  ends the next time the source is asked (one sign-in at adoption) — and one opened under a stamp ends the same
+  way if the source stops answering it, so an account that has a stamp keeps having one. The stamp travels in the cookie and in access tokens, which are readable: use a random
   value stored with the account or a keyed digest, never a credential hash itself. An access token is not
   re-read while it lives — keep its lifetime short, or compare the stamp it carries yourself where that matters.
 - **A session cookie written by hand is not exempt.** One an endpoint signed in itself, without

@@ -38,9 +38,11 @@ public static class IyuIdentityClaims
     /// a refresh token when it is presented. A different value ends the session rather than refreshing it.
     /// </para>
     /// <para>
-    /// A source that answers no such claim keeps what it had before: sessions follow the account's claims and
-    /// end only when the source refuses the subject. Once a source starts answering one, a session or refresh
-    /// token opened without it has no stamp to compare and is ended the next time the source is asked.
+    /// A source that never answers such a claim keeps what it had before: sessions follow the account's claims
+    /// and end only when the source refuses the subject. The comparison runs both ways. Once a source starts
+    /// answering one, a session or refresh token opened without it has no stamp to compare and is ended the next
+    /// time the source is asked; and one opened under a stamp is ended the same way if the source stops
+    /// answering it — an account that has a stamp keeps having one.
     /// </para>
     /// <para>
     /// The value travels in the session cookie and in access tokens, and an access token is readable by whoever

@@ -77,7 +77,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   password change with a check of its own**, answer the stamp from your claims source and remove the check; until
   you do, on 0.38.0 that check works only when it runs before the framework's handler. **Adopting it ends existing
   sessions once**: a cookie or refresh token opened before the source answered a stamp has none to compare and is
-  ended the next time the source is asked. A refresh-token store must persist the new field — one that drops it
+  ended the next time the source is asked. The comparison runs both ways — a source that stops answering a stamp
+  ends the sessions opened under it. A refresh-token store must persist the new field — one that drops it
   makes every refresh fail once a stamp is answered, and the rejection log says so. The stamp travels in access
   tokens, which are readable: answer a random value or a keyed digest, not a credential hash.
 - 🔇 **`Iyu.MainServer`: a session that has not changed is not re-issued.** Revalidation re-issued the session cookie
