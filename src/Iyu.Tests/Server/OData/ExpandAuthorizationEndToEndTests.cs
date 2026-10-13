@@ -79,17 +79,17 @@ public sealed class NavSecretsController(NavContext ctx)
 /// </summary>
 public class ExpandAuthorizationEndToEndTests
 {
-    private const string OrdersSet = "NavOrders";
-    private const string SecretsSet = "NavSecrets";
-    private const string SecretReadPolicy = "secrets.read";
+    internal const string OrdersSet = "NavOrders";
+    internal const string SecretsSet = "NavSecrets";
+    internal const string SecretReadPolicy = "secrets.read";
     private const string SecretWritePolicy = "secrets.write";
-    private const string FailedPolicyHeader = "X-Failed-Policy";
+    internal const string FailedPolicyHeader = "X-Failed-Policy";
 
     private static readonly Guid SecretId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    private const string SecretCode = "the-code-behind-the-policy";
+    internal const string SecretCode = "the-code-behind-the-policy";
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
-    private static async Task<WebApplication> StartAsync()
+    internal static async Task<WebApplication> StartAsync()
     {
         var dbName = "nav-" + Guid.NewGuid().ToString("N");
         var builder = WebApplication.CreateBuilder();
@@ -146,7 +146,7 @@ public class ExpandAuthorizationEndToEndTests
         return app;
     }
 
-    private static HttpRequestMessage Request(string path, string? perm = null)
+    internal static HttpRequestMessage Request(string path, string? perm = null)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, path);
         if (perm is not null) req.Headers.Add("X-Test-Perm", perm);

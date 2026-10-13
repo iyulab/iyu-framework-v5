@@ -77,7 +77,7 @@ public sealed class DepthAsController(DepthContext ctx) : IyuODataController<Dep
 /// true.
 /// </para>
 /// <para>
-/// <see cref="IyuExpandAuthorizationFilter"/> does not depend on this ceiling — it walks an expand
+/// <see cref="IyuNavigationAuthorizationFilter"/> does not depend on this ceiling — it walks an expand
 /// to the bottom and authorizes every set it reaches, at any depth. The two are pinned separately
 /// on purpose: if the ceiling later rises, authorization coverage must not have been resting on it.
 /// </para>

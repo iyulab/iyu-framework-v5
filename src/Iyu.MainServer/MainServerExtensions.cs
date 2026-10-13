@@ -119,7 +119,7 @@ public static class MainServerExtensions
                     options.ODataModel.GetEdmModel(),
                     routeServices => routeServices
                         // The binder reads the registry (a searchable reference counts only if its type is served)
-                        // and the request (the references this caller may not search — IyuExpandAuthorizationFilter).
+                        // and the request (the references this caller may not search — IyuNavigationAuthorizationFilter).
                         .AddSingleton<Microsoft.AspNetCore.OData.Query.Expressions.ISearchBinder>(
                             _ => new Iyu.Server.OData.IyuStringSearchBinder(
                                 options.ODataModel.Registry, new Microsoft.AspNetCore.Http.HttpContextAccessor()))

@@ -89,6 +89,25 @@ onward; earlier entries state the same consequence in prose where it applies.
   endpoints without the error responses now logs one warning at startup (category `Iyu.MainServer.Pipeline`)
   naming the missing call — the only signal there is, since such a host starts and serves.
 
+### Security
+
+- 🔇 **`Iyu.MainServer`: a set's read policy was applied only to `$expand` — a path in `$apply`, `$filter`,
+  `$orderby`, `$compute` or `$select` reached the set without it. 0.38.0 and every earlier release are affected
+  wherever a read type carries a navigation to a set with a read policy.** A caller who may read `Orders` and not `Customers` was refused
+  `$expand=Customer`, and was answered `$apply=groupby((Customer/Name))` with the customers' names,
+  `$apply=aggregate(Customer/TaxId with max as m)` with a value, and
+  `Orders/$count?$filter=startswith(Customer/TaxId,'12')` with a count that says whether the guess is right —
+  enough to read a protected column out one character at a time; `$orderby=Customer/CreditLimit` ordered the
+  answer by it. The check now covers every option that can name a path, the options nested inside an expand or a
+  select item, and what a parameter alias stands for: each navigation found, at any depth, is held to the read
+  policy of the set it reaches, with the same `401`/`403` an expand gets and the same
+  `IIyuAuthorizationFailureFeature`. **If your API has a read policy on any set that another set references,
+  upgrade** — nothing in the application needs to change. What a caller notices: requests that used such a path
+  without holding the target's read policy now answer `403`; a caller who holds it is answered as before. Two
+  refusals are new for everyone, both `400 InvalidQuery`: an option given under both spellings at once
+  (`$filter=…&filter=…` — until now an unhandled `500`), and a query using a construct the check has no rule
+  for. A malformed query is still a `400`, now worded by this check rather than by the query pipeline.
+
 ### Fixed — identity
 
 - 🔇 **`Iyu.MainServer`: a session can end because the account's state changed, not only because the account is

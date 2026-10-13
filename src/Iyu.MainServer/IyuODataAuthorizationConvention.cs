@@ -45,7 +45,7 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
             // perform the check. Attaching only to restricted sets would leave exactly the path
             // the measurement found open.
             if (action.ActionMethod.Name == "Get")
-                action.Filters.Add(new IyuExpandAuthorizationFilter(pair.SetName));
+                action.Filters.Add(new IyuNavigationAuthorizationFilter(pair.SetName));
         }
     }
 

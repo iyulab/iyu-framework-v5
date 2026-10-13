@@ -212,7 +212,7 @@ public sealed class IyuGraphQLSchemaBuilder
         // And on the object type, not only on the root field. A policy protects the data, and a
         // field on some other type that returns this one reaches it without the root field's
         // resolver being involved -- the same structural gap that let an OData $expand walk past a
-        // set's read policy (IyuExpandAuthorizationFilter, Iyu.MainServer). Query fields project
+        // set's read policy (IyuNavigationAuthorizationFilter, Iyu.MainServer). Query fields project
         // their selection, so a navigation in a selection is loaded; this is what keeps a caller
         // without the target's policy from receiving the rows it loads.
         //

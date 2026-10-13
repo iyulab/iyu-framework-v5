@@ -666,7 +666,7 @@ options.Authorize<OrderExt>(read: "orders.read", write: "orders.write", delete: 
 
 | Policy | OData set | GraphQL query field |
 |---|---|---|
-| `read` | `GET`, and every `$expand` that reaches it | the field, and the object type wherever it is selected |
+| `read` | `GET`, and every query that reaches it through a navigation — `$expand`, and a path in `$filter`, `$orderby`, `$apply`, `$compute` or `$select` | the field, and the object type wherever it is selected |
 | `write` | `POST`, `PATCH` — and `DELETE` when `delete` is not given | — (GraphQL serves reads only) |
 | `delete` | `DELETE`, when deleting is a different permission from editing | — |
 
@@ -688,18 +688,30 @@ A read policy protects the **data**, not the one route you declared it on. Both 
 that way, and both did not always — the paragraphs below describe what the framework does now,
 because the difference is invisible from a successful response.
 
-**OData — every set an `$expand` reaches is checked.** A set's read policy is enforced by an
-`AuthorizeFilter` on the restricted set's own controller action, and an expand is served by the
-*addressed* set's action without ever entering the other one. So the check runs separately, against
-each set the expand reaches, at any depth:
+**OData — every set a query reaches through a navigation is checked.** A set's read policy is
+enforced by an `AuthorizeFilter` on the restricted set's own controller action, and a request that
+reaches the set through a navigation is served by the *addressed* set's action without ever entering
+the other one. So the check runs separately, against each set a navigation in the query reaches, at
+any depth and in whichever option names it:
 
 ```http
 GET /$data/Orders?$expand=Customer
+GET /$data/Orders?$apply=groupby((Customer/Name),aggregate($count as n))
+GET /$data/Orders/$count?$filter=startswith(Customer/TaxId,'12')
+GET /$data/Orders?$orderby=Customer/CreditLimit desc
 ```
 
-If `Customers` carries a `readPolicy` the caller does not satisfy, the request is refused even
+If `Customers` carries a `readPolicy` the caller does not satisfy, each of these is refused even
 though `Orders` is open — `401` without an identity, `403` with one, the same split `Customers`
-produces on its own route. The check runs before the action, so a refusal costs no query.
+produces on its own route. Printing a value (`$expand`, `$select`, `$compute`, grouping or
+aggregating in `$apply`), testing it (`$filter`, where a count turns a guess into an answer) and
+sorting by it (`$orderby`) are all reading it. The options nested in an expand, and what a parameter
+alias stands for, are read the same way. The check runs before the query options are bound, so a
+refusal costs no query.
+
+A query option is read with or without its `$`. Given under both spellings at once
+(`$filter=…&filter=…`), it is refused with `400` — the check does not guess which one the query
+would apply.
 
 **Only what a set serves is reachable.** A read type may carry a navigation to a type no entity set
 serves — a model the application keeps off its API. Such a navigation is not part of the model: it
@@ -712,11 +724,12 @@ The policy that failed is handed on: `HttpContext.Features.Get<IIyuAuthorization
 carries its `Policy` and `EntitySet`. A host that words its own 401/403 should read it before the
 endpoint's authorization metadata, which names `Orders`' policy — one this caller may already hold.
 
-It is deliberately **fail-closed** on an `$expand` it cannot interpret: such a request is answered
-`400` rather than passed along, because an expression this check rejects and the query pipeline
-later accepts would be a way around it. It parses with the route's own resolver and settings, so it reads an
-expression the way the query does — a navigation named in another case (`$expand=customer`) is
-checked like `Customer`, not refused.
+It is deliberately **fail-closed** on a query it cannot interpret, or that uses a construct it has
+no rule for: such a request is answered `400` rather than passed along, because an expression this
+check rejects and the query pipeline later accepts would be a way around it. It parses with the
+route's own resolver and settings, so it reads an expression the way the query does — a navigation
+named in another case (`$expand=customer`, `$filter=customer/name eq 'x'`) is checked like
+`Customer`, not refused.
 
 Expand **depth** is not this framework's setting: nothing here sets `MaxExpansionDepth`, so the
 ceiling is the one `EnableQueryAttribute` applies. Measured against it, that ceiling is **2** — a
@@ -981,7 +994,7 @@ code from `ODataErrorCodes` — branch on the code, not on the message text:
 | `400` | `InvalidBody` | the body is missing or could not be read, or a value fails the model's rules — `details[]` name each property in `target` |
 | `400` | `UnknownProperty` | the body names a property the set's type does not declare — `details[]` name each one in `target`, nested ones by path (`Survey.Grde`) |
 | `400` | `UnwritableProperty` | every property a `PATCH` sent is one the write side does not accept |
-| `400` | `InvalidQuery` | a query option cannot be applied — an unknown property, a malformed literal, a limit exceeded, an `$expand` this server cannot interpret |
+| `400` | `InvalidQuery` | a query option cannot be applied — an unknown property, a malformed literal, a limit exceeded, a query this server cannot interpret or one that gives an option under both spellings (`$filter` and `filter`) |
 | `400` | `SharedKeyRequired` | a set that shares its key was posted to without a key |
 | `404` | `KeyNotFound` | `GET`, `PATCH` or `DELETE` by a key that names no row |
 | `405` | `ReadOnlySet` | the set is registered read-only for this verb |
