@@ -63,6 +63,14 @@ onward; earlier entries state the same consequence in prose where it applies.
   its `IDistributedCache`. It is read on every request of such a session and must be shared by every instance. A
   host that turns this on without a store, or registers a store without turning it on, is refused at startup.
   Nothing changes for a host that does not call it.
+- **`Iyu.MainServer`: a person's access token can be checked against the account on every request —
+  `IdentityTokenOptions.ValidateUserAccessTokens`.** Off by default, and off nothing changes: a person's access
+  token is not looked at again until it expires. On, each request that presents one asks the claims source about
+  its subject, and the token is refused with `401` when the source declines the subject or answers a security stamp
+  other than the one the token carries — so a changed password or a deactivated account ends tokens already
+  issued, as it ends session cookies, instead of waiting out their lifetime. One question to the source per such
+  request is the cost. The permissions a token carries are not replaced by the check; they change at the next
+  refresh, as before. Service-client tokens are unaffected (`ValidateServiceClientTokens`).
 - **New package `Iyu.MainServer.OpenIdConnect`: an OpenID Connect provider's logout notice is received —
   `AddIyuBackChannelLogout()` + `MapIyuBackChannelLogout()`.** OpenID Connect Back-Channel Logout 1.0: the
   provider posts a signed logout token to `POST /api/auth/external/{provider}/backchannel-logout` (register it as

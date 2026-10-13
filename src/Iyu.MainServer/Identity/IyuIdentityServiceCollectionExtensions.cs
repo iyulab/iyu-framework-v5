@@ -109,24 +109,16 @@ public static class IyuIdentityServiceCollectionExtensions
                     ValidateIssuerSigningKey = true, IssuerSigningKey = key,
                     ValidateLifetime = true,
                 };
-                // Revoke, rotate and PATCH permissions act on the store; the token was signed before
-                // any of them. This is where the two meet — see ServiceClientTokenValidator.
-                if (tokenOptions.ValidateServiceClientTokens)
+                // A token was signed before whatever happened to its client or its account since. This is where the
+                // two meet: a service client's token against its client (ServiceClientTokenValidator), and — where
+                // the application asks for it — a person's token against the account (UserSessionService).
+                if (tokenOptions.ValidateServiceClientTokens || tokenOptions.ValidateUserAccessTokens)
                     opts.Events = new JwtBearerEvents
                     {
                         OnTokenValidated = async ctx =>
                         {
-                            // Only AddIyuServiceClients registers the validator. Without it no service-client token
-                            // is issued here, so one that carries the stamp is refused rather than waved through.
-                            if (ctx.HttpContext.RequestServices.GetService<ServiceClientTokenValidator>() is not { } validator)
-                            {
-                                if (ctx.Principal!.HasClaim(c => c.Type == IyuIdentityClaims.ServiceClientStampClaimType))
-                                    ctx.Fail("Service clients are not turned on in this application.");
-                                return;
-                            }
-                            var reason = await validator.RejectionAsync(ctx.Principal!, ctx.HttpContext.RequestAborted);
-                            if (reason is not null)
-                                ctx.Fail("The service client behind this token has been revoked, rotated or re-scoped.");
+                            if (tokenOptions.ValidateServiceClientTokens) await ValidateServiceClientTokenAsync(ctx);
+                            if (ctx.Result is null && tokenOptions.ValidateUserAccessTokens) await ValidateUserAccessTokenAsync(ctx);
                         },
                     };
             });
@@ -146,6 +138,31 @@ public static class IyuIdentityServiceCollectionExtensions
                 .RequireAuthenticatedUser().Build();
         });
         return services;
+    }
+
+    private static async Task ValidateServiceClientTokenAsync(TokenValidatedContext ctx)
+    {
+        // Only AddIyuServiceClients registers the validator. Without it no service-client token
+        // is issued here, so one that carries the stamp is refused rather than waved through.
+        if (ctx.HttpContext.RequestServices.GetService<ServiceClientTokenValidator>() is not { } validator)
+        {
+            if (ctx.Principal!.HasClaim(c => c.Type == IyuIdentityClaims.ServiceClientStampClaimType))
+                ctx.Fail("Service clients are not turned on in this application.");
+            return;
+        }
+        var reason = await validator.RejectionAsync(ctx.Principal!, ctx.HttpContext.RequestAborted);
+        if (reason is not null)
+            ctx.Fail("The service client behind this token has been revoked, rotated or re-scoped.");
+    }
+
+    private static async Task ValidateUserAccessTokenAsync(TokenValidatedContext ctx)
+    {
+        // A service client's token is its client's, not a person's — it was checked above, or is not checked at all.
+        if (ctx.Principal!.HasClaim(c => c.Type == IyuIdentityClaims.ServiceClientStampClaimType)) return;
+
+        var sessions = ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>();
+        if (await sessions.AccessTokenRefusalAsync(ctx.Principal!, ctx.HttpContext.RequestAborted) is { } refusal)
+            ctx.Fail(refusal);
     }
 
     private static Task RevalidateIfDue(CookieValidatePrincipalContext ctx, IdentityTokenOptions options)

@@ -214,9 +214,19 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   where "is this still that session" is decided. A source that never answers a stamp changes nothing. The
   comparison runs both ways: once a source starts answering one, a session or refresh token opened without it
   ends the next time the source is asked (one sign-in at adoption) — and one opened under a stamp ends the same
-  way if the source stops answering it, so an account that has a stamp keeps having one. The stamp travels in the cookie and in access tokens, which are readable: use a random
-  value stored with the account or a keyed digest, never a credential hash itself. An access token is not
-  re-read while it lives — keep its lifetime short, or compare the stamp it carries yourself where that matters.
+  way if the source stops answering it, so an account that has a stamp keeps having one. The stamp travels in
+  the cookie and in access tokens, which are readable: use a random value stored with the account or a keyed
+  digest, never a credential hash itself.
+- **An access token is not looked at again while it lives — unless you ask for it.** By default a person's
+  access token is as good as the day it was signed until it expires: a changed password or a deactivated
+  account reaches it at the next refresh, which is why its lifetime is kept short
+  (`UserAccessTokenLifetime`). `IdentityTokenOptions.ValidateUserAccessTokens = true` checks it on every
+  request instead: the source is asked about the token's subject, and the token is refused (`401`) when the
+  source declines the subject or answers a stamp other than the one the token carries — the two things that
+  end a session cookie. It costs one question to the source per request that presents such a token, and it
+  decides only whether the token still belongs to the account: the permissions a token carries stay the ones
+  it was issued with until it is refreshed. Service-client tokens have their own check
+  (`ValidateServiceClientTokens`, on by default).
 - **A session cookie written by hand is not exempt.** One an endpoint signed in itself, without
   `UserSessionService`, is re-assembled from the source the first time it is presented, by the identifier it
   carries (`ClaimTypes.NameIdentifier` or `sub`): claims the endpoint added and the source does not answer are

@@ -20,6 +20,25 @@ public sealed class IdentityTokenOptions
     public bool ValidateServiceClientTokens { get; set; } = true;
 
     /// <summary>
+    /// Whether a person's access token is checked against the account on every request: the claims source is asked
+    /// about the token's subject, and the token is refused when the source declines the subject or answers a
+    /// security stamp other than the one the token was issued under.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, because it asks <see cref="IUserClaimsSource"/> once for every request that presents such a
+    /// token. Left off, a person's access token is not looked at again while it lives: a changed password or a
+    /// deactivated account reaches it when it expires, or at the next refresh — which is what keeping
+    /// <see cref="UserAccessTokenLifetime"/> short is for. Turn it on where that window is not acceptable.
+    /// </para>
+    /// <para>
+    /// It decides whether the token still belongs to the account, not what the token says: the permissions a token
+    /// carries are the ones it was issued with until it is refreshed or expires.
+    /// </para>
+    /// </remarks>
+    public bool ValidateUserAccessTokens { get; set; }
+
+    /// <summary>
     /// How long a successful check of a service-client token is reused before the store is asked
     /// again. This is the longest a revocation, rotation or permission change can take to reach a
     /// token that was in use when it happened. <see cref="TimeSpan.Zero"/> checks every request.

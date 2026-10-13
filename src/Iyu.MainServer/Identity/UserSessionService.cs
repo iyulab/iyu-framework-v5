@@ -185,6 +185,39 @@ public sealed class UserSessionService
         if (!context.Options.SlidingExpiration) context.Properties.IssuedUtc = now;
     }
 
+    /// <summary>
+    /// Why a person's access token no longer belongs to the account, or <c>null</c> when it does — the question a
+    /// session cookie is asked at its revalidation, asked of a bearer token
+    /// (<see cref="IdentityTokenOptions.ValidateUserAccessTokens"/>).
+    /// </summary>
+    /// <remarks>
+    /// The same two endings as a session: the source declines the subject, or the account's security stamp is not
+    /// the one the token was issued under. A token cannot be re-issued where it is presented, so nothing is
+    /// replaced — the claims it carries stay the ones it was signed with.
+    /// </remarks>
+    internal async Task<string?> AccessTokenRefusalAsync(ClaimsPrincipal token, CancellationToken ct)
+    {
+        if (IyuIdentityClaims.FindSubject(token) is not { } subject)
+            return "The token names no subject.";
+
+        var answered = await _claims.GetClaimsAsync(subject, ct);
+        if (answered is null)
+        {
+            _log.LogInformation("access token refused for {Subject}: {Reason}", subject, "the claims source declined the subject");
+            return "The account behind this token is no longer accepted.";
+        }
+
+        if (!IyuIdentityClaims.SameSecurityStamp(
+                IyuIdentityClaims.FindSecurityStamp(token.Claims), IyuIdentityClaims.FindSecurityStamp(answered)))
+        {
+            _log.LogInformation("access token refused for {Subject}: {Reason}", subject,
+                "the account's security stamp is not the one the token was issued under");
+            return "The account's security stamp is not the one this token was issued under.";
+        }
+
+        return null;
+    }
+
     private async Task EndAsync(CookieValidatePrincipalContext context, string? subject, string reason)
     {
         _log.LogInformation("session ended for {Subject}: {Reason}", subject ?? "(no identifier)", reason);
