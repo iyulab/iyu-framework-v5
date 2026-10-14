@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new), `Iyu.Report`, `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new), `Iyu.Report`, `Iyu.Server.OData`
 
 ### Changed — document conversion
 
