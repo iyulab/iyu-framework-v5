@@ -462,9 +462,11 @@ refuses gets no token (`Ok == false`, `invalid_grant`). Nothing here authenticat
 that — and `AddIyuIdentity` registers the service; it needs nothing beyond the claims source.
 The lifetime argument is optional: unset, it is `IdentityTokenOptions.UserAccessTokenLifetime`, or
 `Lifetime` when that is unset too. A longer one serves a client without a refresh flow (a mobile app
-queuing work offline), but **an access token cannot be taken back** — nothing asks the source again
-while it lives, so a person deactivated after it was issued keeps it until it expires. Prefer the
-refresh flow below for a public client that stays signed in.
+queuing work offline), but **a token issued here cannot be taken back on its own** — it names no
+sign-in, so neither signing out nor revoking ends it, and a person deactivated after it was issued keeps
+it until it expires unless every token is checked against the account
+(`IdentityTokenOptions.ValidateUserAccessTokens`). Prefer the refresh flow below for a public client
+that stays signed in: with session ends on, revoking its refresh token ends its access tokens too.
 
 There is no public way to sign a person's token over claims the caller put together: such a token would
 carry whatever permissions the caller wrote, for as long as it lives.

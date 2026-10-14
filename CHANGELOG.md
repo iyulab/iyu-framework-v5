@@ -110,7 +110,7 @@ onward; earlier entries state the same consequence in prose where it applies.
   `RequireExpiration` is set; a token that carries one is always held to it. This is a package of its own because
   it is the only part of the identity runtime that needs `Microsoft.AspNetCore.Authentication.OpenIdConnect`:
   `Iyu.MainServer` still does not reference it. The README's «Identity» section has the recipe and what a notice
-  does not cover (tokens the application issued separately; a notice the provider never delivered).
+  does not cover (an access token the application issued on its own; a notice the provider never delivered).
 - **`Iyu.MainServer`: `UseIyuMainServer()` is made of two public pieces — `UseIyuErrorResponses()` and
   `MapIyuMainServer()`.** A host that put its own middleware at a particular place could not call
   `UseIyuMainServer()`, and had to re-create what it does from the source. The piece it could not know to re-create
