@@ -1574,8 +1574,8 @@ guessing. `source` is read but not disposed; the caller keeps ownership, same co
 | Thrown | It means | Retry? |
 |---|---|---|
 | `NotSupportedException` | the content type is not one this converter handles — nothing was sent | no |
-| `DocumentConverterUnavailableException` | the converter could not be reached, did not answer within `GotenbergOptions.Timeout`, or answered `5xx`, `408` or `429` | yes — nothing is wrong with the document |
-| `DocumentConversionFailedException` | the converter received the document and could not convert it (any other `4xx` — a damaged file) | no |
+| `DocumentConverterUnavailableException` | the converter could not be reached, did not answer within `GotenbergOptions.Timeout`, or answered `502`, `503`, `504`, `408` or `429` | yes — nothing is wrong with the document |
+| `DocumentConversionFailedException` | the converter received the document and could not convert it (any other status — a damaged file; Gotenberg answers `500` for a document LibreOffice cannot convert) | no |
 | `OperationCanceledException` | your own `CancellationToken` was cancelled | — |
 
 So an endpoint that serves a converted document can answer "conversion is unavailable" (a `502` or `503`)

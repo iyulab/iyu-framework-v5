@@ -40,9 +40,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   `TaskCanceledException` after the timeout, the same type as a call the caller cancelled. A caller had to know the
   converter speaks HTTP to tell "conversion is unavailable" from "something broke", and the timeout was the case it
   missed. The contract now names the failures: `DocumentConverterUnavailableException` (could not be reached, did
-  not answer within the timeout, or answered `5xx`/`408`/`429` — retrying may help) and
+  not answer within the timeout, or answered `502`/`503`/`504`/`408`/`429` — retrying may help) and
   `DocumentConversionFailedException` (the converter received the document and could not convert it — any other
-  `4xx`; retrying will not help). The transport's exception is the `InnerException`; a caller's own cancellation is
+  status, `500` included: Gotenberg answers `500` for a document LibreOffice cannot convert, measured against
+  Gotenberg 8; retrying will not help). The transport's exception is the `InnerException`; a caller's own cancellation is
   still `OperationCanceledException`. **If you catch `HttpRequestException` around `ConvertToPdfAsync`**, catch
   `DocumentConverterUnavailableException` instead — the old catch no longer sees anything, since that type is no
   longer thrown — and decide separately what `DocumentConversionFailedException` should answer (before, a damaged

@@ -136,10 +136,15 @@ public sealed class GotenbergDocumentConverterTests
         return new GotenbergDocumentConverter(client);
     }
 
-    /// <summary>The backend took the document and refused it: retrying the same bytes cannot help.</summary>
+    /// <summary>
+    /// The backend took the document and could not convert it: retrying the same bytes cannot help. A 500 is that answer
+    /// too — measured against Gotenberg 8, a document LibreOffice cannot read is answered <c>500</c> ("LibreOffice failed to
+    /// convert the document"), by a backend that is up and answering.
+    /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.BadRequest)]
     [InlineData(HttpStatusCode.UnprocessableEntity)]
+    [InlineData(HttpStatusCode.InternalServerError)]
     public async Task A_document_the_backend_rejects_is_a_failed_conversion(HttpStatusCode status)
     {
         var (converter, _, _, _) = CreateConverter(_ => Task.FromResult(new HttpResponseMessage(status)
@@ -155,10 +160,10 @@ public sealed class GotenbergDocumentConverterTests
         Assert.Contains("invalid source file", ex.Message);
     }
 
-    /// <summary>The backend answered that it cannot serve now — failing, overloaded, or timed out on its side.</summary>
+    /// <summary>The backend answered that it cannot serve now — not reachable behind a gateway, overloaded, or timed out.</summary>
     [Theory]
-    [InlineData(HttpStatusCode.InternalServerError)]
     [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
     [InlineData(HttpStatusCode.ServiceUnavailable)]
     [InlineData(HttpStatusCode.TooManyRequests)]
     [InlineData(HttpStatusCode.RequestTimeout)]

@@ -108,10 +108,13 @@ public sealed class GotenbergDocumentConverter : IDocumentConverter
     }
 
     /// <summary>
-    /// Whether a non-success status says the backend cannot serve now (any 5xx, a request timeout, too many
-    /// requests) rather than that it will not convert this document (any other 4xx).
+    /// Whether a non-success status says the backend cannot serve now (a gateway that cannot reach it, overloaded, timed
+    /// out — 502, 503, 504, 408, 429) rather than that it could not convert this document (any other status). A 500 is the
+    /// latter: Gotenberg answers it for a document LibreOffice cannot convert, up and answering — measured, and the same
+    /// bytes fail again. A starved container answers it too; that is the operator's to see in the message.
     /// </summary>
     private static bool IsBackendUnavailable(System.Net.HttpStatusCode status) =>
-        (int)status >= 500
-        || status is System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.TooManyRequests;
+        status is System.Net.HttpStatusCode.BadGateway or System.Net.HttpStatusCode.ServiceUnavailable
+            or System.Net.HttpStatusCode.GatewayTimeout or System.Net.HttpStatusCode.RequestTimeout
+            or System.Net.HttpStatusCode.TooManyRequests;
 }
