@@ -56,8 +56,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   cannot be asked when the account is the one compromised. `GET /api/admin/service-clients` lists every owner's
   clients (`?owner=` narrows), revoked ones marked and no secret material; `DELETE /api/admin/service-clients/{id}`
   revokes one whoever owns it; `DELETE /api/admin/service-clients/owner/{owner}` revokes every active client of one
-  owner and answers how many. Who may is the host's policy (the name passed in); the endpoints also require a
-  session cookie. **`IServiceClientStore` gains three members** the store implements —
+  owner and answers how many. Who may is the host's policy (the name passed in), met by the person whose session
+  cookie the request carries: a bearer token is answered `403`, alone or presented beside anyone's session cookie. **`IServiceClientStore` gains three members** the store implements —
   `ListServiceClientsAsync(ct)`, `DeactivateAsync(id, ct)`, `DeactivateByOwnerAsync(owner, ct)` — and
   **`ServiceClientSummary` gains `OwnerUserId`** (second positional parameter); a store that constructs summaries
   fills it. The owner's own listing carries it too.
@@ -77,7 +77,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   every session opened from it — a person who signed out of another application under the same provider, or at the
   provider, no longer stays signed in here. A refresh-token sign-in opened from a provider's session —
   `UserTokenService.IssueAsync(subject, providerSession, ct)`, new — ends with it too: the first refresh after the
-  provider's notice is refused and ends the sign-in, its access tokens included. That takes a refresh-token store
+  provider's notice is refused and ends the sign-in, its access tokens included — a retry within
+  `RefreshTokenReuseInterval` as well — and a provider's session that has already ended opens no sign-in. The
+  provider's end is kept for the longer of the session cookie's lifetime and `RefreshTokenLifetime`. That takes a refresh-token store
   that keeps `RefreshTokenRecord.ProviderSession` (new and optional, two columns — this release also adds
   `SecurityStamp`, below: one migration for both); a store that drops it leaves such sign-ins to their own
   expiry. The record lives in an `ISessionEndStore` the application registers:
@@ -111,6 +113,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   it is the only part of the identity runtime that needs `Microsoft.AspNetCore.Authentication.OpenIdConnect`:
   `Iyu.MainServer` still does not reference it. The README's «Identity» section has the recipe and what a notice
   does not cover (an access token the application issued on its own; a notice the provider never delivered).
+  A token signed with a key the provider's document does not list has the document read again once, as the
+  handler does for an identity token (`RefreshOnIssuerKeyNotFound`): a provider that rolled its keys is not refused
+  until the document's next scheduled refresh.
 - **`Iyu.MainServer`: `UseIyuMainServer()` is made of two public pieces — `UseIyuErrorResponses()` and
   `MapIyuMainServer()`.** A host that put its own middleware at a particular place could not call
   `UseIyuMainServer()`, and had to re-create what it does from the source. The piece it could not know to re-create
@@ -234,6 +239,14 @@ onward; earlier entries state the same consequence in prose where it applies.
   Linux and macOS, only when creators of the same key overlap; `SaveAsync`, the Azure Blob backend and Windows hosts
   were not affected. **A storage root on a volume that cannot hard-link** (some network and FAT-family mounts) now
   fails `TryCreateAsync` with an `IOException` that says so, instead of a create that can lose a race.
+
+- **`Iyu.FileServer`: on Windows, an object being downloaded could not be deleted, and a replace of it left its
+  staged bytes behind.** `FileSystemAttachmentStorage` opened objects for reading without sharing delete, so while
+  a download ran, `DeleteAsync` failed with `UnauthorizedAccessException`; and `SaveAsync`, whose move into place
+  fails over an open file on Windows, left the `*.partial` file it had staged beside the object. A delete now goes
+  through and the running download finishes the bytes it opened; a replace that cannot be moved into place leaves
+  the object as it was and removes what it staged. A replace of an object while it is being downloaded still fails
+  on Windows (other systems replace it); the caller gets the exception, as before.
 
 ## [0.38.0] - 2026-10-11
 

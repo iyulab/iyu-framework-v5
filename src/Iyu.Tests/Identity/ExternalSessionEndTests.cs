@@ -235,15 +235,18 @@ public class ExternalSessionEndTests
     }
 
     [Fact]
-    public async Task The_end_is_kept_for_as_long_as_a_session_cookie_could_still_be_presented()
+    public async Task The_end_is_kept_for_as_long_as_anything_opened_from_the_session_could_still_be_presented()
     {
         await using var host = await StartAsync();
-        var lifetime = host.App.Services.GetRequiredService<IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>()
+        var cookie = host.App.Services.GetRequiredService<IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>()
             .Get(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme).ExpireTimeSpan;
+        var refresh = host.App.Services.GetRequiredService<IdentityTokenOptions>().RefreshTokenLifetime;
 
         await host.EndAsync("oidc", "provider-session-1");
 
-        Assert.Equal(host.Clock.GetUtcNow() + lifetime, host.Store.Ended[new SessionKey("oidc", "provider-session-1")]);
+        // A session cookie, or the newest refresh token of a sign-in opened from the session — whichever lives longer.
+        Assert.Equal(host.Clock.GetUtcNow() + (cookie > refresh ? cookie : refresh),
+            host.Store.Ended[new SessionKey("oidc", "provider-session-1")]);
     }
 
     [Fact]

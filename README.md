@@ -158,7 +158,8 @@ app.MapIyuServiceClientAdministration("identity.admin");   // a code from your p
 
 It is the step after a password reset: a reset and a signed-out session do not end the credentials an account
 issued, and the owner is the one person who cannot be asked to find them. These endpoints also require a
-session cookie. The store answers them (`ListServiceClientsAsync`, `DeactivateAsync(id)`,
+session cookie, and the policy is met by the person whose session it is: an administrator's bearer token
+presented beside someone else's session cookie is answered `403`, as it is alone. The store answers them (`ListServiceClientsAsync`, `DeactivateAsync(id)`,
 `DeactivateByOwnerAsync`), and each summary names its owner (`ServiceClientSummary.OwnerUserId`).
 
 **There is no built-in human sign-in endpoint, local or federated.** That
@@ -418,6 +419,9 @@ session this application opened from that session ends on its next request.
   carries a `nonce`, lacks the logout event, or is unsigned. It must be signed with an algorithm the
   handler's `TokenValidationParameters.ValidAlgorithms` lists or, when that is unset, one the provider
   advertises in `id_token_signing_alg_values_supported`; a provider that advertises none leaves it to its keys.
+  A token signed with a key the provider's document does not list has the document read again once, as the
+  handler does for an identity token (`RefreshOnIssuerKeyNotFound`) — a provider that rolled its keys is
+  answered at once, not after the document's next scheduled refresh.
 - **The token must name the session** (`sid`). One that names only a person (`sub`) is refused with a 400
   rather than half honoured — sessions are not kept by the provider's subject here. That is what
   `backchannel_logout_session_required` asks the provider for.
@@ -435,7 +439,9 @@ session this application opened from that session ends on its next request.
   not ended by a notice. A refresh-token sign-in is, when the application opened it from that session —
   `UserTokenService.IssueAsync(subject, new SessionKey("oidc", sid), ct)` with the `sid` of the identity token
   it verified: the first refresh after the notice is refused and ends the sign-in, its access tokens included
-  (until then, an access token already issued lives out its lifetime). The store must keep
+  (until then, an access token already issued lives out its lifetime), and a session already ended opens no
+  sign-in. The notice is kept for the longer of the session cookie's lifetime and `RefreshTokenLifetime`, so a
+  refresh token left unused that long still meets it. The store must keep
   `RefreshTokenRecord.ProviderSession`.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie

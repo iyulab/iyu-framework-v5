@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Iyu.MainServer.Identity;
@@ -47,31 +48,27 @@ internal sealed class BackChannelLogoutTokenValidator
                            "The OpenID Connect handler has no provider configuration — neither Configuration nor a "
                            + "ConfigurationManager (set Authority or MetadataAddress).");
 
-        var parameters = handler.TokenValidationParameters.Clone();
-        string[] issuer = [provider.Issuer];
-        parameters.ValidIssuers = parameters.ValidIssuers?.Concat(issuer) ?? issuer;
-        parameters.IssuerSigningKeys = parameters.IssuerSigningKeys?.Concat(provider.SigningKeys) ?? provider.SigningKeys;
-        if (string.IsNullOrEmpty(parameters.ValidAudience) && parameters.ValidAudiences is null)
-            parameters.ValidAudience = handler.ClientId;
-        parameters.ValidateIssuer = true;
-        parameters.ValidateAudience = true;
-        parameters.ValidateIssuerSigningKey = true;
-        parameters.RequireSignedTokens = true;                      // an unsigned token (alg none) is never a provider's word
-        // Signed with an algorithm the application declared for this provider's tokens, or else one the provider says
-        // it signs identity tokens with. A provider that advertises none leaves it to its keys, as the handler does.
-        if (parameters.ValidAlgorithms is null && provider.IdTokenSigningAlgValuesSupported.Count > 0)
-            parameters.ValidAlgorithms = provider.IdTokenSigningAlgValuesSupported;
-        parameters.ValidateLifetime = true;                         // holds a token to its expiry when it carries one
-        parameters.RequireExpirationTime = _options.RequireExpiration;
+        var parameters = Parameters(handler, provider);
 
-        // Read with the claims' own names: what an application maps inbound claims to is not this check's concern.
-        var result = await new JsonWebTokenHandler { MapInboundClaims = false }.ValidateTokenAsync(logoutToken, parameters);
+        // A key the provider's document does not list: the provider has rolled its keys since it was read. Read it again
+        // first, as the handler does for an identity token (RefreshOnIssuerKeyNotFound) — otherwise every notice is
+        // refused until the document's next scheduled refresh, and no session ends meanwhile. Decided from the token's
+        // key id, not from the failure: for a token with no expiry the library reports an unknown key as an expired token.
+        if (NamesAnUnlistedKey(logoutToken, parameters)
+            && handler.RefreshOnIssuerKeyNotFound && handler.Configuration is null
+            && handler.ConfigurationManager is { } refreshable)
+        {
+            refreshable.RequestRefresh();
+            parameters = Parameters(handler, await refreshable.GetConfigurationAsync(ct));
+        }
+
+        var result = await Handler.ValidateTokenAsync(logoutToken, parameters);
         if (!result.IsValid || result.SecurityToken is not JsonWebToken token)
         {
             _log.LogWarning(result.Exception, "back-channel logout refused: the token did not validate");
             return Outcome.Refuse(result.Exception switch
             {
-                SecurityTokenExpiredException => "The logout token has expired.",
+                SecurityTokenExpiredException when CarriesExpiry(logoutToken) => "The logout token has expired.",
                 SecurityTokenNoExpirationException => "The logout token carries no expiry (exp).",
                 SecurityTokenInvalidIssuerException => "The logout token was not issued by this provider.",
                 SecurityTokenInvalidAudienceException => "The logout token is not addressed to this client.",
@@ -107,6 +104,39 @@ internal sealed class BackChannelLogoutTokenValidator
 
         return new Outcome(sessionId, null);
     }
+
+    /// <summary>Read with the claims' own names: what an application maps inbound claims to is not this check's concern.</summary>
+    private static JsonWebTokenHandler Handler => new() { MapInboundClaims = false };
+
+    /// <summary>What a logout token from <paramref name="provider"/> is checked against.</summary>
+    private TokenValidationParameters Parameters(OpenIdConnectOptions handler, OpenIdConnectConfiguration provider)
+    {
+        var parameters = handler.TokenValidationParameters.Clone();
+        string[] issuer = [provider.Issuer];
+        parameters.ValidIssuers = parameters.ValidIssuers?.Concat(issuer) ?? issuer;
+        parameters.IssuerSigningKeys = parameters.IssuerSigningKeys?.Concat(provider.SigningKeys) ?? provider.SigningKeys;
+        if (string.IsNullOrEmpty(parameters.ValidAudience) && parameters.ValidAudiences is null)
+            parameters.ValidAudience = handler.ClientId;
+        parameters.ValidateIssuer = true;
+        parameters.ValidateAudience = true;
+        parameters.ValidateIssuerSigningKey = true;
+        parameters.RequireSignedTokens = true;                      // an unsigned token (alg none) is never a provider's word
+        // Signed with an algorithm the application declared for this provider's tokens, or else one the provider says
+        // it signs identity tokens with. A provider that advertises none leaves it to its keys, as the handler does.
+        if (parameters.ValidAlgorithms is null && provider.IdTokenSigningAlgValuesSupported.Count > 0)
+            parameters.ValidAlgorithms = provider.IdTokenSigningAlgValuesSupported;
+        parameters.ValidateLifetime = true;                         // holds a token to its expiry when it carries one
+        parameters.RequireExpirationTime = _options.RequireExpiration;
+        return parameters;
+    }
+
+    private static bool NamesAnUnlistedKey(string logoutToken, TokenValidationParameters parameters)
+        => new JsonWebTokenHandler().CanReadToken(logoutToken)
+           && new JsonWebToken(logoutToken).Kid is { Length: > 0 } kid
+           && !(parameters.IssuerSigningKeys ?? []).Any(k => string.Equals(k.KeyId, kid, StringComparison.Ordinal));
+
+    private static bool CarriesExpiry(string logoutToken)
+        => new JsonWebTokenHandler().CanReadToken(logoutToken) && new JsonWebToken(logoutToken).TryGetPayloadValue<long>("exp", out _);
 
     private static bool SignedWithUnlistedAlgorithm(string logoutToken, TokenValidationParameters parameters)
         => parameters.ValidAlgorithms is { } listed

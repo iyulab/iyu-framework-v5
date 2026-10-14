@@ -182,6 +182,27 @@ public class ServiceClientAdministrationTests
     }
 
     [Fact]
+    public async Task An_administrator_s_bearer_token_beside_anyone_s_session_cookie_does_not_reach_it()
+    {
+        // The administrator is the person whose session it is: a bearer token cannot lend its permission to the cookie
+        // of an account that does not hold it.
+        await using var host = await StartAdministeredAsync();
+        var (clientId, _) = await IssueAsync(host, host.Other);
+
+        using var listed = await host.SendAsync(HttpMethod.Get, "/api/admin/service-clients",
+            cookies: await host.CookieAsync(host.Owner), bearer: await host.BearerAsync(host.Admin));
+        using var revoked = await host.SendAsync(HttpMethod.Delete, $"/api/admin/service-clients/{clientId}",
+            cookies: await host.CookieAsync(host.Owner), bearer: await host.BearerAsync(host.Admin));
+
+        Assert.Equal(HttpStatusCode.Forbidden, listed.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
+        // The administrator's own session still reaches it, with or without a bearer token beside it.
+        using var admin = await host.SendAsync(HttpMethod.Get, "/api/admin/service-clients",
+            cookies: await host.CookieAsync(host.Admin), bearer: await host.BearerAsync(host.Owner));
+        Assert.Equal(HttpStatusCode.OK, admin.StatusCode);
+    }
+
+    [Fact]
     public async Task Mapping_it_without_service_clients_is_refused()
     {
         var builder = WebApplication.CreateBuilder();

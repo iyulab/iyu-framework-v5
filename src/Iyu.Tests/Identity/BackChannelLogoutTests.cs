@@ -11,6 +11,8 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
 using static Iyu.Tests.Identity.OidcStandIn;
@@ -278,6 +280,68 @@ public class BackChannelLogoutTests
         }));
 
         Assert.Contains("events", await RefusalAsync(refused));
+        Assert.Equal(HttpStatusCode.OK, await host.SessionStatusAsync(session));
+    }
+
+    /// <summary>
+    /// The provider's document as a configuration manager reads it: the keys listed when it was first read, and a key the
+    /// provider rolled to once it is read again.
+    /// </summary>
+    private sealed class RollingKeys(OpenIdConnectConfiguration document, SecurityKey rolledTo)
+        : IConfigurationManager<OpenIdConnectConfiguration>
+    {
+        private bool _readAgain;
+        public int Refreshes { get; private set; }
+
+        public Task<OpenIdConnectConfiguration> GetConfigurationAsync(CancellationToken cancel)
+        {
+            if (_readAgain && !document.SigningKeys.Contains(rolledTo)) document.SigningKeys.Add(rolledTo);
+            return Task.FromResult(document);
+        }
+
+        public void RequestRefresh() { _readAgain = true; Refreshes++; }
+    }
+
+    private static async Task<(Host Host, RollingKeys Keys)> StartRollingAsync(SecurityKey rolledTo)
+    {
+        RollingKeys? keys = null;
+        var host = await StartAsync(handler: o =>
+        {
+            keys = new RollingKeys(o.Configuration!, rolledTo);
+            o.Configuration = null;
+            o.ConfigurationManager = keys;
+        });
+        return (host, keys!);
+    }
+
+    [Fact]
+    public async Task A_notice_signed_with_a_key_the_provider_rolled_to_is_accepted_once_its_keys_are_read_again()
+    {
+        var rolled = new RsaSecurityKey(RSA.Create(2048)) { KeyId = "rolled-key" };
+        var (host, keys) = await StartRollingAsync(rolled);
+        await using var _ = host;
+        var session = await ExternalSessionAsync(host);
+
+        using var accepted = await host.NotifyAsync(host.Provider.LogoutToken(signedWith: rolled));
+
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        Assert.Equal(1, keys.Refreshes);
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.SessionStatusAsync(session));
+    }
+
+    [Fact]
+    public async Task A_notice_signed_with_a_key_the_provider_never_listed_is_refused_after_one_more_read()
+    {
+        var (host, keys) = await StartRollingAsync(new RsaSecurityKey(RSA.Create(2048)) { KeyId = "rolled-key" });
+        await using var _ = host;
+        var session = await ExternalSessionAsync(host);
+        var stranger = new RsaSecurityKey(RSA.Create(2048)) { KeyId = "stranger-key" };
+
+        using var refused = await host.NotifyAsync(host.Provider.LogoutToken(signedWith: stranger));
+
+        // Not «expired»: the token carries no expiry — the library words an unknown key that way for such a token.
+        Assert.Equal("The logout token is not a token signed by this provider.", await RefusalAsync(refused));
+        Assert.Equal(1, keys.Refreshes);
         Assert.Equal(HttpStatusCode.OK, await host.SessionStatusAsync(session));
     }
 

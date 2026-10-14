@@ -97,8 +97,9 @@ public sealed class UserTokenService
     /// <param name="ct">Cancels the question to the claims source and the store.</param>
     /// <remarks>
     /// Where session ends are on, the sign-in then ends with that session: the first refresh after the provider says it
-    /// is over is refused and ends the family, access tokens included. Until that refresh, an access token already
-    /// issued lives at most its lifetime — keep it short.
+    /// is over is refused and ends the family, access tokens included, and a session the provider has already ended
+    /// opens no sign-in (the pair is refused). Until that refresh, an access token already issued lives at most its
+    /// lifetime — keep it short.
     /// </remarks>
     public Task<UserTokenPair> IssueAsync(string subject, SessionKey providerSession, CancellationToken ct)
     {
@@ -128,13 +129,6 @@ public sealed class UserTokenService
         if (token.RevokedAt is not null) return Reject(token, "refresh token was revoked");
         if (token.UsedAt is { } usedAt) return await PresentedAgainAsync(token, usedAt, now, ct);
         if (token.ExpiresAt <= now) return Reject(token, "refresh token has expired");
-        if (token.ProviderSession is { } providerSession && _ends is not null
-            && await _ends.HasEndedAsync(providerSession, ct))
-        {
-            // The sign-in was opened from a provider's session, and the provider has said that session is over.
-            await EndFamilyAsync(token.FamilyId, now, ct);
-            return Reject(token, $"the session at {providerSession.Provider} it was opened from has ended — its family is revoked");
-        }
         if (!await _store.TryMarkUsedAsync(token.Id, now, ct)) return await ReuseAsync(token, now, ct);
 
         return await IssuePairAsync(token.Subject, token.FamilyId, token, token.ProviderSession, ct);
@@ -179,6 +173,15 @@ public sealed class UserTokenService
     private async Task<UserTokenPair> IssuePairAsync(
         string subject, Guid familyId, RefreshTokenRecord? exchanged, SessionKey? providerSession, CancellationToken ct)
     {
+        // The sign-in was opened from a provider's session, and the provider has said that session is over. Asked here,
+        // where every pair is issued — a sign-in, an exchange and a retry within the reuse interval alike.
+        if (providerSession is { } fromProvider && _ends is not null && await _ends.HasEndedAsync(fromProvider, ct))
+        {
+            await EndFamilyAsync(familyId, _clock.GetUtcNow(), ct);
+            return Reject(exchanged,
+                $"the session at {fromProvider.Provider} the sign-in was opened from has ended — its family is revoked");
+        }
+
         // The access half is the same token UserAccessTokenService issues on its own — assembled from the source.
         var (access, stamp) = await _access.IssueWithStampAsync(subject, lifetime: null, ct,
             sessionId: SessionEndService.TokenSession(familyId).Id);

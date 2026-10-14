@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -63,7 +65,8 @@ public static class IdentityEndpointRouteExtensions
     /// <param name="policy">
     /// The authorization policy an administrator meets — the application's to name (a permission code from its
     /// catalog, say); the framework knows no administrator. Like the owner's endpoints, these also require a session
-    /// cookie: a bearer token never manages service clients, whatever the policy accepts.
+    /// cookie, and the policy is met by the person whose session it is: a bearer token never manages service clients,
+    /// whatever the policy accepts — alone, or presented beside someone's session cookie.
     /// </param>
     /// <remarks>
     /// The step after a password reset: the reset and a signed-out session do not end the credentials the account
@@ -78,8 +81,13 @@ public static class IdentityEndpointRouteExtensions
             throw new InvalidOperationException(
                 "Service-client administration needs service clients turned on: call services.AddIyuServiceClients().");
 
+        // The policy is met by the person whose session cookie it is — not by a bearer token presented beside it. Both
+        // schemes are asked, as a permission's policy asks them, so a caller with only a bearer token is answered 403.
         var admin = app.MapGroup("/api/admin/service-clients")
-            .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName, policy);
+            .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName)
+            .RequireAuthorization(p => p
+                .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme)
+                .AddRequirements(new SessionCookiePolicyRequirement(policy)));
         admin.MapGet("", async (Guid? owner, ServiceClientService svc, CancellationToken ct)
             => Results.Ok(owner is { } id ? await svc.ListAsync(id, ct) : await svc.ListAllAsync(ct)));
         admin.MapDelete("/{id:guid}", async (Guid id, ServiceClientService svc, CancellationToken ct)

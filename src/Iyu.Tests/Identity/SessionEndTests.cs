@@ -110,7 +110,8 @@ public class SessionEndTests
     }
 
     /// <param name="ends">Whether the application calls <c>AddIyuSessionEnds</c> (with a store).</param>
-    private static async Task<Host> StartAsync(bool ends = true)
+    /// <param name="reuseInterval"><see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/>; off when not given.</param>
+    private static async Task<Host> StartAsync(bool ends = true, TimeSpan? reuseInterval = null)
     {
         var accounts = new FakeUserClaimsSource();
         accounts.Set(Account, "orders.read");
@@ -119,7 +120,11 @@ public class SessionEndTests
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton<IUserClaimsSource>(accounts);
         builder.Services.AddSingleton<IRefreshTokenStore, FakeRefreshTokenStore>();
-        builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = new string('k', 32) }, permissionCatalog: ["orders.read"]);
+        builder.Services.AddIyuIdentity(new IdentityTokenOptions
+        {
+            SigningKey = new string('k', 32),
+            RefreshTokenReuseInterval = reuseInterval ?? TimeSpan.Zero,
+        }, permissionCatalog: ["orders.read"]);
         builder.Services.AddIyuRefreshTokens();
         builder.Services.AddDistributedMemoryCache();
         if (ends)
@@ -344,6 +349,49 @@ public class SessionEndTests
 
         await Assert.ThrowsAsync<ArgumentException>(() => tokens.IssueAsync(Account, new SessionKey(null, "p1"), default));
         await Assert.ThrowsAsync<ArgumentException>(() => tokens.IssueAsync(Account, new SessionKey("oidc", ""), default));
+    }
+
+    [Fact]
+    public async Task A_provider_s_session_s_end_is_kept_while_a_refresh_token_opened_from_it_could_still_be_exchanged()
+    {
+        await using var host = await StartAsync();
+        var refreshLifetime = host.App.Services.GetRequiredService<IdentityTokenOptions>().RefreshTokenLifetime;
+        await host.MobileSignInFromAsync("oidc", "p1");
+        var before = DateTimeOffset.UtcNow;
+
+        await host.EndProviderSessionAsync("oidc", "p1");
+
+        // The newest refresh token of a sign-in opened from that session is exchangeable for its whole lifetime: an end
+        // forgotten sooner lets a token left unused that long refresh after the provider said the session was over.
+        Assert.True(host.Store!.Ended[new SessionKey("oidc", "p1")] >= before + refreshLifetime);
+    }
+
+    [Fact]
+    public async Task A_refresh_presented_again_within_the_reuse_interval_is_refused_once_the_provider_s_session_has_ended()
+    {
+        await using var host = await StartAsync(reuseInterval: TimeSpan.FromMinutes(1));
+        var fromProvider = await host.MobileSignInFromAsync("oidc", "p1");
+        var refreshed = (await host.RefreshAsync(fromProvider.RefreshToken))!;
+
+        await host.EndProviderSessionAsync("oidc", "p1");
+
+        // A retry of the exchange just made is the one way past the check a fresh token meets.
+        Assert.Null(await host.RefreshAsync(fromProvider.RefreshToken));
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.BearerStatusAsync(refreshed.AccessToken));
+    }
+
+    [Fact]
+    public async Task A_sign_in_is_not_opened_from_a_provider_s_session_that_has_ended()
+    {
+        await using var host = await StartAsync();
+        await host.EndProviderSessionAsync("oidc", "p1");
+        await using var scope = host.App.Services.CreateAsyncScope();
+
+        var pair = await scope.ServiceProvider.GetRequiredService<UserTokenService>()
+            .IssueAsync(Account, new SessionKey("oidc", "p1"), default);
+
+        Assert.False(pair.Ok);
+        Assert.Null(pair.RefreshToken);
     }
 
     private static string Sid(string accessToken)

@@ -42,13 +42,14 @@ public sealed class SessionEndService
 
     private readonly ISessionEndStore _store;
     private readonly IOptionsMonitor<CookieAuthenticationOptions> _cookies;
+    private readonly IdentityTokenOptions _tokens;
     private readonly TimeProvider _clock;
     private readonly ILogger<SessionEndService> _log;
 
     public SessionEndService(ISessionEndStore store, IOptionsMonitor<CookieAuthenticationOptions> cookies,
-        TimeProvider clock, ILogger<SessionEndService> log)
+        IdentityTokenOptions tokens, TimeProvider clock, ILogger<SessionEndService> log)
     {
-        _store = store; _cookies = cookies; _clock = clock; _log = log;
+        _store = store; _cookies = cookies; _tokens = tokens; _clock = clock; _log = log;
     }
 
     /// <summary>
@@ -66,9 +67,11 @@ public sealed class SessionEndService
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        // A cookie not presented for its whole lifetime has expired on its own; one presented sooner is ended on
-        // sight. Past that span from now, nothing opened from this session is left to refuse.
-        await _store.RecordEndedAsync(new SessionKey(provider, sessionId), _clock.GetUtcNow() + CookieLifetime, ct);
+        // Two things can be opened from it: a session cookie, expired on its own once not presented for its lifetime, and
+        // a sign-in on refresh tokens (UserTokenService.IssueAsync), whose newest token stays exchangeable for its own
+        // lifetime. Either presented sooner is ended on sight; past the longer span from now, nothing is left to refuse.
+        var keep = CookieLifetime > _tokens.RefreshTokenLifetime ? CookieLifetime : _tokens.RefreshTokenLifetime;
+        await _store.RecordEndedAsync(new SessionKey(provider, sessionId), _clock.GetUtcNow() + keep, ct);
         _log.LogInformation("external session {SessionId} at {Provider} recorded as ended", sessionId, provider);
     }
 
