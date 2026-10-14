@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new), `Iyu.Server.OData`
+**Packages affected:** `Iyu.Core`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new), `Iyu.Report`, `Iyu.Server.OData`
 
 ### Changed — document conversion
 
@@ -193,6 +193,10 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **Dependencies.** No behaviour change. The minimum versions these packages require move to the current patch
+  releases: `Microsoft.EntityFrameworkCore` and `.Relational`, `Microsoft.AspNetCore.Authentication.JwtBearer` and
+  `.OpenIdConnect`, `Microsoft.Extensions.Http`, `.DependencyInjection.Abstractions` and `.Logging.Abstractions`
+  10.0.13.
 - 🔇 **`Iyu.FileServer`, `Iyu.Core`: an upload token writes once; replacing an object takes a token minted for it.**
   A token for `FileTokenOp.Upload` used to write its key every time it was presented until it expired, so a client
   holding one could replace an attachment after the upload had finished — after the application had recorded its
