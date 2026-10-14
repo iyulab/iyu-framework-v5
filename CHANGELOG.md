@@ -64,7 +64,12 @@ onward; earlier entries state the same consequence in prose where it applies.
   remembers the provider's session behind it (the `sid` of the identity token, when the provider sends one, kept
   beside the claims, not among them), and `SessionEndService.EndProviderSessionAsync(provider, sessionId)` ends
   every session opened from it — a person who signed out of another application under the same provider, or at the
-  provider, no longer stays signed in here. The record lives in an `ISessionEndStore` the application registers:
+  provider, no longer stays signed in here. A refresh-token sign-in opened from a provider's session —
+  `UserTokenService.IssueAsync(subject, providerSession, ct)`, new — ends with it too: the first refresh after the
+  provider's notice is refused and ends the sign-in, its access tokens included. That takes a refresh-token store
+  that keeps `RefreshTokenRecord.ProviderSession` (new and optional, two columns — this release also adds
+  `SecurityStamp`, below: one migration for both); a store that drops it leaves such sign-ins to their own
+  expiry. The record lives in an `ISessionEndStore` the application registers:
   its own, or `DistributedCacheSessionEndStore` over its `IDistributedCache`; it is read on every request that
   presents a session (twice for one opened through a provider) and must be shared by every instance. A host that
   turns this on without a store, or registers a store without turning it on, is refused at startup. A cookie this

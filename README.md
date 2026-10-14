@@ -411,8 +411,12 @@ session this application opened from that session ends on its next request.
   authenticates the provider — so it must be reachable from the provider, not only from browsers.
 - **What it does not cover.** A notice the provider failed to deliver is not retried by anything here, and
   revalidation cannot make up for it: the claims source knows the account, not the provider's session.
-  Tokens the application issued separately (`UserAccessTokenService`, refresh tokens) are not tied to the
-  provider's session and are not ended by a notice.
+  An access token issued on its own (`UserAccessTokenService`) is not tied to the provider's session and is
+  not ended by a notice. A refresh-token sign-in is, when the application opened it from that session —
+  `UserTokenService.IssueAsync(subject, new SessionKey("oidc", sid), ct)` with the `sid` of the identity token
+  it verified: the first refresh after the notice is refused and ends the sign-in, its access tokens included
+  (until then, an access token already issued lives out its lifetime). The store must keep
+  `RefreshTokenRecord.ProviderSession`.
 
 **Native/mobile clients (bearer token instead of a cookie):** a client that cannot hold a cookie
 session verifies the user by whichever means the app already uses (the local check above, or an

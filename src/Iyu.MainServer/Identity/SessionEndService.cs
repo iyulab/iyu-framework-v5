@@ -101,6 +101,9 @@ public sealed class SessionEndService
     /// <summary>The session a refresh-token family is: its access tokens name it (<c>sid</c>).</summary>
     internal static SessionKey TokenSession(Guid familyId) => new(null, familyId.ToString("N"));
 
+    /// <summary>Whether <paramref name="session"/> was recorded as ended.</summary>
+    internal Task<bool> HasEndedAsync(SessionKey session, CancellationToken ct) => _store.HasEndedAsync(session, ct);
+
     /// <summary>
     /// Whether the session an access token names has ended. A token that names none (<c>sid</c>) has not.
     /// </summary>

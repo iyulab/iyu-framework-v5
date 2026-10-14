@@ -11,7 +11,7 @@ namespace Iyu.MainServer.Identity;
 
 /// <summary>
 /// Opens the session cookie for a person the application has authenticated — the cookie counterpart of
-/// <see cref="UserTokenService.IssueAsync"/> — and keeps it true to the account for as long as it lives.
+/// <see cref="UserTokenService.IssueAsync(string, CancellationToken)"/> — and keeps it true to the account for as long as it lives.
 /// </summary>
 /// <remarks>
 /// <para>

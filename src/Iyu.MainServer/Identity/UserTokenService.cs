@@ -27,7 +27,7 @@ public sealed record UserTokenPair(bool Ok, string? Error, string? AccessToken, 
 /// <remarks>
 /// <para>
 /// The consuming app still authenticates the person (password, external identity provider) and
-/// then calls <see cref="IssueAsync"/>. From there: each refresh token is accepted once and replaced
+/// then calls <see cref="IssueAsync(string, CancellationToken)"/>. From there: each refresh token is accepted once and replaced
 /// (rotation); a token presented a second time revokes every token descended from the same sign-in,
 /// because the server cannot tell the legitimate client from whoever copied it (unless it is a retry
 /// within <see cref="IdentityTokenOptions.RefreshTokenReuseInterval"/>, off by default); and each refresh
@@ -82,7 +82,32 @@ public sealed class UserTokenService
     public Task<UserTokenPair> IssueAsync(string subject, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
-        return IssuePairAsync(subject, Guid.NewGuid(), exchanged: null, ct);
+        return IssuePairAsync(subject, Guid.NewGuid(), exchanged: null, providerSession: null, ct);
+    }
+
+    /// <summary>
+    /// <see cref="IssueAsync(string, CancellationToken)"/> for a sign-in the application opened from a person's session
+    /// at an external provider — one whose identity token it verified, which named that session (<c>sid</c>).
+    /// </summary>
+    /// <param name="subject">The account the application matched the provider's identity to.</param>
+    /// <param name="providerSession">
+    /// The provider's session: the authentication scheme of its handler (the name a logout notice for it arrives
+    /// under, <see cref="SessionEndService.EndProviderSessionAsync"/>) and the <c>sid</c> it named.
+    /// </param>
+    /// <param name="ct">Cancels the question to the claims source and the store.</param>
+    /// <remarks>
+    /// Where session ends are on, the sign-in then ends with that session: the first refresh after the provider says it
+    /// is over is refused and ends the family, access tokens included. Until that refresh, an access token already
+    /// issued lives at most its lifetime — keep it short.
+    /// </remarks>
+    public Task<UserTokenPair> IssueAsync(string subject, SessionKey providerSession, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        if (string.IsNullOrWhiteSpace(providerSession.Provider) || string.IsNullOrWhiteSpace(providerSession.Id))
+            throw new ArgumentException(
+                "A provider's session names the provider (its handler's scheme) and the session id it issued.",
+                nameof(providerSession));
+        return IssuePairAsync(subject, Guid.NewGuid(), exchanged: null, providerSession, ct);
     }
 
     /// <summary>
@@ -103,9 +128,16 @@ public sealed class UserTokenService
         if (token.RevokedAt is not null) return Reject(token, "refresh token was revoked");
         if (token.UsedAt is { } usedAt) return await PresentedAgainAsync(token, usedAt, now, ct);
         if (token.ExpiresAt <= now) return Reject(token, "refresh token has expired");
+        if (token.ProviderSession is { } providerSession && _ends is not null
+            && await _ends.HasEndedAsync(providerSession, ct))
+        {
+            // The sign-in was opened from a provider's session, and the provider has said that session is over.
+            await EndFamilyAsync(token.FamilyId, now, ct);
+            return Reject(token, $"the session at {providerSession.Provider} it was opened from has ended — its family is revoked");
+        }
         if (!await _store.TryMarkUsedAsync(token.Id, now, ct)) return await ReuseAsync(token, now, ct);
 
-        return await IssuePairAsync(token.Subject, token.FamilyId, token, ct);
+        return await IssuePairAsync(token.Subject, token.FamilyId, token, token.ProviderSession, ct);
     }
 
     /// <summary>
@@ -142,9 +174,10 @@ public sealed class UserTokenService
         return Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
     }
 
-    // exchanged: the refresh token this pair is issued in exchange for; null at sign-in.
+    // exchanged: the refresh token this pair is issued in exchange for; null at sign-in. providerSession: the
+    // external session the sign-in was opened from, carried from token to token; null when none.
     private async Task<UserTokenPair> IssuePairAsync(
-        string subject, Guid familyId, RefreshTokenRecord? exchanged, CancellationToken ct)
+        string subject, Guid familyId, RefreshTokenRecord? exchanged, SessionKey? providerSession, CancellationToken ct)
     {
         // The access half is the same token UserAccessTokenService issues on its own — assembled from the source.
         var (access, stamp) = await _access.IssueWithStampAsync(subject, lifetime: null, ct,
@@ -172,7 +205,8 @@ public sealed class UserTokenService
 
         var refresh = Base64Url(RandomNumberGenerator.GetBytes(32));
         await _store.InsertAsync(new RefreshTokenRecord(Guid.NewGuid(), familyId, subject, HashRefreshToken(refresh),
-            now, now.Add(_opts.RefreshTokenLifetime), ParentId: exchanged?.Id, SecurityStamp: stamp), ct);
+            now, now.Add(_opts.RefreshTokenLifetime), ParentId: exchanged?.Id, SecurityStamp: stamp,
+            ProviderSession: providerSession), ct);
         return new(true, null, access.AccessToken, access.ExpiresInSeconds, refresh, access.Permissions);
     }
 
@@ -203,7 +237,7 @@ public sealed class UserTokenService
         _log.LogInformation(
             "refresh token presented again within the reuse interval for {Subject} (family {FamilyId}); its unused replacement is retired",
             token.Subject, token.FamilyId);
-        return await IssuePairAsync(token.Subject, token.FamilyId, token, ct);
+        return await IssuePairAsync(token.Subject, token.FamilyId, token, token.ProviderSession, ct);
     }
 
     /// <summary>

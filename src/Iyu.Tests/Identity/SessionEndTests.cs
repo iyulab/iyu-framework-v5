@@ -72,6 +72,20 @@ public class SessionEndTests
             return (await response.Content.ReadFromJsonAsync<Tokens>())!;
         }
 
+        public async Task<Tokens> MobileSignInFromAsync(string provider, string sid)
+        {
+            using var response = await Http.PostAsync($"/mobile-sign-in-from?provider={provider}&sid={sid}", null);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<Tokens>())!;
+        }
+
+        /// <summary>What a provider's logout notice does, once the application has verified it.</summary>
+        public async Task EndProviderSessionAsync(string provider, string sid)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<SessionEndService>().EndProviderSessionAsync(provider, sid);
+        }
+
         public async Task<Tokens?> RefreshAsync(string refreshToken)
         {
             using var response = await Http.PostAsync("/mobile-refresh?token=" + Uri.EscapeDataString(refreshToken), null);
@@ -135,6 +149,11 @@ public class SessionEndTests
         app.MapPost("/mobile-sign-in", async (UserTokenService tokens, CancellationToken ct) =>
         {
             var pair = await tokens.IssueAsync(Account, ct);
+            return Results.Ok(new Tokens(pair.AccessToken!, pair.RefreshToken!));
+        }).AllowAnonymous();
+        app.MapPost("/mobile-sign-in-from", async (string provider, string sid, UserTokenService tokens, CancellationToken ct) =>
+        {
+            var pair = await tokens.IssueAsync(Account, new SessionKey(provider, sid), ct);
             return Results.Ok(new Tokens(pair.AccessToken!, pair.RefreshToken!));
         }).AllowAnonymous();
         app.MapPost("/mobile-refresh", async (string token, UserTokenService tokens, CancellationToken ct) =>
@@ -296,6 +315,35 @@ public class SessionEndTests
         Assert.Null(session.Provider);
         Assert.Equal(Sid(app.AccessToken), session.Id);
         Assert.InRange(keepUntil, before + TimeSpan.FromHours(1), DateTimeOffset.UtcNow + TimeSpan.FromHours(1));
+    }
+
+    [Fact]
+    public async Task A_sign_in_opened_from_a_provider_s_session_ends_with_it_at_the_next_refresh()
+    {
+        await using var host = await StartAsync();
+        var fromProvider = await host.MobileSignInFromAsync("oidc", "p1");
+        var refreshed = (await host.RefreshAsync(fromProvider.RefreshToken))!;     // carried from token to token
+        var otherProviderSession = await host.MobileSignInFromAsync("oidc", "p2");
+        var local = await host.MobileSignInAsync();
+
+        await host.EndProviderSessionAsync("oidc", "p1");
+
+        Assert.Null(await host.RefreshAsync(refreshed.RefreshToken));
+        // The refused refresh ended the sign-in, and its access tokens with it.
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.BearerStatusAsync(refreshed.AccessToken));
+        Assert.NotNull(await host.RefreshAsync(otherProviderSession.RefreshToken));
+        Assert.NotNull(await host.RefreshAsync(local.RefreshToken));
+    }
+
+    [Fact]
+    public async Task A_provider_s_session_names_the_provider_and_the_session()
+    {
+        await using var host = await StartAsync();
+        await using var scope = host.App.Services.CreateAsyncScope();
+        var tokens = scope.ServiceProvider.GetRequiredService<UserTokenService>();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => tokens.IssueAsync(Account, new SessionKey(null, "p1"), default));
+        await Assert.ThrowsAsync<ArgumentException>(() => tokens.IssueAsync(Account, new SessionKey("oidc", ""), default));
     }
 
     private static string Sid(string accessToken)

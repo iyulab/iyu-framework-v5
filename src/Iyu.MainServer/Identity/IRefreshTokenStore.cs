@@ -25,6 +25,12 @@ namespace Iyu.MainServer.Identity;
 /// a refresh compares it with the source's answer then, and a different one — or one that was not kept — ends
 /// the family instead of extending it.
 /// </param>
+/// <param name="ProviderSession">
+/// The external provider's session the sign-in was opened from (<see cref="UserTokenService.IssueAsync(string, SessionKey, CancellationToken)"/>);
+/// <c>null</c> for a sign-in that came from none. Persist it with the token (two columns: the provider and the
+/// session id): where session ends are on, a refresh asks whether that session has ended, and ends the family when it
+/// has. One that was not kept is not asked about — the provider's sign-out then does not reach this sign-in.
+/// </param>
 public sealed record RefreshTokenRecord(
     Guid Id,
     Guid FamilyId,
@@ -35,7 +41,8 @@ public sealed record RefreshTokenRecord(
     DateTimeOffset? UsedAt = null,
     DateTimeOffset? RevokedAt = null,
     Guid? ParentId = null,
-    string? SecurityStamp = null);
+    string? SecurityStamp = null,
+    SessionKey? ProviderSession = null);
 
 /// <summary>
 /// Where refresh tokens are kept. The concrete implementation lives in the consuming app, like
