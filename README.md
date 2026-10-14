@@ -141,7 +141,27 @@ for its store**:
 A host that registers a surface's store without turning the surface on is refused at startup, with
 the call to add in the message. `MapIyuIdentity` maps `POST /api/auth/token` — which answers the
 grants that are on, and `unsupported_grant_type` for the rest — and, with service clients on,
-`/api/service-clients/*`. **There is no built-in human sign-in endpoint, local or federated.** That
+`/api/service-clients/*`, the owner's own management endpoints. Those answer only a request that carries a
+session cookie: a bearer token — a person's or a service client's — never manages service clients, even when
+the host narrows the group with a permission policy that accepts bearer tokens
+(`app.MapGroup("").RequireAuthorization("identity.admin").MapIyuIdentity()` narrows who; it does not widen how).
+
+**An administrator's view of every owner's service clients** is mapped separately, behind a policy the host
+names — the framework knows no administrator:
+
+```csharp
+app.MapIyuServiceClientAdministration("identity.admin");   // a code from your permission catalog, or any policy
+// GET    /api/admin/service-clients[?owner={id}]   every owner's clients (no secrets), revoked ones marked
+// DELETE /api/admin/service-clients/{id}            revoke one, whoever owns it
+// DELETE /api/admin/service-clients/owner/{owner}   revoke every active client of one owner → { "revoked": n }
+```
+
+It is the step after a password reset: a reset and a signed-out session do not end the credentials an account
+issued, and the owner is the one person who cannot be asked to find them. These endpoints also require a
+session cookie. The store answers them (`ListServiceClientsAsync`, `DeactivateAsync(id)`,
+`DeactivateByOwnerAsync`), and each summary names its owner (`ServiceClientSummary.OwnerUserId`).
+
+**There is no built-in human sign-in endpoint, local or federated.** That
 is deliberate: how a person is authenticated — the credential check, the route, what the response
 says — is the consuming app's, the same way the generic OData controller leaves business validation
 to the consumer.

@@ -27,8 +27,9 @@ namespace Iyu.MainServer.Identity;
 /// </summary>
 public static class IyuIdentityServiceCollectionExtensions
 {
-    /// <summary>Named authorization policy for the owner-scoped service-client management endpoints:
-    /// cookie-only (human operators), never satisfied by the JWT bearer scheme service clients use.</summary>
+    /// <summary>Named authorization policy for the service-client management endpoints: met only by a request that
+    /// carries a session cookie (a person at the application), never by a bearer token — a person's or a service
+    /// client's — even when another policy on the same endpoint accepts bearer tokens.</summary>
     public const string CookiePolicyName = "iyu:identity:cookie";
 
     /// <param name="services">The service collection.</param>
@@ -128,6 +129,7 @@ public static class IyuIdentityServiceCollectionExtensions
                 };
             });
 
+        services.AddSingleton<IAuthorizationHandler>(SessionCookieRequirement.Instance);
         services.AddAuthorization(opts =>
         {
             // A code's policy is met by the code itself or by any code that implies it.
@@ -135,9 +137,12 @@ public static class IyuIdentityServiceCollectionExtensions
                 opts.AddPolicy(perm, p => p
                     .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme)
                     .RequireClaim(permissionClaimType, hierarchy.SatisfiedBy(perm)));
+            // The scheme says which handler to ask; the requirement says the cookie must be what answered — schemes of
+            // several policies are unioned, requirements are not (SessionCookieRequirement).
             opts.AddPolicy(CookiePolicyName, p => p
                 .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme)
-                .RequireAuthenticatedUser());
+                .RequireAuthenticatedUser()
+                .AddRequirements(SessionCookieRequirement.Instance));
             opts.FallbackPolicy = new AuthorizationPolicyBuilder(
                     CookieAuthenticationDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme)
                 .RequireAuthenticatedUser().Build();

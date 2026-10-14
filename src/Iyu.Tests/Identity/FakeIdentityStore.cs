@@ -97,14 +97,18 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
     /// "is that credential still out there?" the same way as "it never existed".
     /// </remarks>
     public Task<IReadOnlyList<ServiceClientSummary>> ListServiceClientsByOwnerAsync(Guid ownerUserId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<ServiceClientSummary>>(_clients
-            .Where(c => c.OwnerUserId == ownerUserId)
-            .OrderByDescending(c => c.CreatedAt)
-            .Select(c => new ServiceClientSummary(
-                c.Id, c.ClientId, c.DisplayName,
-                _clientPerms.TryGetValue(c.Id, out var p) ? p : [],
-                c.CreatedAt, c.ExpiresAt, c.LastUsedAt, c.SecretRotatedAt, c.IsActive))
-            .ToList());
+        Task.FromResult(Summaries(_clients.Where(c => c.OwnerUserId == ownerUserId)));
+
+    public Task<IReadOnlyList<ServiceClientSummary>> ListServiceClientsAsync(CancellationToken ct) =>
+        Task.FromResult(Summaries(_clients));
+
+    private IReadOnlyList<ServiceClientSummary> Summaries(IEnumerable<FakeClient> clients) => clients
+        .OrderByDescending(c => c.CreatedAt)
+        .Select(c => new ServiceClientSummary(
+            c.Id, c.OwnerUserId, c.ClientId, c.DisplayName,
+            _clientPerms.TryGetValue(c.Id, out var p) ? p : [],
+            c.CreatedAt, c.ExpiresAt, c.LastUsedAt, c.SecretRotatedAt, c.IsActive))
+        .ToList();
 
     public Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId,
         DateTimeOffset? expiresAt, IReadOnlyList<string> permissions, CancellationToken ct)
@@ -123,6 +127,26 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
         if (idx < 0) return Task.FromResult(false);
         _clients[idx] = _clients[idx] with { IsActive = false };
         return Task.FromResult(true);
+    }
+
+    public Task<bool> DeactivateAsync(Guid id, CancellationToken ct)
+    {
+        var idx = _clients.FindIndex(c => c.Id == id);
+        if (idx < 0) return Task.FromResult(false);
+        _clients[idx] = _clients[idx] with { IsActive = false };
+        return Task.FromResult(true);
+    }
+
+    public Task<int> DeactivateByOwnerAsync(Guid ownerUserId, CancellationToken ct)
+    {
+        var revoked = 0;
+        for (var i = 0; i < _clients.Count; i++)
+        {
+            if (_clients[i].OwnerUserId != ownerUserId || !_clients[i].IsActive) continue;
+            _clients[i] = _clients[i] with { IsActive = false };
+            revoked++;
+        }
+        return Task.FromResult(revoked);
     }
 
     public Task<bool> UpdateSecretAsync(Guid id, Guid ownerUserId, string newSecretHash,

@@ -50,6 +50,17 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **`Iyu.MainServer`: an administrator can list and revoke every owner's service clients —
+  `MapIyuServiceClientAdministration(policy)`.** A password reset and a signed-out session do not end the
+  credentials an account issued, and until now only their owner could find or revoke them — the one person who
+  cannot be asked when the account is the one compromised. `GET /api/admin/service-clients` lists every owner's
+  clients (`?owner=` narrows), revoked ones marked and no secret material; `DELETE /api/admin/service-clients/{id}`
+  revokes one whoever owns it; `DELETE /api/admin/service-clients/owner/{owner}` revokes every active client of one
+  owner and answers how many. Who may is the host's policy (the name passed in); the endpoints also require a
+  session cookie. **`IServiceClientStore` gains three members** the store implements —
+  `ListServiceClientsAsync(ct)`, `DeactivateAsync(id, ct)`, `DeactivateByOwnerAsync(owner, ct)` — and
+  **`ServiceClientSummary` gains `OwnerUserId`** (second positional parameter); a store that constructs summaries
+  fills it. The owner's own listing carries it too.
 - **`Iyu.MainServer`: the end of a session sticks — `AddIyuSessionEnds()`.** A session cookie is held by the
   browser and an access token by the client, so until now signing out removed the browser's cookie and revoking a
   refresh token stopped the next refresh, and that was all: a copy of the cookie kept elsewhere stayed valid until
@@ -114,6 +125,15 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Security
 
+- 🔇 **`Iyu.MainServer`: the service-client management endpoints accepted a bearer token once a host narrowed them
+  with a policy that accepts one.** `/api/service-clients` is meant for a person at the application — its policy
+  named the cookie scheme alone. A host that narrowed the group to its administrators
+  (`app.MapGroup("").RequireAuthorization("identity.admin").MapIyuIdentity()`) added a policy whose schemes include
+  the bearer scheme, and ASP.NET Core unions the schemes of an endpoint's policies: a person's bearer token that met
+  the permission then created, rotated and revoked service clients. 0.38.0 and earlier are affected in hosts that
+  put such a policy on those endpoints. The cookie is now a requirement of the policy, which composition cannot
+  widen, and the owner the endpoints act for is read from the cookie. What a caller notices: a bearer token on
+  those endpoints answers `403`.
 - 🔇 **`Iyu.MainServer`: a set's read policy was applied only to `$expand` — a path in `$apply`, `$filter`,
   `$orderby`, `$compute` or `$select` reached the set without it. 0.38.0 and every earlier release are affected
   wherever a read type carries a navigation to a set with a read policy.** A caller who may read `Orders` and not `Customers` was refused

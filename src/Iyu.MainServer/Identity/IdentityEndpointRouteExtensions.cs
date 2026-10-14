@@ -31,27 +31,62 @@ public static class IdentityEndpointRouteExtensions
 
         var clients = app.MapGroup("/api/service-clients")
             .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName);
-        clients.MapPost("", (CreateServiceClientRequest req, HttpContext http, ServiceClientService svc, CancellationToken ct)
-            => TryOwnerId(http, out var owner)
-                ? IdentityEndpointHandlers.CreateServiceClientAsync(req, owner, svc, ct)
-                : Task.FromResult(Results.Unauthorized()));
-        clients.MapGet("", (HttpContext http, ServiceClientService svc, CancellationToken ct)
-            => TryOwnerId(http, out var owner)
-                ? IdentityEndpointHandlers.ListServiceClientsAsync(owner, svc, ct)
-                : Task.FromResult(Results.Unauthorized()));
-        clients.MapDelete("/{id:guid}", (Guid id, HttpContext http, ServiceClientService svc, CancellationToken ct)
-            => TryOwnerId(http, out var owner)
-                ? IdentityEndpointHandlers.RevokeServiceClientAsync(id, owner, svc, ct)
-                : Task.FromResult(Results.Unauthorized()));
-        clients.MapPost("/{id:guid}/rotate", (Guid id, HttpContext http, ServiceClientService svc, CancellationToken ct)
-            => TryOwnerId(http, out var owner)
-                ? IdentityEndpointHandlers.RotateServiceClientAsync(id, owner, svc, ct)
-                : Task.FromResult(Results.Unauthorized()));
-        clients.MapPatch("/{id:guid}/permissions", (Guid id, UpdateServiceClientPermissionsRequest req, HttpContext http, ServiceClientService svc, CancellationToken ct)
-            => TryOwnerId(http, out var owner)
-                ? IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(id, req, owner, svc, ct)
-                : Task.FromResult(Results.Unauthorized()));
+        clients.MapPost("", async (CreateServiceClientRequest req, HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => await OwnerAsync(http) is { } owner
+                ? await IdentityEndpointHandlers.CreateServiceClientAsync(req, owner, svc, ct)
+                : Results.Unauthorized());
+        clients.MapGet("", async (HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => await OwnerAsync(http) is { } owner
+                ? await IdentityEndpointHandlers.ListServiceClientsAsync(owner, svc, ct)
+                : Results.Unauthorized());
+        clients.MapDelete("/{id:guid}", async (Guid id, HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => await OwnerAsync(http) is { } owner
+                ? await IdentityEndpointHandlers.RevokeServiceClientAsync(id, owner, svc, ct)
+                : Results.Unauthorized());
+        clients.MapPost("/{id:guid}/rotate", async (Guid id, HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => await OwnerAsync(http) is { } owner
+                ? await IdentityEndpointHandlers.RotateServiceClientAsync(id, owner, svc, ct)
+                : Results.Unauthorized());
+        clients.MapPatch("/{id:guid}/permissions", async (Guid id, UpdateServiceClientPermissionsRequest req, HttpContext http, ServiceClientService svc, CancellationToken ct)
+            => await OwnerAsync(http) is { } owner
+                ? await IdentityEndpointHandlers.UpdateServiceClientPermissionsAsync(id, req, owner, svc, ct)
+                : Results.Unauthorized());
         return app;
+    }
+
+    /// <summary>
+    /// Maps an administrator's view of every owner's service clients under <c>/api/admin/service-clients</c>:
+    /// <c>GET</c> lists them (<c>?owner={id}</c> narrows to one owner), <c>DELETE /{id}</c> revokes one whoever owns it,
+    /// and <c>DELETE /owner/{ownerId}</c> revokes every active client of one owner, answering how many.
+    /// </summary>
+    /// <param name="app">The endpoint builder.</param>
+    /// <param name="policy">
+    /// The authorization policy an administrator meets — the application's to name (a permission code from its
+    /// catalog, say); the framework knows no administrator. Like the owner's endpoints, these also require a session
+    /// cookie: a bearer token never manages service clients, whatever the policy accepts.
+    /// </param>
+    /// <remarks>
+    /// The step after a password reset: the reset and a signed-out session do not end the credentials the account
+    /// issued, and the owner is the one person who cannot be asked to find them. Revoked clients are listed, marked.
+    /// Requires <see cref="IyuIdentityServiceCollectionExtensions.AddIyuServiceClients"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Service clients are not turned on.</exception>
+    public static RouteGroupBuilder MapIyuServiceClientAdministration(this IEndpointRouteBuilder app, string policy)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(policy);
+        if (!app.ServiceProvider.GetRequiredService<IServiceProviderIsService>().IsService(typeof(ServiceClientService)))
+            throw new InvalidOperationException(
+                "Service-client administration needs service clients turned on: call services.AddIyuServiceClients().");
+
+        var admin = app.MapGroup("/api/admin/service-clients")
+            .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName, policy);
+        admin.MapGet("", async (Guid? owner, ServiceClientService svc, CancellationToken ct)
+            => Results.Ok(owner is { } id ? await svc.ListAsync(id, ct) : await svc.ListAllAsync(ct)));
+        admin.MapDelete("/{id:guid}", async (Guid id, ServiceClientService svc, CancellationToken ct)
+            => await svc.RevokeAnyAsync(id, ct) ? Results.NoContent() : Results.NotFound());
+        admin.MapDelete("/owner/{ownerId:guid}", async (Guid ownerId, ServiceClientService svc, CancellationToken ct)
+            => Results.Ok(new { revoked = await svc.RevokeAllOfOwnerAsync(ownerId, ct) }));
+        return admin;
     }
 
     /// <summary>
@@ -77,6 +112,10 @@ public static class IdentityEndpointRouteExtensions
         return app;
     }
 
-    private static bool TryOwnerId(HttpContext http, out Guid id) =>
-        Guid.TryParse(IyuIdentityClaims.FindSubject(http.User), out id);
+    /// <summary>
+    /// The owner the request acts for: the person whose session cookie it carries — read from the cookie, not the
+    /// request's merged principal, which may also hold a bearer token's.
+    /// </summary>
+    private static async Task<Guid?> OwnerAsync(HttpContext http)
+        => Guid.TryParse(await SessionCookieRequirement.SubjectAsync(http), out var id) ? id : null;
 }

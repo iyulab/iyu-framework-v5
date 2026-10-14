@@ -5,7 +5,8 @@ public sealed record CreateResult(bool Ok, string? Error, IReadOnlyList<string> 
 public sealed record RotateResult(bool Ok, string? PlaintextSecret);
 public sealed record UpdatePermissionsResult(bool Ok, string? Error, IReadOnlyList<string> Exceeding);
 
-/// <summary>Owner-scoped service-client lifecycle: create (subset ⊆ owner), rotate, revoke.</summary>
+/// <summary>Service-client lifecycle: the owner's create (subset ⊆ owner), rotate and revoke, and an administrator's
+/// listing and revocation across owners.</summary>
 /// <remarks>What the owner holds is what <see cref="IUserClaimsSource"/> answers for them; an owner the source
 /// refuses holds nothing, so every requested code exceeds it.</remarks>
 public sealed class ServiceClientService
@@ -75,4 +76,19 @@ public sealed class ServiceClientService
     /// </remarks>
     public Task<IReadOnlyList<ServiceClientSummary>> ListAsync(Guid ownerUserId, CancellationToken ct) =>
         _store.ListServiceClientsByOwnerAsync(ownerUserId, ct);
+
+    /// <summary>Every owner's service clients, revoked ones included — an administrator's view.</summary>
+    /// <remarks>
+    /// A password reset and a signed-out session do not end the credentials an account issued; finding them is the
+    /// next step of answering a compromised account, and the owner is the one person who cannot be asked.
+    /// </remarks>
+    public Task<IReadOnlyList<ServiceClientSummary>> ListAllAsync(CancellationToken ct) =>
+        _store.ListServiceClientsAsync(ct);
+
+    /// <summary>Revokes a service client whoever owns it — an administrator's revocation.</summary>
+    public Task<bool> RevokeAnyAsync(Guid id, CancellationToken ct) => _store.DeactivateAsync(id, ct);
+
+    /// <summary>Revokes every active service client of <paramref name="ownerUserId"/>; returns how many.</summary>
+    public Task<int> RevokeAllOfOwnerAsync(Guid ownerUserId, CancellationToken ct) =>
+        _store.DeactivateByOwnerAsync(ownerUserId, ct);
 }

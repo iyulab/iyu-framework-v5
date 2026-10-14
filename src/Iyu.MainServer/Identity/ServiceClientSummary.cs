@@ -1,7 +1,7 @@
 namespace Iyu.MainServer.Identity;
 
 /// <summary>
-/// What a service client looks like to its owner: everything needed to recognise, audit and
+/// What a service client looks like to its owner, or to an administrator: everything needed to recognise, audit and
 /// retire a credential, and nothing that could be used to authenticate as one.
 /// </summary>
 /// <remarks>
@@ -29,6 +29,9 @@ namespace Iyu.MainServer.Identity;
 /// </para>
 /// </remarks>
 /// <param name="Id">The handle <c>rotate</c> and <c>revoke</c> require.</param>
+/// <param name="OwnerUserId">
+/// The account that issued it — the caller, in an owner's own listing; whoever it was, in an administrator's.
+/// </param>
 /// <param name="ClientId">The public identifier, for matching a listing entry against a key in use.</param>
 /// <param name="DisplayName">Whatever the issuer called it.</param>
 /// <param name="Permissions">The effective grant, so least-privilege can be checked by eye.</param>
@@ -43,6 +46,7 @@ namespace Iyu.MainServer.Identity;
 /// <param name="IsActive">False once revoked. Revoked clients are listed, not hidden — see the store contract.</param>
 public sealed record ServiceClientSummary(
     Guid Id,
+    Guid OwnerUserId,
     string ClientId,
     string DisplayName,
     IReadOnlyList<string> Permissions,

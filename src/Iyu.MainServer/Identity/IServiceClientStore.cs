@@ -45,9 +45,31 @@ public interface IServiceClientStore
     /// </remarks>
     Task<IReadOnlyList<ServiceClientSummary>> ListServiceClientsByOwnerAsync(Guid ownerUserId, CancellationToken ct);
 
+    /// <summary>
+    /// Every service client of every owner, newest first — what an administrator reads to find the credentials an
+    /// account issued (<see cref="IdentityEndpointRouteExtensions.MapIyuServiceClientAdministration"/>).
+    /// </summary>
+    /// <remarks>
+    /// The same contract as <see cref="ListServiceClientsByOwnerAsync"/> otherwise: revoked clients included and marked,
+    /// permissions resolved in the same query, no default implementation.
+    /// </remarks>
+    Task<IReadOnlyList<ServiceClientSummary>> ListServiceClientsAsync(CancellationToken ct);
+
     Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId,
         DateTimeOffset? expiresAt, IReadOnlyList<string> permissions, CancellationToken ct);
+
+    /// <summary>Revokes a client of <paramref name="ownerUserId"/> — <c>false</c> when it has no such client.</summary>
+    /// <remarks>One conditional write (<c>… WHERE Id = @id AND OwnerUserId = @owner</c>), not a lookup and a write.</remarks>
     Task<bool> DeactivateAsync(Guid id, Guid ownerUserId, CancellationToken ct);
+
+    /// <summary>Revokes a client whoever owns it — <c>false</c> when there is none. An administrator's revocation.</summary>
+    Task<bool> DeactivateAsync(Guid id, CancellationToken ct);
+
+    /// <summary>
+    /// Revokes every active client of <paramref name="ownerUserId"/> and says how many it revoked — the credentials a
+    /// compromised account issued, retired at once.
+    /// </summary>
+    Task<int> DeactivateByOwnerAsync(Guid ownerUserId, CancellationToken ct);
     /// <summary>
     /// Replaces the stored secret hash and records when that happened.
     /// </summary>
