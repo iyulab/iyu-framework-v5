@@ -55,7 +55,19 @@ public interface IServiceClientStore
     /// </remarks>
     Task<IReadOnlyList<ServiceClientSummary>> ListServiceClientsAsync(CancellationToken ct);
 
-    Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId,
+    /// <summary>Stores a new client and its permissions; returns its id.</summary>
+    /// <param name="clientId">The public identifier.</param>
+    /// <param name="secretHash">The secret's hash — the secret itself is never stored.</param>
+    /// <param name="displayName">Whatever the issuer called it.</param>
+    /// <param name="ownerUserId">The account whose permissions the client is held under.</param>
+    /// <param name="issuedBy">
+    /// The account that issued it — the owner, for an owner's own; the administrator, for one issued on a service
+    /// account's behalf (<see cref="IServiceAccounts"/>). Kept so an incident can find what one account issued.
+    /// </param>
+    /// <param name="expiresAt">When the client stops working, or <c>null</c> for never.</param>
+    /// <param name="permissions">The permissions granted — already within the owner's.</param>
+    /// <param name="ct">Cancels the write.</param>
+    Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId, Guid issuedBy,
         DateTimeOffset? expiresAt, IReadOnlyList<string> permissions, CancellationToken ct);
 
     /// <summary>Revokes a client of <paramref name="ownerUserId"/> — <c>false</c> when it has no such client.</summary>

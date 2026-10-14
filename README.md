@@ -151,7 +151,7 @@ names — the framework knows no administrator:
 
 ```csharp
 app.MapIyuServiceClientAdministration("identity.admin");   // a code from your permission catalog, or any policy
-// GET    /api/admin/service-clients[?owner={id}]   every owner's clients (no secrets), revoked ones marked
+// GET    /api/admin/service-clients[?owner={id}][&issuer={id}]   every owner's clients (no secrets), revoked ones marked
 // DELETE /api/admin/service-clients/{id}            revoke one, whoever owns it
 // DELETE /api/admin/service-clients/owner/{owner}   revoke every active client of one owner → { "revoked": n }
 ```
@@ -160,7 +160,27 @@ It is the step after a password reset: a reset and a signed-out session do not e
 issued, and the owner is the one person who cannot be asked to find them. These endpoints also require a
 session cookie, and the policy is met by the person whose session it is: an administrator's bearer token
 presented beside someone else's session cookie is answered `403`, as it is alone. The store answers them (`ListServiceClientsAsync`, `DeactivateAsync(id)`,
-`DeactivateByOwnerAsync`), and each summary names its owner (`ServiceClientSummary.OwnerUserId`).
+`DeactivateByOwnerAsync`), and each summary names its owner and who issued it (`ServiceClientSummary.OwnerUserId`,
+`IssuedBy`).
+
+**An administrator can also act on a service account's behalf** — issue, rotate and re-scope the credentials held
+under an account that is not a person, without holding that account's permissions. The host says which accounts
+those are; until it does, an administrator issues nothing:
+
+```csharp
+builder.Services.AddScoped<IServiceAccounts, MyServiceAccounts>();   // IsServiceAccountAsync(accountId, ct)
+// POST  /api/admin/service-clients                  { ownerUserId, displayName, permissions, expiresAt } → id, clientId, secret
+// POST  /api/admin/service-clients/{id}/rotate      a new secret
+// PATCH /api/admin/service-clients/{id}/permissions { permissions }
+```
+
+The ceiling is the service account's permissions as they are now — the same live ceiling an owner's own
+credential has — not the administrator's: an accounts administrator need not hold the business permissions a
+scheduler's credential carries (separation of duties). A person's account is refused (`403
+owner_not_service_account`): acting in a person's name would hand the administrator that person's permissions.
+Each act is logged with the administrator, and the store records the issuer (`InsertAsync(…, issuedBy, …)`), so
+`?issuer=` finds what a compromised administrator account issued — its credentials are owned by service accounts,
+not by it.
 
 **There is no built-in human sign-in endpoint, local or federated.** That
 is deliberate: how a person is authenticated — the credential check, the route, what the response

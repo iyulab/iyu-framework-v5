@@ -61,6 +61,18 @@ onward; earlier entries state the same consequence in prose where it applies.
   `ListServiceClientsAsync(ct)`, `DeactivateAsync(id, ct)`, `DeactivateByOwnerAsync(owner, ct)` — and
   **`ServiceClientSummary` gains `OwnerUserId`** (second positional parameter); a store that constructs summaries
   fills it. The owner's own listing carries it too.
+- **`Iyu.MainServer`: an administrator issues, rotates and re-scopes a service account's credentials —
+  `IServiceAccounts`.** A credential's ceiling is its owner's permissions, and its owner was whoever created it, so
+  an accounts administrator could issue a scheduler's credential only by holding the scheduler's business
+  permissions — the separation of administration and business roles was impossible. Register `IServiceAccounts`
+  (the host answers which accounts are service accounts) and `MapIyuServiceClientAdministration` also maps
+  `POST /api/admin/service-clients` (`{ ownerUserId, displayName, permissions, expiresAt }`),
+  `POST /{id}/rotate` and `PATCH /{id}/permissions`: the credential is held under the service account and stays
+  within its permissions as they are now, whatever the administrator holds. A person's account is refused with
+  `403 owner_not_service_account`; without the registration none of the three is mapped. **`IServiceClientStore.InsertAsync`
+  gains `issuedBy`** (after `ownerUserId`) and **`ServiceClientSummary` gains `IssuedBy`** (third positional
+  parameter) — the owner for an owner's own credential, the administrator otherwise; the administrator listing
+  narrows by it (`?issuer=`), the axis an incident follows when the administrator's account is the compromised one.
 - **`Iyu.MainServer`: the end of a session sticks — `AddIyuSessionEnds()`.** A session cookie is held by the
   browser and an access token by the client, so until now signing out removed the browser's cookie and revoking a
   refresh token stopped the next refresh, and that was all: a copy of the cookie kept elsewhere stayed valid until

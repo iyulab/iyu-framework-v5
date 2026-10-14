@@ -23,7 +23,21 @@ public sealed class ServiceClientService
         _store = store; _owners = owners; _opts = opts; _clock = clock; _hierarchy = hierarchy;
     }
 
-    public async Task<CreateResult> CreateAsync(Guid ownerUserId, string displayName,
+    /// <summary>An owner's own client: held under, and issued by, <paramref name="ownerUserId"/>.</summary>
+    public Task<CreateResult> CreateAsync(Guid ownerUserId, string displayName,
+        IReadOnlyList<string> requestedPermissions, DateTimeOffset? expiresAt, CancellationToken ct)
+        => IssueAsync(ownerUserId, ownerUserId, displayName, requestedPermissions, expiresAt, ct);
+
+    /// <summary>
+    /// A client held under <paramref name="ownerUserId"/> and issued by someone else — an administrator, on a service
+    /// account's behalf. The ceiling is the owner's permissions, not the issuer's; whether the issuer may act for the
+    /// owner is the caller's to have asked (<see cref="IServiceAccounts"/>).
+    /// </summary>
+    public Task<CreateResult> IssueForAsync(Guid ownerUserId, Guid issuedBy, string displayName,
+        IReadOnlyList<string> requestedPermissions, DateTimeOffset? expiresAt, CancellationToken ct)
+        => IssueAsync(ownerUserId, issuedBy, displayName, requestedPermissions, expiresAt, ct);
+
+    private async Task<CreateResult> IssueAsync(Guid ownerUserId, Guid issuedBy, string displayName,
         IReadOnlyList<string> requestedPermissions, DateTimeOffset? expiresAt, CancellationToken ct)
     {
         var ownerPerms = await ServiceClientOwner.PermissionsAsync(_owners, _opts, ownerUserId, ct) ?? [];
@@ -33,7 +47,7 @@ public sealed class ServiceClientService
 
         var effective = PermissionScope.Effective(requestedPermissions, ownerPerms, _hierarchy);
         var (clientId, secret, hash) = ServiceClientSecrets.Generate();
-        var id = await _store.InsertAsync(clientId, hash, displayName, ownerUserId, expiresAt, effective, ct);
+        var id = await _store.InsertAsync(clientId, hash, displayName, ownerUserId, issuedBy, expiresAt, effective, ct);
         return new(true, null, Array.Empty<string>(), clientId, secret, id);
     }
 
@@ -84,6 +98,10 @@ public sealed class ServiceClientService
     /// </remarks>
     public Task<IReadOnlyList<ServiceClientSummary>> ListAllAsync(CancellationToken ct) =>
         _store.ListServiceClientsAsync(ct);
+
+    /// <summary>The account a client is held under, or <c>null</c> when there is no such client.</summary>
+    public async Task<Guid?> OwnerOfAsync(Guid id, CancellationToken ct)
+        => (await _store.ListServiceClientsAsync(ct)).FirstOrDefault(c => c.Id == id)?.OwnerUserId;
 
     /// <summary>Revokes a service client whoever owns it — an administrator's revocation.</summary>
     public Task<bool> RevokeAnyAsync(Guid id, CancellationToken ct) => _store.DeactivateAsync(id, ct);

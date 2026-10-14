@@ -16,7 +16,7 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
     /// </remarks>
     private sealed record FakeClient(Guid Id, string ClientId, string SecretHash, string DisplayName,
         Guid OwnerUserId, bool IsActive, DateTimeOffset? ExpiresAt, DateTimeOffset? LastUsedAt,
-        DateTimeOffset CreatedAt, DateTimeOffset? SecretRotatedAt = null) : IServiceClient;
+        DateTimeOffset CreatedAt, DateTimeOffset? SecretRotatedAt = null, Guid IssuedBy = default) : IServiceClient;
 
     private readonly List<FakeUser> _users = new();
     private readonly List<FakeClient> _clients = new();
@@ -34,12 +34,12 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
 
     public Guid AddClient(string clientId, string secretHash, Guid owner, bool active = true,
         DateTimeOffset? expiresAt = null, IEnumerable<string>? perms = null,
-        string displayName = "tool", DateTimeOffset? createdAt = null)
+        string displayName = "tool", DateTimeOffset? createdAt = null, Guid? issuedBy = null)
     {
         var id = Guid.NewGuid();
         // Distinct per insertion so ordering assertions are about the store, not about clock resolution.
         _clients.Add(new FakeClient(id, clientId, secretHash, displayName, owner, active, expiresAt, null,
-            createdAt ?? _epoch.AddMinutes(_clients.Count)));
+            createdAt ?? _epoch.AddMinutes(_clients.Count), IssuedBy: issuedBy ?? owner));
         _clientPerms[id] = perms?.ToList() ?? new();
         return id;
     }
@@ -105,19 +105,19 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
     private IReadOnlyList<ServiceClientSummary> Summaries(IEnumerable<FakeClient> clients) => clients
         .OrderByDescending(c => c.CreatedAt)
         .Select(c => new ServiceClientSummary(
-            c.Id, c.OwnerUserId, c.ClientId, c.DisplayName,
+            c.Id, c.OwnerUserId, c.IssuedBy, c.ClientId, c.DisplayName,
             _clientPerms.TryGetValue(c.Id, out var p) ? p : [],
             c.CreatedAt, c.ExpiresAt, c.LastUsedAt, c.SecretRotatedAt, c.IsActive))
         .ToList();
 
-    public Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId,
+    public Task<Guid> InsertAsync(string clientId, string secretHash, string displayName, Guid ownerUserId, Guid issuedBy,
         DateTimeOffset? expiresAt, IReadOnlyList<string> permissions, CancellationToken ct)
     {
         // displayName was being dropped here, which no assertion could see until the listing
         // surfaced it. A fake that quietly discards an argument is a fake that agrees with any
         // implementation.
         var id = AddClient(clientId, secretHash, ownerUserId, active: true, expiresAt: expiresAt,
-            perms: permissions, displayName: displayName);
+            perms: permissions, displayName: displayName, issuedBy: issuedBy);
         return Task.FromResult(id);
     }
 

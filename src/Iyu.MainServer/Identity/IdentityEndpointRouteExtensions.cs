@@ -58,8 +58,13 @@ public static class IdentityEndpointRouteExtensions
 
     /// <summary>
     /// Maps an administrator's view of every owner's service clients under <c>/api/admin/service-clients</c>:
-    /// <c>GET</c> lists them (<c>?owner={id}</c> narrows to one owner), <c>DELETE /{id}</c> revokes one whoever owns it,
-    /// and <c>DELETE /owner/{ownerId}</c> revokes every active client of one owner, answering how many.
+    /// <c>GET</c> lists them (<c>?owner={id}</c> narrows to one owner, <c>?issuer={id}</c> to what one account issued),
+    /// <c>DELETE /{id}</c> revokes one whoever owns it, and <c>DELETE /owner/{ownerId}</c> revokes every active client of
+    /// one owner, answering how many. Where the host names its service accounts (<see cref="IServiceAccounts"/>), an
+    /// administrator also acts on a service account's behalf: <c>POST</c> issues a client held under one
+    /// (<c>{ ownerUserId, displayName, permissions, expiresAt }</c> — within the service account's permissions, not the
+    /// administrator's), <c>POST /{id}/rotate</c> and <c>PATCH /{id}/permissions</c> manage one; a person's account is
+    /// refused with <c>403 owner_not_service_account</c>.
     /// </summary>
     /// <param name="app">The endpoint builder.</param>
     /// <param name="policy">
@@ -88,12 +93,29 @@ public static class IdentityEndpointRouteExtensions
             .RequireAuthorization(p => p
                 .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme)
                 .AddRequirements(new SessionCookiePolicyRequirement(policy)));
-        admin.MapGet("", async (Guid? owner, ServiceClientService svc, CancellationToken ct)
-            => Results.Ok(owner is { } id ? await svc.ListAsync(id, ct) : await svc.ListAllAsync(ct)));
+        admin.MapGet("", async (Guid? owner, Guid? issuer, ServiceClientService svc, CancellationToken ct) =>
+        {
+            var clients = owner is { } id ? await svc.ListAsync(id, ct) : await svc.ListAllAsync(ct);
+            return Results.Ok(issuer is { } by ? clients.Where(c => c.IssuedBy == by).ToList() : clients);
+        });
         admin.MapDelete("/{id:guid}", async (Guid id, ServiceClientService svc, CancellationToken ct)
             => await svc.RevokeAnyAsync(id, ct) ? Results.NoContent() : Results.NotFound());
         admin.MapDelete("/owner/{ownerId:guid}", async (Guid ownerId, ServiceClientService svc, CancellationToken ct)
             => Results.Ok(new { revoked = await svc.RevokeAllOfOwnerAsync(ownerId, ct) }));
+
+        // On a service account's behalf — only where the host says which accounts those are (IServiceAccounts).
+        if (app.ServiceProvider.GetRequiredService<IServiceProviderIsService>().IsService(typeof(IServiceAccounts)))
+        {
+            admin.MapPost("", (IssueServiceClientRequest req, HttpContext http, ServiceClientService svc, IServiceAccounts accounts,
+                    ILoggerFactory loggers, CancellationToken ct)
+                => ServiceClientAdministrationHandlers.IssueAsync(req, http, svc, accounts, loggers, ct));
+            admin.MapPost("/{id:guid}/rotate", (Guid id, HttpContext http, ServiceClientService svc, IServiceAccounts accounts,
+                    ILoggerFactory loggers, CancellationToken ct)
+                => ServiceClientAdministrationHandlers.RotateAsync(id, http, svc, accounts, loggers, ct));
+            admin.MapPatch("/{id:guid}/permissions", (Guid id, UpdateServiceClientPermissionsRequest req, HttpContext http,
+                    ServiceClientService svc, IServiceAccounts accounts, ILoggerFactory loggers, CancellationToken ct)
+                => ServiceClientAdministrationHandlers.UpdatePermissionsAsync(id, req, http, svc, accounts, loggers, ct));
+        }
         return admin;
     }
 

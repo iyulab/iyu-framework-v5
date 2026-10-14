@@ -30,7 +30,11 @@ namespace Iyu.MainServer.Identity;
 /// </remarks>
 /// <param name="Id">The handle <c>rotate</c> and <c>revoke</c> require.</param>
 /// <param name="OwnerUserId">
-/// The account that issued it — the caller, in an owner's own listing; whoever it was, in an administrator's.
+/// The account the client is held under — its permissions are the client's ceiling. The caller, in an owner's own
+/// listing; whoever it is, in an administrator's.
+/// </param>
+/// <param name="IssuedBy">
+/// The account that issued it: the owner, or the administrator who issued it on a service account's behalf.
 /// </param>
 /// <param name="ClientId">The public identifier, for matching a listing entry against a key in use.</param>
 /// <param name="DisplayName">Whatever the issuer called it.</param>
@@ -47,6 +51,7 @@ namespace Iyu.MainServer.Identity;
 public sealed record ServiceClientSummary(
     Guid Id,
     Guid OwnerUserId,
+    Guid IssuedBy,
     string ClientId,
     string DisplayName,
     IReadOnlyList<string> Permissions,

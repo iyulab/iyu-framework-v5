@@ -24,8 +24,8 @@ public class ServiceClientAdministrationTests
     private const string AdminPermission = "identity.admin";
     private const string OrdersRead = "orders.read";
 
-    private sealed record Host(WebApplication App, HttpClient Http, FakeIdentityStore Store, Guid Admin, Guid Owner, Guid Other)
-        : IAsyncDisposable
+    private sealed record Host(WebApplication App, HttpClient Http, FakeIdentityStore Store, Guid Admin, Guid Owner, Guid Other,
+        Guid Service, Guid AccountsAdmin) : IAsyncDisposable
     {
         public async Task<string> CookieAsync(Guid account)
         {
@@ -52,12 +52,21 @@ public class ServiceClientAdministrationTests
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
 
-    private static async Task<Host> StartAsync(Action<WebApplication> map)
+    /// <summary>The host's answer to «is this account a service account» — the accounts it names, no others.</summary>
+    private sealed class NamedServiceAccounts(params Guid[] accounts) : IServiceAccounts
+    {
+        public Task<bool> IsServiceAccountAsync(Guid accountId, CancellationToken ct) => Task.FromResult(accounts.Contains(accountId));
+    }
+
+    private static async Task<Host> StartAsync(Action<WebApplication> map, bool serviceAccounts = false)
     {
         var store = new FakeIdentityStore();
         var admin = store.AddUser("admin", "Admin", perms: [AdminPermission, OrdersRead]);
         var owner = store.AddUser("owner", "Owner", perms: [OrdersRead]);
         var other = store.AddUser("other", "Other", perms: [OrdersRead]);
+        // A service account holds the business permission; an accounts administrator holds only the administration one.
+        var service = store.AddUser("scheduler", "Scheduler", perms: [OrdersRead]);
+        var accountsAdmin = store.AddUser("accounts", "Accounts", perms: [AdminPermission]);
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -67,6 +76,7 @@ public class ServiceClientAdministrationTests
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = new string('k', 32), ServiceClientValidationWindow = TimeSpan.Zero },
             permissionCatalog: [AdminPermission, OrdersRead]);
         builder.Services.AddIyuServiceClients();
+        if (serviceAccounts) builder.Services.AddSingleton<IServiceAccounts>(new NamedServiceAccounts(service));
 
         var app = builder.Build();
         app.UseAuthentication();
@@ -78,16 +88,16 @@ public class ServiceClientAdministrationTests
         await app.StartAsync();
         var http = app.GetTestServer().CreateClient();
         http.BaseAddress = new Uri("https://localhost");
-        return new Host(app, http, store, admin, owner, other);
+        return new Host(app, http, store, admin, owner, other, service, accountsAdmin);
     }
 
     private static readonly JsonContent NewClient = JsonContent.Create(new { displayName = "tool", permissions = new[] { OrdersRead } });
 
-    private static Task<Host> StartAdministeredAsync() => StartAsync(app =>
+    private static Task<Host> StartAdministeredAsync(bool serviceAccounts = false) => StartAsync(app =>
     {
         app.MapIyuIdentity();
         app.MapIyuServiceClientAdministration(AdminPermission);
-    });
+    }, serviceAccounts);
 
     /// <summary>A client <paramref name="owner"/> issues through their own endpoint, and a token it obtains.</summary>
     private static async Task<(Guid Id, string Token)> IssueAsync(Host host, Guid owner)
@@ -241,5 +251,112 @@ public class ServiceClientAdministrationTests
 
         Assert.Equal(HttpStatusCode.Forbidden, bearer.StatusCode);
         Assert.Equal(HttpStatusCode.Created, cookie.StatusCode);
+    }
+
+    // ── issuance on a service account's behalf ───────────────────────────────────────────────────────────────────
+
+    private static JsonContent IssueFor(Guid owner, params string[] permissions)
+        => JsonContent.Create(new { ownerUserId = owner, displayName = "scheduler", permissions });
+
+    /// <summary>
+    /// An administrator who holds none of the business permissions issues a credential for a service account: the
+    /// ceiling is the service account's permissions, not the administrator's, and the credential records who issued it.
+    /// </summary>
+    [Fact]
+    public async Task An_administrator_issues_for_a_service_account_within_the_account_s_permissions_not_their_own()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        var cookies = await host.CookieAsync(host.AccountsAdmin);
+
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies, content: IssueFor(host.Service, OrdersRead));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        await using (var scope = host.App.Services.CreateAsyncScope())
+        {
+            var token = await scope.ServiceProvider.GetRequiredService<ServiceClientTokenService>().IssueClientCredentialsAsync(
+                body.RootElement.GetProperty("clientId").GetString()!, body.RootElement.GetProperty("secret").GetString()!, default);
+            Assert.Equal(HttpStatusCode.OK, (await host.SendAsync(HttpMethod.Get, "/orders", bearer: token.AccessToken)).StatusCode);
+        }
+
+        var listed = Assert.Single(await ListAsync(host, $"?owner={host.Service}"));
+        Assert.Equal(host.AccountsAdmin, listed.GetProperty("issuedBy").GetGuid());
+
+        // Beyond the service account's permissions is refused, whatever the administrator holds.
+        using var exceeding = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies, content: IssueFor(host.Service, AdminPermission));
+        Assert.Equal(HttpStatusCode.BadRequest, exceeding.StatusCode);
+        Assert.Contains("permissions_exceed_owner", await exceeding.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// A person's account is not a service account: issuing in its name, or rotating or re-scoping a credential it owns,
+    /// would hand the administrator that person's permissions.
+    /// </summary>
+    [Fact]
+    public async Task An_administrator_does_not_act_for_a_person_s_account()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        var (ownersClient, _) = await IssueAsync(host, host.Owner);
+        var cookies = await host.CookieAsync(host.AccountsAdmin);
+
+        using var issued = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies, content: IssueFor(host.Owner, OrdersRead));
+        using var rotated = await host.SendAsync(HttpMethod.Post, $"/api/admin/service-clients/{ownersClient}/rotate", cookies);
+        using var rescoped = await host.SendAsync(HttpMethod.Patch, $"/api/admin/service-clients/{ownersClient}/permissions", cookies,
+            content: JsonContent.Create(new { permissions = Array.Empty<string>() }));
+
+        Assert.All(new[] { issued, rotated, rescoped }, r => Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode));
+        Assert.Contains("owner_not_service_account", await issued.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task An_administrator_rotates_and_rescopes_a_service_account_s_credential()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        var cookies = await host.CookieAsync(host.AccountsAdmin);
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies, content: IssueFor(host.Service, OrdersRead));
+        using var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var id = body.RootElement.GetProperty("id").GetGuid();
+
+        using var rotated = await host.SendAsync(HttpMethod.Post, $"/api/admin/service-clients/{id}/rotate", cookies);
+        using var rescoped = await host.SendAsync(HttpMethod.Patch, $"/api/admin/service-clients/{id}/permissions", cookies,
+            content: JsonContent.Create(new { permissions = Array.Empty<string>() }));
+
+        Assert.Equal(HttpStatusCode.OK, rotated.StatusCode);
+        Assert.NotEqual(body.RootElement.GetProperty("secret").GetString(),
+            JsonDocument.Parse(await rotated.Content.ReadAsStringAsync()).RootElement.GetProperty("secret").GetString());
+        Assert.Equal(HttpStatusCode.NoContent, rescoped.StatusCode);
+        Assert.Empty(Assert.Single(await ListAsync(host, $"?owner={host.Service}")).GetProperty("permissions").EnumerateArray());
+    }
+
+    /// <summary>
+    /// Who issued a credential is the axis an incident follows when the administrator's account is the one compromised —
+    /// its credentials are owned by service accounts, so the owner filter does not find them.
+    /// </summary>
+    [Fact]
+    public async Task The_listing_narrows_to_what_one_issuer_issued_and_an_owner_issues_for_themselves()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        var (ownersClient, _) = await IssueAsync(host, host.Owner);
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", await host.CookieAsync(host.AccountsAdmin),
+            content: IssueFor(host.Service, OrdersRead));
+
+        var byAdmin = Assert.Single(await ListAsync(host, $"?issuer={host.AccountsAdmin}"));
+        var byOwner = Assert.Single(await ListAsync(host, $"?issuer={host.Owner}"));
+
+        Assert.Equal(host.Service, byAdmin.GetProperty("ownerUserId").GetGuid());
+        Assert.Equal(ownersClient, byOwner.GetProperty("id").GetGuid());
+        Assert.Equal(host.Owner, byOwner.GetProperty("issuedBy").GetGuid());
+    }
+
+    /// <summary>Without the host saying which accounts are service accounts, an administrator issues nothing.</summary>
+    [Fact]
+    public async Task Issuance_is_closed_until_the_host_names_its_service_accounts()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: false);
+
+        using var issued = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", await host.CookieAsync(host.AccountsAdmin),
+            content: IssueFor(host.Service, OrdersRead));
+
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, issued.StatusCode);
+        Assert.Empty(await host.Store.ListServiceClientsByOwnerAsync(host.Service, default));
     }
 }
