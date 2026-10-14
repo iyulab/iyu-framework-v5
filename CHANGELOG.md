@@ -78,7 +78,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   application opened from the session it names ends on its next request (the entry above). The token is checked
   against the OpenID Connect handler it names — the provider's issuer and signing keys, the handler's `ClientId` —
   so the provider is not configured twice; an identity token, a token with a `nonce`, one without the logout event
-  and an unsigned one are refused. A token must name its session (`sid`): one naming only a person is answered 400.
+  and an unsigned one are refused, as is one signed with an algorithm not declared for the provider (the handler's
+  `TokenValidationParameters.ValidAlgorithms`, or else the provider's advertised
+  `id_token_signing_alg_values_supported`; a provider that advertises none is left to its keys — refusing every
+  notice would keep alive the sessions it ended). A token must name its session (`sid`): one naming only a person is answered 400.
   **About expiry:** the specification requires `exp` and providers in use omit it, so a token without one is
   accepted while young (five minutes from `iat` by default, `MaxAgeWithoutExpiration`) unless
   `RequireExpiration` is set; a token that carries one is always held to it. This is a package of its own because
@@ -124,6 +127,12 @@ onward; earlier entries state the same consequence in prose where it applies.
   takes a collection navigation with a nested `$search`). **If your host fills that item itself**, write the
   dictionary: a bare set is no longer read, which leaves every protected reference out — the safe direction, and
   silent.
+- 🔇 **`Iyu.MainServer`: the bearer scheme accepts only the algorithm the application signs with.** Tokens have
+  always been signed with HMAC-SHA256, but validation accepted whatever the key supports — any HMAC under the same
+  key. It now lists HMAC-SHA256 alone, from the same declaration signing reads, so the accepted set no longer
+  follows from the kind of key (OWASP ASVS 5.0, 9.1.2). Unsigned tokens were and are refused. **Affects you only if
+  something besides this framework mints tokens with your `SigningKey`** using another HMAC: those tokens now answer
+  `401`.
 
 ### Fixed — identity
 

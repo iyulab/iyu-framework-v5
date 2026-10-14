@@ -234,6 +234,9 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   `AllowExternalIdentityAsSession` (below) — there such a cookie is the provider's identity and is left as it is.
 - **An access token cannot be written by hand at all.** A bearer token is not re-read while it lives, so there
   is nothing to re-assemble it later — every person's token is signed over what the source answered.
+- **One signing algorithm, declared.** Tokens are signed with HMAC-SHA256 under `SigningKey`, and the bearer
+  scheme accepts that algorithm and no other: a token signed with another HMAC under the same key is refused,
+  as is an unsigned one (`alg: none`).
 
 **A cookie lasts as long as the key ring that sealed it.** Cookie sessions are protected by ASP.NET Core
 Data Protection, and where its keys live is the application's choice — the framework does not pick a store.
@@ -382,7 +385,9 @@ session this application opened from that session ends on its next request.
 - **The token is checked against the handler itself**: the issuer and signing keys of the provider that
   `AddOpenIdConnect("oidc", …)` points at, and its `ClientId` as the audience. Nothing about the provider
   is configured a second time. An identity token is not a logout token and is refused, as is a token that
-  carries a `nonce`, lacks the logout event, or is unsigned.
+  carries a `nonce`, lacks the logout event, or is unsigned. It must be signed with an algorithm the
+  handler's `TokenValidationParameters.ValidAlgorithms` lists or, when that is unset, one the provider
+  advertises in `id_token_signing_alg_values_supported`; a provider that advertises none leaves it to its keys.
 - **The token must name the session** (`sid`). One that names only a person (`sub`) is refused with a 400
   rather than half honoured — sessions are not kept by the provider's subject here. That is what
   `backchannel_logout_session_required` asks the provider for.

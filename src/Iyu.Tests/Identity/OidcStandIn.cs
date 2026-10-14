@@ -58,6 +58,7 @@ internal sealed class OidcStandIn : HttpMessageHandler
             EndSessionEndpoint = Issuer + "/end-session",
         };
         options.Configuration.SigningKeys.Add(_key);
+        options.Configuration.IdTokenSigningAlgValuesSupported.Add(SecurityAlgorithms.RsaSha256);
         options.BackchannelHttpHandler = this;
     }
 
@@ -95,7 +96,9 @@ internal sealed class OidcStandIn : HttpMessageHandler
     /// <param name="change">Edits the claims before signing: remove one, add one, replace one.</param>
     /// <param name="signedWith">Another key to sign with; the provider's own when omitted.</param>
     /// <param name="unsigned">Leave the token unsigned (<c>alg: none</c>).</param>
-    public string LogoutToken(Action<Dictionary<string, object>>? change = null, SecurityKey? signedWith = null, bool unsigned = false)
+    /// <param name="algorithm">The signing algorithm; the one this provider advertises when omitted.</param>
+    public string LogoutToken(Action<Dictionary<string, object>>? change = null, SecurityKey? signedWith = null, bool unsigned = false,
+        string algorithm = SecurityAlgorithms.RsaSha256)
     {
         var claims = new Dictionary<string, object>
         {
@@ -110,7 +113,7 @@ internal sealed class OidcStandIn : HttpMessageHandler
         return new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(new SecurityTokenDescriptor
         {
             Claims = claims,
-            SigningCredentials = unsigned ? null : new SigningCredentials(signedWith ?? _key, SecurityAlgorithms.RsaSha256),
+            SigningCredentials = unsigned ? null : new SigningCredentials(signedWith ?? _key, algorithm),
         });
     }
 

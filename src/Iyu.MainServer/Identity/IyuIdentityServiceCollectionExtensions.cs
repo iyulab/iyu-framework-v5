@@ -107,6 +107,9 @@ public static class IyuIdentityServiceCollectionExtensions
                     ValidateIssuer = true, ValidIssuer = tokenOptions.Issuer,
                     ValidateAudience = true, ValidAudience = tokenOptions.Audience,
                     ValidateIssuerSigningKey = true, IssuerSigningKey = key,
+                    // Only the algorithm the application signs with — declared, not left to what the key accepts
+                    // (another HMAC under the same key, or a key of another kind added later).
+                    ValidAlgorithms = [IdentityTokenSigning.Algorithm], RequireSignedTokens = true,
                     ValidateLifetime = true,
                 };
                 // A token was signed before whatever happened to its client or its account since. This is where the

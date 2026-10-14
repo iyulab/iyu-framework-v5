@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Iyu.MainServer.Identity;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -47,7 +48,7 @@ public class BackChannelLogoutTests
     }
 
     private static async Task<Host> StartAsync(Action<BackChannelLogoutOptions>? configure = null,
-        bool addServices = true, bool registerStore = true)
+        bool addServices = true, bool registerStore = true, Action<OpenIdConnectOptions>? handler = null)
     {
         var provider = new OidcStandIn();
         var accounts = new FakeUserClaimsSource();
@@ -59,7 +60,7 @@ public class BackChannelLogoutTests
         builder.Services.AddSingleton<IExternalLoginResolver>(new Linking());
         builder.Services.AddIyuIdentity(new IdentityTokenOptions { SigningKey = new string('k', 32) }, permissionCatalog: [ClaimedPermission]);
         builder.Services.AddIyuExternalSignIn();
-        builder.Services.AddAuthentication().AddOpenIdConnect("oidc", provider.Configure);
+        builder.Services.AddAuthentication().AddOpenIdConnect("oidc", o => { provider.Configure(o); handler?.Invoke(o); });
         if (registerStore)
         {
             builder.Services.AddDistributedMemoryCache();
@@ -195,6 +196,50 @@ public class BackChannelLogoutTests
         await RefusalAsync(garbage);
 
         Assert.Equal(HttpStatusCode.OK, await host.SessionStatusAsync(session));
+    }
+
+    [Fact]
+    public async Task A_token_signed_with_an_algorithm_the_provider_does_not_sign_with_is_refused()
+    {
+        await using var host = await StartAsync();                  // the provider advertises RS256
+        var session = await ExternalSessionAsync(host);
+
+        using var other = await host.NotifyAsync(host.Provider.LogoutToken(algorithm: SecurityAlgorithms.RsaSha384));
+
+        Assert.Contains("algorithm", await RefusalAsync(other));
+        Assert.Equal(HttpStatusCode.OK, await host.SessionStatusAsync(session));
+    }
+
+    [Fact]
+    public async Task The_algorithms_the_application_declares_for_the_provider_outrank_what_it_advertises()
+    {
+        // The provider advertises RS256 only; the application declares RS384 as well, for its identity tokens and so
+        // for its logout tokens too.
+        await using var host = await StartAsync(handler: o => o.TokenValidationParameters.ValidAlgorithms =
+            [SecurityAlgorithms.RsaSha256, SecurityAlgorithms.RsaSha384]);
+        var session = await ExternalSessionAsync(host);
+
+        using var undeclared = await host.NotifyAsync(host.Provider.LogoutToken(algorithm: SecurityAlgorithms.RsaSha512));
+        await RefusalAsync(undeclared);
+        Assert.Equal(HttpStatusCode.OK, await host.SessionStatusAsync(session));
+
+        using var declared = await host.NotifyAsync(host.Provider.LogoutToken(algorithm: SecurityAlgorithms.RsaSha384));
+
+        Assert.Equal(HttpStatusCode.OK, declared.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.SessionStatusAsync(session));
+    }
+
+    [Fact]
+    public async Task A_provider_that_advertises_no_algorithms_leaves_it_to_its_keys_rather_than_losing_every_notice()
+    {
+        // Refusing every notice would keep sessions alive that the provider ended — the unsafe side for a logout.
+        await using var host = await StartAsync(handler: o => o.Configuration!.IdTokenSigningAlgValuesSupported.Clear());
+        var session = await ExternalSessionAsync(host);
+
+        using var notice = await host.NotifyAsync(host.Provider.LogoutToken(algorithm: SecurityAlgorithms.RsaSha384));
+
+        Assert.Equal(HttpStatusCode.OK, notice.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, await host.SessionStatusAsync(session));
     }
 
     [Fact]

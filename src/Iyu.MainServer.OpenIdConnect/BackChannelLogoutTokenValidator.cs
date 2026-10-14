@@ -57,6 +57,10 @@ internal sealed class BackChannelLogoutTokenValidator
         parameters.ValidateAudience = true;
         parameters.ValidateIssuerSigningKey = true;
         parameters.RequireSignedTokens = true;                      // an unsigned token (alg none) is never a provider's word
+        // Signed with an algorithm the application declared for this provider's tokens, or else one the provider says
+        // it signs identity tokens with. A provider that advertises none leaves it to its keys, as the handler does.
+        if (parameters.ValidAlgorithms is null && provider.IdTokenSigningAlgValuesSupported.Count > 0)
+            parameters.ValidAlgorithms = provider.IdTokenSigningAlgValuesSupported;
         parameters.ValidateLifetime = true;                         // holds a token to its expiry when it carries one
         parameters.RequireExpirationTime = _options.RequireExpiration;
 
@@ -71,6 +75,9 @@ internal sealed class BackChannelLogoutTokenValidator
                 SecurityTokenNoExpirationException => "The logout token carries no expiry (exp).",
                 SecurityTokenInvalidIssuerException => "The logout token was not issued by this provider.",
                 SecurityTokenInvalidAudienceException => "The logout token is not addressed to this client.",
+                // The library reports a refused algorithm as a bad signature; the header says which it was.
+                SecurityTokenInvalidSignatureException when SignedWithUnlistedAlgorithm(logoutToken, parameters)
+                    => "The logout token is signed with an algorithm this provider does not sign with.",
                 _ => "The logout token is not a token signed by this provider.",
             });
         }
@@ -100,6 +107,11 @@ internal sealed class BackChannelLogoutTokenValidator
 
         return new Outcome(sessionId, null);
     }
+
+    private static bool SignedWithUnlistedAlgorithm(string logoutToken, TokenValidationParameters parameters)
+        => parameters.ValidAlgorithms is { } listed
+           && new JsonWebTokenHandler().CanReadToken(logoutToken)
+           && !listed.Contains(new JsonWebToken(logoutToken).Alg, StringComparer.Ordinal);
 
     private Outcome Refused(string why)
     {
