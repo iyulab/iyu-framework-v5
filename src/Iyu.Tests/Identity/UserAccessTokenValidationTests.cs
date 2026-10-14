@@ -117,6 +117,49 @@ public class UserAccessTokenValidationTests
     }
 
     [Fact]
+    public async Task A_service_client_s_token_is_its_client_s_and_meets_neither_of_a_person_s_checks()
+    {
+        // Both person checks on: the account check would ask the claims source about the client's id — no person — and
+        // refuse; the session check would look for a sign-in the token does not name. The client's own check decides.
+        var store = new FakeIdentityStore();
+        var owner = store.AddUser("owner", "Owner", perms: ["orders.read"]);
+        var (clientId, secret, hash) = ServiceClientSecrets.Generate();
+        store.AddClient(clientId, hash, owner, perms: ["orders.read"]);
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton<IServiceClientStore>(store);
+        builder.Services.AddSingleton(store.Claims);
+        builder.Services.AddIyuIdentity(
+            new IdentityTokenOptions { SigningKey = new string('k', 32), ValidateUserAccessTokens = true },
+            permissionCatalog: ["orders.read"]);
+        builder.Services.AddIyuServiceClients();
+        builder.Services.AddDistributedMemoryCache();
+        builder.Services.AddSingleton<ISessionEndStore, DistributedCacheSessionEndStore>();
+        builder.Services.AddIyuSessionEnds();
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapGet("/orders", () => "orders").RequireAuthorization("orders.read");
+        await app.StartAsync();
+        using var http = app.GetTestServer().CreateClient();
+
+        string token;
+        await using (var scope = app.Services.CreateAsyncScope())
+        {
+            var issued = await scope.ServiceProvider.GetRequiredService<ServiceClientTokenService>()
+                .IssueClientCredentialsAsync(clientId, secret, default);
+            Assert.True(issued.Ok);
+            token = issued.AccessToken!;
+        }
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/orders");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Left_off_a_token_is_not_looked_at_again_while_it_lives()
     {
         await using var host = await StartAsync(validate: false);
