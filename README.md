@@ -136,7 +136,7 @@ for its store**:
 | `AddIyuUserCredentials()` | The local password check — `UserCredentialService` | `IUserCredentialStore` |
 | `AddIyuRefreshTokens()` | People's refresh tokens — `UserTokenService`, the `refresh_token` grant | `IRefreshTokenStore` |
 | `AddIyuExternalSignIn()` | Sign-in through external providers | `IExternalLoginResolver` |
-| `AddIyuExternalSessionEnds()` | Ending a session when the provider's own session behind it ends | `IExternalSessionEndStore` |
+| `AddIyuSessionEnds()` | Ending a session for good — signing out, signing in again, revoking a refresh token, or the provider's own session behind it ending — so a copy of its cookie or an access token issued in it is refused | `ISessionEndStore` |
 
 A host that registers a surface's store without turning the surface on is refused at startup, with
 the call to add in the message. `MapIyuIdentity` maps `POST /api/auth/token` — which answers the
@@ -226,14 +226,16 @@ public sealed class AppUserClaimsSource(AppDbContext db) : IUserClaimsSource
   end a session cookie. It costs one question to the source per request that presents such a token, and it
   decides only whether the token still belongs to the account: the permissions a token carries stay the ones
   it was issued with until it is refreshed. Service-client tokens have their own check
-  (`ValidateServiceClientTokens`, on by default).
+  (`ValidateServiceClientTokens`, on by default). Separately, where session ends are on, a token issued with a
+  refresh token is refused once its sign-in has ended — a store read, not a question to the source (see the
+  refresh-token section).
 - **A session cookie written by hand is not exempt.** One an endpoint signed in itself, without
   `UserSessionService`, is re-assembled from the source the first time it is presented, by the identifier it
   carries (`ClaimTypes.NameIdentifier` or `sub`): claims the endpoint added and the source does not answer are
   gone, and a cookie carrying no identifier is signed out. The one exception is a host that set
   `AllowExternalIdentityAsSession` (below) — there such a cookie is the provider's identity and is left as it is.
-- **An access token cannot be written by hand at all.** A bearer token is not re-read while it lives, so there
-  is nothing to re-assemble it later — every person's token is signed over what the source answered.
+- **An access token cannot be written by hand at all.** A bearer token is not re-assembled while it lives, so
+  there is nothing to correct it later — every person's token is signed over what the source answered.
 - **One signing algorithm, declared.** Tokens are signed with HMAC-SHA256 under `SigningKey`, and the bearer
   scheme accepts that algorithm and no other: a token signed with another HMAC under the same key is refused,
   as is an unsigned one (`alg: none`).
@@ -286,6 +288,24 @@ was made with older settings — is the value to store in its place.
 
 Sign-out: `await sessions.SignOutAsync(http)` — it also ends the person's session at an external provider
 that opened this one (below); for a session opened as above it is the cookie scheme's own sign-out.
+
+**A sign-out removes the browser's cookie — it ends the session only with `AddIyuSessionEnds()`.** A session
+cookie is held by the browser: without session ends, a copy of it kept elsewhere is accepted until the cookie
+expires, and with sliding expiration that is as long as it keeps being used. Turn them on and the end is
+recorded and asked about on every request that presents a session:
+
+```csharp
+builder.Services.AddStackExchangeRedisCache(o => { /* ... */ });                     // a cache every instance shares
+builder.Services.AddSingleton<ISessionEndStore, DistributedCacheSessionEndStore>();
+builder.Services.AddIyuSessionEnds();
+```
+
+With them on, `SignOutAsync` ends that session — the person's other sessions are untouched (the security stamp is
+what ends all of them) — and `SignInAsync` on a request that already carries a session ends that one before
+opening the new one. The store is read on every request that presents a session cookie (twice for one opened
+through a provider, below): keep it cheap, and shared — over `AddDistributedMemoryCache()` the record lives in
+one process, which is right for a single instance and ends the session on one instance only behind a load
+balancer. A cookie this service did not open names no session and cannot be ended this way.
 
 **External OIDC / AD federation** (a customer-hosted IdP — common in on-premises deployments
 where each site brings its own directory):
@@ -351,27 +371,17 @@ With external sign-in on, a `SignOutAsync()` that names no scheme still ends the
 the same provider, or at the provider itself — nothing above notices: the account has not changed, so no
 revalidation would end the session here. A session opened through `MapIyuExternalSignIn` remembers the
 provider's session behind it (the identity token's `sid`, when the provider sends one — kept beside the
-session's claims, never among them), and `AddIyuExternalSessionEnds()` makes that usable:
-
-```csharp
-builder.Services.AddStackExchangeRedisCache(o => { /* ... */ });                     // a cache every instance shares
-builder.Services.AddSingleton<IExternalSessionEndStore, DistributedCacheExternalSessionEndStore>();
-builder.Services.AddIyuExternalSessionEnds();
-```
-
-`ExternalSessionService.EndAsync(provider, sessionId)` records that the provider's session is over, and
-every session opened from it ends the next time its cookie is presented — on that very request, whatever
-`SessionRevalidationInterval` is. The store is therefore read on every request of a session that came
-from a provider (and on no other request): keep it cheap, and shared — over `AddDistributedMemoryCache()`
-the record lives in one process, which is right for a single instance and ends the session on one
-instance only behind a load balancer. A session whose provider sent no `sid` cannot be ended this way.
+session's claims, never among them), and session ends (`AddIyuSessionEnds()`, above) make that usable:
+`SessionEndService.EndProviderSessionAsync(provider, sessionId)` records that the provider's session is
+over, and every session opened from it ends the next time its cookie is presented — on that very request,
+whatever `SessionRevalidationInterval` is. A session whose provider sent no `sid` cannot be ended this way.
 
 **What calls it for an OpenID Connect provider is the provider's own logout notice** — OpenID Connect
 Back-Channel Logout 1.0, received by the `Iyu.MainServer.OpenIdConnect` package:
 
 ```csharp
-builder.Services.AddSingleton<IExternalSessionEndStore, DistributedCacheExternalSessionEndStore>();
-builder.Services.AddIyuBackChannelLogout();          // turns AddIyuExternalSessionEnds on as well
+builder.Services.AddSingleton<ISessionEndStore, DistributedCacheSessionEndStore>();
+builder.Services.AddIyuBackChannelLogout();          // turns AddIyuSessionEnds on as well
 // ...
 app.MapIyuBackChannelLogout();                       // POST /api/auth/external/{provider}/backchannel-logout
 ```
@@ -474,8 +484,12 @@ next access token and the refresh token that replaces the one it sent. What the 
   access-token lifetime. Set `IdentityTokenOptions.UserAccessTokenLifetime` (e.g. 15 minutes) to keep a
   person's access token short without shortening service-client tokens; unset, it is `Lifetime`.
 - **Sign-out**: `UserTokenService.RevokeAsync(refreshToken)` ends one sign-in,
-  `RevokeAllAsync(subject)` every sign-in of the person (password change, deactivation). Access
-  tokens already issued run out on their own.
+  `RevokeAllAsync(subject)` every sign-in of the person (password change, deactivation). An access token
+  names the sign-in it was issued in (`sid`): with session ends on (`AddIyuSessionEnds()`), the access tokens
+  of a sign-in that `RevokeAsync` ended are refused from then on — and so are those of a sign-in ended by a
+  reused refresh token, a changed security stamp or a declined account. `RevokeAllAsync` ends the refresh
+  tokens only; the access tokens of every sign-in at once end with the security stamp
+  (`ValidateUserAccessTokens`). Otherwise access tokens already issued run out on their own.
 - **Lifetime**: `IdentityTokenOptions.RefreshTokenLifetime` (30 days by default), renewed at every
   refresh — a client used at least that often stays signed in.
 - **The store** keeps only the token's hash (`UserTokenService.HashRefreshToken`) and must make

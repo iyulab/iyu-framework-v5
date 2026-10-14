@@ -17,7 +17,7 @@ namespace Iyu.Tests.Identity;
 
 /// <summary>
 /// A session opened through an external provider ends when the provider's own session behind it does
-/// (<c>AddIyuExternalSessionEnds</c>): the end is recorded, and the session cookie is refused the next time it is
+/// (<c>AddIyuSessionEnds</c>): the end is recorded, and the session cookie is refused the next time it is
 /// presented — not at its next revalidation.
 /// </summary>
 public class ExternalSessionEndTests
@@ -30,12 +30,14 @@ public class ExternalSessionEndTests
     }
 
     /// <summary>Keeps what it is told and counts how often it is asked.</summary>
-    private sealed class RecordingStore : IExternalSessionEndStore
+    private sealed class RecordingStore : ISessionEndStore
     {
-        public Dictionary<ExternalSession, DateTimeOffset> Ended { get; } = [];
-        public int Asked { get; private set; }
+        public Dictionary<SessionKey, DateTimeOffset> Ended { get; } = [];
+        public List<SessionKey> AskedAbout { get; } = [];
+        public int Asked => AskedAbout.Count;
+        public int AskedAboutProviders => AskedAbout.Count(k => k.Provider is not null);
 
-        public Task RecordEndedAsync(ExternalSession session, DateTimeOffset keepUntil, CancellationToken ct)
+        public Task RecordEndedAsync(SessionKey session, DateTimeOffset keepUntil, CancellationToken ct)
         {
             Ended[session] = keepUntil;
             return Task.CompletedTask;
@@ -44,10 +46,10 @@ public class ExternalSessionEndTests
         /// <summary>The store cannot be read — its cache is down, say.</summary>
         public bool Failing { get; set; }
 
-        public Task<bool> HasEndedAsync(ExternalSession session, CancellationToken ct)
+        public Task<bool> HasEndedAsync(SessionKey session, CancellationToken ct)
         {
             if (Failing) throw new InvalidOperationException("the store cannot be read");
-            Asked++;
+            AskedAbout.Add(session);
             return Task.FromResult(Ended.ContainsKey(session));
         }
     }
@@ -58,7 +60,7 @@ public class ExternalSessionEndTests
         public async Task EndAsync(string provider, string sessionId)
         {
             await using var scope = App.Services.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<ExternalSessionService>().EndAsync(provider, sessionId);
+            await scope.ServiceProvider.GetRequiredService<SessionEndService>().EndProviderSessionAsync(provider, sessionId);
         }
 
         public async Task<HttpStatusCode> StatusAsync(string session)
@@ -70,8 +72,8 @@ public class ExternalSessionEndTests
         public async ValueTask DisposeAsync() { Http.Dispose(); await App.DisposeAsync(); }
     }
 
-    /// <param name="surface">Whether the application calls <c>AddIyuExternalSessionEnds</c>.</param>
-    /// <param name="store">Whether it registers an <see cref="IExternalSessionEndStore"/>.</param>
+    /// <param name="surface">Whether the application calls <c>AddIyuSessionEnds</c>.</param>
+    /// <param name="store">Whether it registers an <see cref="ISessionEndStore"/>.</param>
     /// <param name="revalidateEveryRequest">Ask the claims source again on every request.</param>
     private static async Task<Host> StartAsync(bool surface = true, bool store = true, bool revalidateEveryRequest = false)
     {
@@ -91,8 +93,8 @@ public class ExternalSessionEndTests
         if (revalidateEveryRequest) options.SessionRevalidationInterval = TimeSpan.Zero;
         builder.Services.AddIyuIdentity(options, permissionCatalog: [ClaimedPermission]);
         builder.Services.AddIyuExternalSignIn();
-        if (surface) builder.Services.AddIyuExternalSessionEnds();
-        if (store) builder.Services.AddSingleton<IExternalSessionEndStore>(recording);
+        if (surface) builder.Services.AddIyuSessionEnds();
+        if (store) builder.Services.AddSingleton<ISessionEndStore>(recording);
         builder.Services.AddAuthentication().AddOpenIdConnect("oidc", provider.Configure);
 
         var app = builder.Build();
@@ -180,7 +182,7 @@ public class ExternalSessionEndTests
     }
 
     [Fact]
-    public async Task A_session_with_no_provider_behind_it_is_never_asked_about()
+    public async Task A_session_with_no_provider_behind_it_is_asked_about_only_itself()
     {
         await using var host = await StartAsync();
         using var signIn = await host.Http.PostAsync("/local-sign-in", null);
@@ -189,30 +191,33 @@ public class ExternalSessionEndTests
         await host.EndAsync("oidc", host.Provider.SessionId!);
 
         Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(session));
-        Assert.Equal(0, host.Store.Asked);
+        Assert.Equal(1, host.Store.Asked);
+        Assert.Equal(0, host.Store.AskedAboutProviders);
     }
 
     [Fact]
-    public async Task A_provider_that_names_no_session_opens_one_that_is_not_asked_about()
+    public async Task A_provider_that_names_no_session_opens_one_that_is_asked_about_only_itself()
     {
         await using var host = await StartAsync();
         host.Provider.SessionId = null;
         var session = await ExternalSessionAsync(host);
 
         Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(session));
-        Assert.Equal(0, host.Store.Asked);
+        Assert.Equal(0, host.Store.AskedAboutProviders);
     }
 
     [Fact]
-    public async Task Every_request_of_an_external_session_asks_and_no_other_does()
+    public async Task Every_request_that_presents_a_session_asks_about_it_and_its_provider_session_and_no_other_does()
     {
         await using var host = await StartAsync();
         var session = await ExternalSessionAsync(host);
+        var askedAtSignIn = host.Store.Asked;
 
         for (var i = 0; i < 3; i++) Assert.Equal(HttpStatusCode.OK, await host.StatusAsync(session));
         using var anonymous = await host.Http.GetAsync("/api/auth/external/complete");
 
-        Assert.Equal(3, host.Store.Asked);
+        Assert.Equal(6, host.Store.Asked - askedAtSignIn);              // the session itself, then its provider's
+        Assert.Equal(3, host.Store.AskedAbout.Skip(askedAtSignIn).Count(k => k.Provider is not null));
     }
 
     [Fact]
@@ -238,7 +243,7 @@ public class ExternalSessionEndTests
 
         await host.EndAsync("oidc", "provider-session-1");
 
-        Assert.Equal(host.Clock.GetUtcNow() + lifetime, host.Store.Ended[new ExternalSession("oidc", "provider-session-1")]);
+        Assert.Equal(host.Clock.GetUtcNow() + lifetime, host.Store.Ended[new SessionKey("oidc", "provider-session-1")]);
     }
 
     [Fact]
@@ -257,8 +262,8 @@ public class ExternalSessionEndTests
     {
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(surface: true, store: false));
 
-        Assert.Contains(nameof(IExternalSessionEndStore), error.Message);
-        Assert.Contains(nameof(DistributedCacheExternalSessionEndStore), error.Message);
+        Assert.Contains(nameof(ISessionEndStore), error.Message);
+        Assert.Contains(nameof(DistributedCacheSessionEndStore), error.Message);
     }
 
     [Fact]
@@ -266,8 +271,8 @@ public class ExternalSessionEndTests
     {
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(surface: false, store: true));
 
-        Assert.Contains(nameof(IExternalSessionEndStore), error.Message);
-        Assert.Contains(nameof(IyuIdentityServiceCollectionExtensions.AddIyuExternalSessionEnds), error.Message);
+        Assert.Contains(nameof(ISessionEndStore), error.Message);
+        Assert.Contains(nameof(IyuIdentityServiceCollectionExtensions.AddIyuSessionEnds), error.Message);
     }
 
     // ---------- the store over IDistributedCache ----------
@@ -278,26 +283,26 @@ public class ExternalSessionEndTests
     [Fact]
     public async Task The_distributed_cache_store_answers_for_what_was_recorded_and_nothing_else()
     {
-        var store = new DistributedCacheExternalSessionEndStore(MemoryCache());
-        var session = new ExternalSession("oidc", "s1");
+        var store = new DistributedCacheSessionEndStore(MemoryCache());
+        var session = new SessionKey("oidc", "s1");
 
         Assert.False(await store.HasEndedAsync(session, default));
         await store.RecordEndedAsync(session, DateTimeOffset.UtcNow.AddHours(1), default);
         await store.RecordEndedAsync(session, DateTimeOffset.UtcNow.AddHours(1), default);      // again: not an error
 
         Assert.True(await store.HasEndedAsync(session, default));
-        Assert.False(await store.HasEndedAsync(new ExternalSession("oidc", "s2"), default));
-        Assert.False(await store.HasEndedAsync(new ExternalSession("other", "s1"), default));
+        Assert.False(await store.HasEndedAsync(new SessionKey("oidc", "s2"), default));
+        Assert.False(await store.HasEndedAsync(new SessionKey("other", "s1"), default));
     }
 
     [Fact]
     public async Task The_distributed_cache_store_keeps_two_pairs_apart_whatever_characters_they_hold()
     {
-        var store = new DistributedCacheExternalSessionEndStore(MemoryCache());
+        var store = new DistributedCacheSessionEndStore(MemoryCache());
 
-        await store.RecordEndedAsync(new ExternalSession("a:b", "c"), DateTimeOffset.UtcNow.AddHours(1), default);
+        await store.RecordEndedAsync(new SessionKey("a:b", "c"), DateTimeOffset.UtcNow.AddHours(1), default);
 
-        Assert.False(await store.HasEndedAsync(new ExternalSession("a", "b:c"), default));
+        Assert.False(await store.HasEndedAsync(new SessionKey("a", "b:c"), default));
     }
 
     /// <summary>Records the options an entry was set with.</summary>
@@ -326,7 +331,7 @@ public class ExternalSessionEndTests
         var cache = new CapturingCache();
         var keepUntil = DateTimeOffset.Parse("2026-10-27T00:00:00Z");
 
-        await new DistributedCacheExternalSessionEndStore(cache).RecordEndedAsync(new ExternalSession("oidc", "s1"), keepUntil, default);
+        await new DistributedCacheSessionEndStore(cache).RecordEndedAsync(new SessionKey("oidc", "s1"), keepUntil, default);
 
         Assert.Equal(keepUntil, cache.Options!.AbsoluteExpiration);
     }

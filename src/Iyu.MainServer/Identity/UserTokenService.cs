@@ -52,10 +52,21 @@ public sealed class UserTokenService
     private readonly TimeProvider _clock;
     private readonly ILogger<UserTokenService> _log;
 
+    private readonly SessionEndService? _ends;
+
+    /// <param name="access">Issues the access half of each pair.</param>
+    /// <param name="store">Where refresh tokens are kept.</param>
+    /// <param name="opts">Lifetimes and the reuse interval.</param>
+    /// <param name="clock">The one clock that decides.</param>
+    /// <param name="log">Where a refused refresh says why.</param>
+    /// <param name="ends">
+    /// Present where session ends are on (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuSessionEnds"/>): a
+    /// sign-in that ends here ends its access tokens too.
+    /// </param>
     public UserTokenService(UserAccessTokenService access, IRefreshTokenStore store, IdentityTokenOptions opts,
-        TimeProvider clock, ILogger<UserTokenService> log)
+        TimeProvider clock, ILogger<UserTokenService> log, SessionEndService? ends = null)
     {
-        _access = access; _store = store; _opts = opts; _clock = clock; _log = log;
+        _access = access; _store = store; _opts = opts; _clock = clock; _log = log; _ends = ends;
     }
 
     /// <summary>
@@ -97,20 +108,26 @@ public sealed class UserTokenService
         return await IssuePairAsync(token.Subject, token.FamilyId, token, ct);
     }
 
-    /// <summary>Ends the sign-in a refresh token belongs to (sign-out on one device). Unknown tokens are ignored.</summary>
+    /// <summary>
+    /// Ends the sign-in a refresh token belongs to (sign-out on one device) — and, where session ends are on, the access
+    /// tokens issued in it. Unknown tokens are ignored.
+    /// </summary>
     public async Task RevokeAsync(string refreshToken, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(refreshToken)) return;
         if (await _store.FindByHashAsync(HashRefreshToken(refreshToken), ct) is { } token)
-            await _store.RevokeFamilyAsync(token.FamilyId, _clock.GetUtcNow(), ct);
+            await EndFamilyAsync(token.FamilyId, _clock.GetUtcNow(), ct);
     }
 
     /// <summary>
     /// Ends every sign-in of the subject — sign-out everywhere, a password change, a deactivation.
     /// </summary>
     /// <remarks>
-    /// Access tokens already issued stay valid until they expire; that is what keeping them short
-    /// (<see cref="IdentityTokenOptions.Lifetime"/>) bounds.
+    /// Access tokens already issued stay valid until they expire — this ends the refresh tokens, and the sign-ins are
+    /// not enumerated to record each one's end. What ends every session of an account at once, access tokens included,
+    /// is its security stamp (<see cref="IyuIdentityClaims.SecurityStampClaimType"/>, with
+    /// <see cref="IdentityTokenOptions.ValidateUserAccessTokens"/>); short access tokens
+    /// (<see cref="IdentityTokenOptions.Lifetime"/>) bound the rest.
     /// </remarks>
     public Task RevokeAllAsync(string subject, CancellationToken ct)
     {
@@ -130,12 +147,13 @@ public sealed class UserTokenService
         string subject, Guid familyId, RefreshTokenRecord? exchanged, CancellationToken ct)
     {
         // The access half is the same token UserAccessTokenService issues on its own — assembled from the source.
-        var (access, stamp) = await _access.IssueWithStampAsync(subject, lifetime: null, ct);
+        var (access, stamp) = await _access.IssueWithStampAsync(subject, lifetime: null, ct,
+            sessionId: SessionEndService.TokenSession(familyId).Id);
         var now = _clock.GetUtcNow();
         if (!access.Ok)
         {
             // The source refused the subject (logged there): the sign-in ends with it.
-            await _store.RevokeFamilyAsync(familyId, now, ct);
+            await EndFamilyAsync(familyId, now, ct);
             return UserTokenPair.Refused;
         }
 
@@ -144,7 +162,7 @@ public sealed class UserTokenService
         // sign-in was ended since (a password change, a sign-out everywhere), so the family ends here.
         if (exchanged is not null && !IyuIdentityClaims.SameSecurityStamp(exchanged.SecurityStamp, stamp))
         {
-            await _store.RevokeFamilyAsync(familyId, now, ct);
+            await EndFamilyAsync(familyId, now, ct);
             return Reject(exchanged, exchanged.SecurityStamp is null
                 ? "the account now has a security stamp and the refresh token carries none — it was issued before "
                   + "the claims source answered one, or the store does not persist RefreshTokenRecord.SecurityStamp; "
@@ -188,9 +206,21 @@ public sealed class UserTokenService
         return await IssuePairAsync(token.Subject, token.FamilyId, token, ct);
     }
 
+    /// <summary>
+    /// Ends a sign-in: its refresh tokens are revoked, and — where session ends are on — its access tokens, which name
+    /// it, are refused from now on. Every way a family ends goes through here: sign-out, a reused token, the source
+    /// refusing the subject, a changed security stamp.
+    /// </summary>
+    private async Task EndFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken ct)
+    {
+        await _store.RevokeFamilyAsync(familyId, now, ct);
+        if (_ends is not null)
+            await _ends.EndTokenSessionAsync(familyId, _opts.UserAccessTokenLifetime ?? _opts.Lifetime, ct);
+    }
+
     private async Task<UserTokenPair> ReuseAsync(RefreshTokenRecord token, DateTimeOffset now, CancellationToken ct)
     {
-        await _store.RevokeFamilyAsync(token.FamilyId, now, ct);
+        await EndFamilyAsync(token.FamilyId, now, ct);
         return Reject(token, "refresh token was presented after it was used — its family is revoked");
     }
 

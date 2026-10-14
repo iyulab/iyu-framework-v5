@@ -9,7 +9,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using JwtSecurityToken = System.IdentityModel.Tokens.Jwt.JwtSecurityToken;
 
 namespace Iyu.MainServer.Identity;
 
@@ -20,8 +22,8 @@ namespace Iyu.MainServer.Identity;
 /// surface is turned on by its own call and asks for its own store: <see cref="AddIyuServiceClients"/>
 /// (<see cref="IServiceClientStore"/>), <see cref="AddIyuUserCredentials"/> (<see cref="IUserCredentialStore"/>),
 /// <see cref="AddIyuRefreshTokens"/> (<see cref="IRefreshTokenStore"/>), <see cref="AddIyuExternalSignIn"/>
-/// (<see cref="IExternalLoginResolver"/>), <see cref="AddIyuExternalSessionEnds"/>
-/// (<see cref="IExternalSessionEndStore"/>).
+/// (<see cref="IExternalLoginResolver"/>), <see cref="AddIyuSessionEnds"/>
+/// (<see cref="ISessionEndStore"/>).
 /// </summary>
 public static class IyuIdentityServiceCollectionExtensions
 {
@@ -93,12 +95,10 @@ public static class IyuIdentityServiceCollectionExtensions
                 opts.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
                 opts.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
                 // A session is re-read from the claims source while it lives — see UserSessionService. Whether one
-                // is due is decided from the cookie alone; the scoped service is resolved only when it is. A session
-                // opened from an external provider's session is first asked whether that one has ended — on every
-                // request, since nothing else would notice — see ExternalSessionService.
-                opts.Events.OnValidatePrincipal = ctx => ExternalSessionService.SessionOf(ctx.Properties) is { } external
-                    ? ValidateExternalSessionAsync(ctx, external, tokenOptions)
-                    : RevalidateIfDue(ctx, tokenOptions);
+                // is due is decided from the cookie alone; the scoped service is resolved only when it is. Where
+                // session ends are on, a session is first asked whether it — or the external session it was opened
+                // from — has ended: on every request, since nothing else would notice. See SessionEndService.
+                opts.Events.OnValidatePrincipal = ctx => ValidateSessionAsync(ctx, tokenOptions);
             })
             .AddJwtBearer(opts =>
             {
@@ -112,18 +112,20 @@ public static class IyuIdentityServiceCollectionExtensions
                     ValidAlgorithms = [IdentityTokenSigning.Algorithm], RequireSignedTokens = true,
                     ValidateLifetime = true,
                 };
-                // A token was signed before whatever happened to its client or its account since. This is where the
-                // two meet: a service client's token against its client (ServiceClientTokenValidator), and — where
-                // the application asks for it — a person's token against the account (UserSessionService).
-                if (tokenOptions.ValidateServiceClientTokens || tokenOptions.ValidateUserAccessTokens)
-                    opts.Events = new JwtBearerEvents
+                // A token was signed before whatever happened to its client, its session or its account since. This is
+                // where they meet: a service client's token against its client (ServiceClientTokenValidator), a
+                // person's token against its session where session ends are on (SessionEndService), and — where the
+                // application asks for it — against the account (UserSessionService). The event is always attached:
+                // whether session ends are on is known per request, not when this runs.
+                opts.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = async ctx =>
                     {
-                        OnTokenValidated = async ctx =>
-                        {
-                            if (tokenOptions.ValidateServiceClientTokens) await ValidateServiceClientTokenAsync(ctx);
-                            if (ctx.Result is null && tokenOptions.ValidateUserAccessTokens) await ValidateUserAccessTokenAsync(ctx);
-                        },
-                    };
+                        if (tokenOptions.ValidateServiceClientTokens) await ValidateServiceClientTokenAsync(ctx);
+                        if (ctx.Result is null) await ValidateTokenSessionAsync(ctx);
+                        if (ctx.Result is null && tokenOptions.ValidateUserAccessTokens) await ValidateUserAccessTokenAsync(ctx);
+                    },
+                };
             });
 
         services.AddAuthorization(opts =>
@@ -173,14 +175,32 @@ public static class IyuIdentityServiceCollectionExtensions
             ? ctx.HttpContext.RequestServices.GetRequiredService<UserSessionService>().RevalidateAsync(ctx, options)
             : Task.CompletedTask;
 
-    private static async Task ValidateExternalSessionAsync(
-        CookieValidatePrincipalContext ctx, ExternalSession external, IdentityTokenOptions options)
+    private static async Task ValidateSessionAsync(CookieValidatePrincipalContext ctx, IdentityTokenOptions options)
     {
-        // Only AddIyuExternalSessionEnds registers the service. Without it nothing records an end to ask about.
-        if (ctx.HttpContext.RequestServices.GetService<ExternalSessionService>() is { } ends
-            && await ends.EndIfEndedAsync(ctx, external))
+        // Only AddIyuSessionEnds registers the service. Without it nothing records an end to ask about — and a cookie
+        // that names no session has nothing to ask.
+        if (SessionEndService.NamesASession(ctx.Properties)
+            && ctx.HttpContext.RequestServices.GetService<SessionEndService>() is { } ends
+            && await ends.EndIfEndedAsync(ctx))
             return;
         await RevalidateIfDue(ctx, options);
+    }
+
+    private static async Task ValidateTokenSessionAsync(TokenValidatedContext ctx)
+    {
+        // A token names its session when it was issued with a refresh token (UserTokenService). One issued on its own
+        // names none and has nothing to ask.
+        var sessionId = ctx.SecurityToken switch
+        {
+            JsonWebToken jwt when jwt.TryGetPayloadValue<string>(IyuIdentityClaims.SessionIdClaimType, out var sid) => sid,
+            JwtSecurityToken jwt => jwt.Payload.TryGetValue(IyuIdentityClaims.SessionIdClaimType, out var sid) ? sid as string : null,
+            _ => null,
+        };
+        if (string.IsNullOrEmpty(sessionId)
+            || ctx.HttpContext.RequestServices.GetService<SessionEndService>() is not { } ends)
+            return;
+        if (await ends.HasTokenSessionEndedAsync(sessionId, ctx.HttpContext.RequestAborted))
+            ctx.Fail("The session this token belongs to has ended.");
     }
 
     /// <summary>
@@ -285,26 +305,30 @@ public static class IyuIdentityServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Lets a session opened through an external provider end when the provider's own session does: registers
-    /// <see cref="ExternalSessionService"/>, and has every such session ask, each time its cookie is presented, whether
-    /// the provider's session behind it has ended.
+    /// Makes the end of a session stick: registers <see cref="SessionEndService"/>, so that signing out, signing in
+    /// again, revoking a refresh token, or the end of the provider's session a session was opened from is recorded —
+    /// and asked about every time a session cookie or an access token naming that session is presented.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The app registers <see cref="IExternalSessionEndStore"/> itself — its own, or
-    /// <see cref="DistributedCacheExternalSessionEndStore"/> over its distributed cache. A host that calls this without
+    /// Without it, signing out removes the browser's cookie and revoking a refresh token stops the next refresh, and
+    /// that is all: a copy of the cookie, or an access token already issued, is accepted until it expires.
+    /// </para>
+    /// <para>
+    /// The app registers <see cref="ISessionEndStore"/> itself — its own, or
+    /// <see cref="DistributedCacheSessionEndStore"/> over its distributed cache. A host that calls this without
     /// a store is refused at startup, and so is one that registers a store without calling this.
     /// </para>
     /// <para>
-    /// This is the half that remembers and notices. What tells the application that a provider's session ended — an
-    /// OpenID Connect back-channel logout notice, or a channel of the application's own — calls
-    /// <see cref="ExternalSessionService.EndAsync"/>.
+    /// The application's own sign-outs are recorded by the framework. What tells the application that a provider's
+    /// session ended — an OpenID Connect back-channel logout notice, or a channel of the application's own — calls
+    /// <see cref="SessionEndService.EndProviderSessionAsync"/>.
     /// </para>
     /// </remarks>
-    public static IServiceCollection AddIyuExternalSessionEnds(this IServiceCollection services)
+    public static IServiceCollection AddIyuSessionEnds(this IServiceCollection services)
     {
-        services.TryAddScoped<ExternalSessionService>();
-        services.AddHostedService<ExternalSessionEndStoreGuard>();
+        services.TryAddScoped<SessionEndService>();
+        services.AddHostedService<SessionEndStoreGuard>();
         return services;
     }
 }

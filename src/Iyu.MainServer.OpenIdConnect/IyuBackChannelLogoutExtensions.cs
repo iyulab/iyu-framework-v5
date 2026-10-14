@@ -24,12 +24,12 @@ public static class IyuBackChannelLogoutExtensions
     /// <summary>
     /// Lets the application's sessions end when a provider says the session they were opened from is over: accepts the
     /// provider's logout notice at <see cref="MapIyuBackChannelLogout"/> and ends those sessions
-    /// (<see cref="ExternalSessionService"/>).
+    /// (<see cref="SessionEndService"/>).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Calls <see cref="IyuIdentityServiceCollectionExtensions.AddIyuExternalSessionEnds"/>, so the application
-    /// registers an <see cref="IExternalSessionEndStore"/> (a host without one is refused at startup).
+    /// Calls <see cref="IyuIdentityServiceCollectionExtensions.AddIyuSessionEnds"/>, so the application
+    /// registers an <see cref="ISessionEndStore"/> (a host without one is refused at startup).
     /// </para>
     /// <para>
     /// A notice is checked against the OpenID Connect handler it names — the provider's issuer and signing keys, the
@@ -49,7 +49,7 @@ public static class IyuBackChannelLogoutExtensions
                 + $"positive. To refuse logout tokens without an expiry, set {nameof(BackChannelLogoutOptions.RequireExpiration)}.",
                 nameof(configure));
 
-        services.AddIyuExternalSessionEnds();
+        services.AddIyuSessionEnds();
         services.TryAddSingleton(options);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<BackChannelLogoutTokenValidator>();
@@ -82,7 +82,7 @@ public static class IyuBackChannelLogoutExtensions
 
         app.MapPost(Path, (string provider, HttpContext http, IAuthenticationSchemeProvider schemes,
                     IOptionsMonitor<OpenIdConnectOptions> handlers, BackChannelLogoutTokenValidator validator,
-                    ExternalSessionService sessions)
+                    SessionEndService sessions)
                 => BackChannelLogoutHandler.ReceiveAsync(provider, http, schemes, handlers, validator, sessions))
             .AllowAnonymous()
             .DisableAntiforgery();

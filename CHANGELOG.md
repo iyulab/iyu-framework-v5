@@ -50,19 +50,26 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
-- **`Iyu.MainServer`: a session opened through an external provider can end when the provider's own session
-  does — `AddIyuExternalSessionEnds()`.** Until now such a session ended only through the application itself (its
-  own sign-out, or the claims source refusing the account): a person who signed out of another application under
-  the same provider, or at the provider, stayed signed in here, and no revalidation interval would ever notice — the
-  account had not changed. A session opened through `MapIyuExternalSignIn` now remembers the provider's session
-  behind it (the `sid` of the identity token, when the provider sends one; it is kept beside the claims, not among
-  them). With `AddIyuExternalSessionEnds()` on, `ExternalSessionService.EndAsync(provider, sessionId)` records
-  that the provider's session is over, and every session opened from it ends **the next time its cookie is
-  presented** — on that request, whatever `SessionRevalidationInterval` is. The record lives in an
-  `IExternalSessionEndStore` the application registers: its own, or `DistributedCacheExternalSessionEndStore` over
-  its `IDistributedCache`. It is read on every request of such a session and must be shared by every instance. A
-  host that turns this on without a store, or registers a store without turning it on, is refused at startup.
-  Nothing changes for a host that does not call it.
+- **`Iyu.MainServer`: the end of a session sticks — `AddIyuSessionEnds()`.** A session cookie is held by the
+  browser and an access token by the client, so until now signing out removed the browser's cookie and revoking a
+  refresh token stopped the next refresh, and that was all: a copy of the cookie kept elsewhere stayed valid until
+  it expired (with sliding expiration, as long as it kept being used), and the access tokens of a revoked sign-in
+  until theirs did (OWASP ASVS 5.0, 7.4.1). With `AddIyuSessionEnds()` on, the end is recorded and asked about every
+  time a session is presented, **on that request**, whatever `SessionRevalidationInterval` is:
+  `UserSessionService.SignOutAsync` ends that session (the person's other sessions are untouched — the security
+  stamp is what ends all of them); `SignInAsync` on a request that already carries a session ends that one before
+  opening the new one (7.2.4); `UserTokenService.RevokeAsync` ends the sign-in a refresh token belongs to,
+  **its access tokens included** — they now name it (`sid`) — and so does every other way a refresh-token family
+  ends (a reused token, a changed stamp, a declined account). A session opened through `MapIyuExternalSignIn` also
+  remembers the provider's session behind it (the `sid` of the identity token, when the provider sends one, kept
+  beside the claims, not among them), and `SessionEndService.EndProviderSessionAsync(provider, sessionId)` ends
+  every session opened from it — a person who signed out of another application under the same provider, or at the
+  provider, no longer stays signed in here. The record lives in an `ISessionEndStore` the application registers:
+  its own, or `DistributedCacheSessionEndStore` over its `IDistributedCache`; it is read on every request that
+  presents a session (twice for one opened through a provider) and must be shared by every instance. A host that
+  turns this on without a store, or registers a store without turning it on, is refused at startup. A cookie this
+  framework did not open, and an access token issued on its own (`UserAccessTokenService`), name no session and
+  cannot be ended one at a time. Nothing changes for a host that does not call it.
 - **`Iyu.MainServer`: a person's access token can be checked against the account on every request —
   `IdentityTokenOptions.ValidateUserAccessTokens`.** Off by default, and off nothing changes: a person's access
   token is not looked at again until it expires. On, each request that presents one asks the claims source about

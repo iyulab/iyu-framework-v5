@@ -9,7 +9,7 @@ AddIyuIdentity/MapIyuIdentity는 아이덴티티 런타임(쿠키 + JWT Bearer, 
 | `AddIyuUserCredentials()` | 로컬 비밀번호 검사 — `UserCredentialService` | `IUserCredentialStore` |
 | `AddIyuRefreshTokens()` | 사람의 리프레시 토큰 — `UserTokenService` · `refresh_token` grant | `IRefreshTokenStore` |
 | `AddIyuExternalSignIn()` | 외부 로그인(OIDC 등) — 아래 7번 | `IExternalLoginResolver`(저장소가 아니라 판정) |
-| `AddIyuExternalSessionEnds()` | 공급자 쪽 세션이 끝나면 그 세션에서 열린 이 앱의 세션도 끝낸다 — `ExternalSessionService.EndAsync(provider, sessionId)` 가 기록하고, 그런 세션의 쿠키는 «요청마다» 묻는다(재검증 간격과 무관) | `IExternalSessionEndStore`(직접 구현하거나 `IDistributedCache` 위의 `DistributedCacheExternalSessionEndStore` — 모든 인스턴스가 공유해야 한다) |
+| `AddIyuSessionEnds()` | 세션의 끝남이 남는다 — 로그아웃(`SignOutAsync`) · 재로그인(`SignInAsync`) · 리프레시 폐기(`RevokeAsync` — 그 로그인의 액세스 토큰까지, 토큰이 `sid` 로 이름 댄다) · 공급자 쪽 세션의 끝남(`SessionEndService.EndProviderSessionAsync(provider, sessionId)`)을 기록하고, 세션을 내미는 요청마다 묻는다(재검증 간격과 무관). 같은 계정의 다른 세션은 그대로 | `ISessionEndStore`(직접 구현하거나 `IDistributedCache` 위의 `DistributedCacheSessionEndStore` — 모든 인스턴스가 공유해야 한다) |
 
 OpenID Connect 공급자의 로그아웃 통지(Back-Channel Logout 1.0)를 받아 위 `EndAsync` 를 부르는 끝점은 이 패키지가 아니라
 `Iyu.MainServer.OpenIdConnect` 에 있다(`AddIyuBackChannelLogout()` + `MapIyuBackChannelLogout()`) — OIDC 핸들러 패키지에 의존하는

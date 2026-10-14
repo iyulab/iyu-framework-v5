@@ -52,6 +52,13 @@ public static class IyuIdentityClaims
     /// </remarks>
     public const string SecurityStampClaimType = "sec_stamp";
 
+    /// <summary>
+    /// Carried by a person's access token issued with a refresh token: the session — the sign-in — it belongs to. Where
+    /// session ends are on, a token whose session has ended is refused (<see cref="SessionEndService"/>). Written by the
+    /// framework; a claim of this name in a claims source's answer is not carried into such a token.
+    /// </summary>
+    internal const string SessionIdClaimType = "sid";
+
     public static Claim Permission(string code, string claimType = DefaultPermissionClaimType)
         => new(claimType, code);
 

@@ -99,11 +99,11 @@ internal static class ExternalSignInHandlers
             // The session remembers which provider opened it — and the identity token the provider issued, when its
             // handler kept one (SaveTokens) — so signing out can end the person's session there too. It remembers the
             // provider's own session as well, when the provider named one, so that session ending can end this one
-            // (ExternalSessionService). Neither is a claim: the session's claims are the claims source's answer.
+            // (SessionEndService). Neither is a claim: the session's claims are the claims source's answer.
             var session = new AuthenticationProperties();
             session.Items[UserSessionService.ProviderKey] = provider;
             if (external.Principal.FindFirstValue(ProviderSessionClaimType) is { Length: > 0 } providerSession)
-                session.Items[ExternalSessionService.SessionIdKey] = providerSession;
+                session.Items[SessionEndService.ProviderSessionIdKey] = providerSession;
             if (external.Properties?.GetTokenValue(IdTokenName) is { Length: > 0 } idToken)
                 session.StoreTokens([new AuthenticationToken { Name = IdTokenName, Value = idToken }]);
 

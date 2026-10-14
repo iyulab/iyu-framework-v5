@@ -64,7 +64,7 @@ public class BackChannelLogoutTests
         if (registerStore)
         {
             builder.Services.AddDistributedMemoryCache();
-            builder.Services.AddSingleton<IExternalSessionEndStore, DistributedCacheExternalSessionEndStore>();
+            builder.Services.AddSingleton<ISessionEndStore, DistributedCacheSessionEndStore>();
         }
         if (addServices) builder.Services.AddIyuBackChannelLogout(configure);
 
@@ -364,7 +364,7 @@ public class BackChannelLogoutTests
     {
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(registerStore: false));
 
-        Assert.Contains(nameof(IExternalSessionEndStore), error.Message);
+        Assert.Contains(nameof(ISessionEndStore), error.Message);
     }
 
     [Fact]

@@ -16,9 +16,11 @@ namespace Iyu.MainServer.Identity;
 /// checks a credential.
 /// </para>
 /// <para>
-/// <b>An access token cannot be taken back.</b> Nothing asks the source again while it lives, so a person
-/// deactivated after it was issued keeps using it until it expires. Keep it short, or use
-/// <see cref="UserTokenService"/> — a refresh asks the source again — for a client that stays signed in.
+/// <b>An access token issued here cannot be taken back on its own.</b> It names no session, so neither signing out
+/// nor revoking ends it; a person deactivated after it was issued keeps using it until it expires, unless the
+/// application checks every token against the account (<see cref="IdentityTokenOptions.ValidateUserAccessTokens"/>).
+/// Keep it short, or use <see cref="UserTokenService"/> — a refresh asks the source again, and revoking its refresh
+/// token ends its access tokens too where session ends are on — for a client that stays signed in.
 /// </para>
 /// <para>
 /// Registered by <see cref="IyuIdentityServiceCollectionExtensions.AddIyuIdentity"/>; it needs nothing beyond the
@@ -62,8 +64,15 @@ public sealed class UserAccessTokenService
     /// <see cref="IssueAsync"/>, and the security stamp the source answered with the claims — what a refresh
     /// token issued alongside is opened under.
     /// </summary>
+    /// <param name="subject">The account.</param>
+    /// <param name="lifetime">See <see cref="IssueAsync"/>.</param>
+    /// <param name="sessionId">
+    /// The session the token belongs to (<see cref="IyuIdentityClaims.SessionIdClaimType"/>) — a refresh token's
+    /// sign-in; <c>null</c> for a token issued on its own.
+    /// </param>
+    /// <param name="ct">Cancels the question to the claims source.</param>
     internal async Task<(TokenResult Token, string? SecurityStamp)> IssueWithStampAsync(
-        string subject, TimeSpan? lifetime, CancellationToken ct)
+        string subject, TimeSpan? lifetime, CancellationToken ct, string? sessionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         if (lifetime is { } requested && requested <= TimeSpan.Zero)
@@ -79,6 +88,13 @@ public sealed class UserAccessTokenService
         // The subject is written here, not left to the source: a token and a cookie opened for the same person
         // then name them the same way, whatever the source answered.
         var assembled = IyuIdentityClaims.ForSubject(claims, subject, JwtRegisteredClaimNames.Sub).ToList();
+        if (sessionId is not null)
+        {
+            // The session is the framework's to name, like the subject: a source's claim of that name would make the
+            // token belong to a session it was not issued in.
+            assembled.RemoveAll(c => c.Type == IyuIdentityClaims.SessionIdClaimType);
+            assembled.Add(new(IyuIdentityClaims.SessionIdClaimType, sessionId));
+        }
         var effective = lifetime ?? _opts.UserAccessTokenLifetime ?? _opts.Lifetime;
         if (effective <= TimeSpan.Zero)
             throw new InvalidOperationException(

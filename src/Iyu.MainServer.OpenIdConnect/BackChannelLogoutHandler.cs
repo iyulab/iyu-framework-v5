@@ -14,7 +14,7 @@ internal static class BackChannelLogoutHandler
     private const string LogoutTokenField = "logout_token";
 
     public static async Task<IResult> ReceiveAsync(string provider, HttpContext http, IAuthenticationSchemeProvider schemes,
-        IOptionsMonitor<OpenIdConnectOptions> handlers, BackChannelLogoutTokenValidator validator, ExternalSessionService sessions)
+        IOptionsMonitor<OpenIdConnectOptions> handlers, BackChannelLogoutTokenValidator validator, SessionEndService sessions)
     {
         // A cached answer must never stand in for a later notice.
         http.Response.Headers.CacheControl = "no-store";
@@ -33,7 +33,7 @@ internal static class BackChannelLogoutHandler
         if (outcome.SessionId is null) return Refuse(outcome.Refusal!);
 
         // Whether or not anyone here holds a session opened from it: a session that is already over is a success.
-        await sessions.EndAsync(scheme.Name, outcome.SessionId, http.RequestAborted);
+        await sessions.EndProviderSessionAsync(scheme.Name, outcome.SessionId, http.RequestAborted);
         return Results.Ok();
     }
 

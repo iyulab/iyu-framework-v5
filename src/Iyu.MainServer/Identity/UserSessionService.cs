@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
@@ -67,7 +68,8 @@ public sealed class UserSessionService
     /// <param name="ct">Cancels the question to the claims source.</param>
     /// <returns>
     /// <c>false</c> when the source refuses the subject: nothing is signed in, and a session the request
-    /// already had is left as it was.
+    /// already had is left as it was. Otherwise that session, if any, is replaced — and, where session ends are on
+    /// (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuSessionEnds"/>), ended.
     /// </returns>
     public async Task<bool> SignInAsync(
         HttpContext http, string subject, AuthenticationProperties? properties = null, CancellationToken ct = default)
@@ -82,7 +84,14 @@ public sealed class UserSessionService
             return false;
         }
 
+        // Signing in again ends the session the request already had: the browser's cookie is replaced below, and a
+        // copy of the old one kept elsewhere must not outlive it (OWASP ASVS 5.0, 7.2.4).
+        if (http.RequestServices.GetService<SessionEndService>() is { } ends
+            && await http.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme) is { Succeeded: true } previous)
+            await ends.EndCookieSessionAsync(previous.Properties!, ct);
+
         properties ??= new AuthenticationProperties();
+        properties.Items[SessionEndService.SessionIdKey] = NewSessionId();
         MarkValidated(properties, _clock.GetUtcNow());
         await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, properties);
         return true;
@@ -92,6 +101,12 @@ public sealed class UserSessionService
     /// Ends the session cookie — and, for a session opened through an external provider whose handler can sign out
     /// (OpenID Connect's RP-initiated logout), the person's session at that provider too.
     /// </summary>
+    /// <remarks>
+    /// The browser is told to drop its cookie. Where session ends are on
+    /// (<see cref="IyuIdentityServiceCollectionExtensions.AddIyuSessionEnds"/>), the session itself is recorded as
+    /// ended as well, so a copy of the cookie kept elsewhere is refused; without them, such a copy is accepted until
+    /// the cookie expires.
+    /// </remarks>
     /// <param name="http">The request being answered.</param>
     /// <param name="properties">
     /// Passed to the provider's sign-out: its <see cref="AuthenticationProperties.RedirectUri"/> is where the provider
@@ -107,6 +122,10 @@ public sealed class UserSessionService
 
         var session = await http.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         var provider = session.Properties?.Items.TryGetValue(ProviderKey, out var name) == true ? name : null;
+
+        // Removing the browser's cookie does not end a copy of it; where session ends are on, the session itself ends.
+        if (session.Succeeded && http.RequestServices.GetService<SessionEndService>() is { } ends)
+            await ends.EndCookieSessionAsync(session.Properties!, http.RequestAborted);
         var schemes = http.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
         var signOutAtProvider = provider is not null
                                 && await schemes.GetSchemeAsync(provider) is { } scheme
@@ -259,6 +278,9 @@ public sealed class UserSessionService
             IyuIdentityClaims.ForSubject(answered, subject, ClaimTypes.NameIdentifier),
             CookieAuthenticationDefaults.AuthenticationScheme));
     }
+
+    /// <summary>A session's identifier: 128 random bits — it names the session in a record of its end, nothing more.</summary>
+    private static string NewSessionId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
     private static void MarkValidated(AuthenticationProperties properties, DateTimeOffset at)
         => properties.Items[ValidatedAtKey] = at.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);

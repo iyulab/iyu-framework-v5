@@ -25,8 +25,8 @@ internal sealed class IdentitySurfaceGuard : IHostedService
             nameof(IyuIdentityServiceCollectionExtensions.AddIyuServiceClients));
         Refuse(typeof(IUserCredentialStore), typeof(UserCredentialService),
             nameof(IyuIdentityServiceCollectionExtensions.AddIyuUserCredentials));
-        Refuse(typeof(IExternalSessionEndStore), typeof(ExternalSessionService),
-            nameof(IyuIdentityServiceCollectionExtensions.AddIyuExternalSessionEnds));
+        Refuse(typeof(ISessionEndStore), typeof(SessionEndService),
+            nameof(IyuIdentityServiceCollectionExtensions.AddIyuSessionEnds));
         return Task.CompletedTask;
     }
 
