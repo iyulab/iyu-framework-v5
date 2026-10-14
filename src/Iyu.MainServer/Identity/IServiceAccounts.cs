@@ -16,6 +16,13 @@ namespace Iyu.MainServer.Identity;
 /// Only for service accounts: acting in a person's name would hand the administrator that person's permissions. Without
 /// a registration an administrator issues nothing.
 /// </para>
+/// <para>
+/// What it separates is who may <em>mint</em> a credential, not who may use one: an issue or a rotation answers the
+/// secret to the administrator who asked, once — as a cloud provider answers a service account's new key to whoever
+/// created it — and a holder of that secret obtains tokens with the service account's permissions. The issuer is
+/// recorded (<see cref="ServiceClientSummary.IssuedBy"/>) and each act logged, refusals included, so what an
+/// administrator account issued can be found and revoked.
+/// </para>
 /// </remarks>
 public interface IServiceAccounts
 {

@@ -16,7 +16,8 @@ internal static class ServiceClientAdministrationHandlers
         IServiceAccounts accounts, ILoggerFactory loggers, CancellationToken ct)
     {
         if (await AdministratorAsync(http) is not { } administrator) return Results.Unauthorized();
-        if (!await accounts.IsServiceAccountAsync(req.OwnerUserId, ct)) return Forbidden();
+        if (req.OwnerUserId == Guid.Empty) return Results.BadRequest(new { error = "owner_required" });
+        if (!await accounts.IsServiceAccountAsync(req.OwnerUserId, ct)) return Refused(loggers, administrator, req.OwnerUserId, "issue");
 
         var r = await svc.IssueForAsync(req.OwnerUserId, administrator, req.DisplayName, req.Permissions ?? [], req.ExpiresAt, ct);
         if (!r.Ok)
@@ -32,7 +33,7 @@ internal static class ServiceClientAdministrationHandlers
     {
         if (await AdministratorAsync(http) is not { } administrator) return Results.Unauthorized();
         if (await svc.OwnerOfAsync(id, ct) is not { } owner) return Results.NotFound();
-        if (!await accounts.IsServiceAccountAsync(owner, ct)) return Forbidden();
+        if (!await accounts.IsServiceAccountAsync(owner, ct)) return Refused(loggers, administrator, owner, "rotate");
 
         var r = await svc.RotateAsync(id, owner, ct);
         if (!r.Ok) return Results.NotFound();
@@ -46,7 +47,7 @@ internal static class ServiceClientAdministrationHandlers
     {
         if (await AdministratorAsync(http) is not { } administrator) return Results.Unauthorized();
         if (await svc.OwnerOfAsync(id, ct) is not { } owner) return Results.NotFound();
-        if (!await accounts.IsServiceAccountAsync(owner, ct)) return Forbidden();
+        if (!await accounts.IsServiceAccountAsync(owner, ct)) return Refused(loggers, administrator, owner, "re-scope");
 
         var r = await svc.UpdatePermissionsAsync(id, owner, req.Permissions ?? [], ct);
         if (r.Error == "permissions_exceed_owner")
@@ -58,7 +59,16 @@ internal static class ServiceClientAdministrationHandlers
         return Results.NoContent();
     }
 
-    private static IResult Forbidden() => Results.Json(new { error = NotServiceAccount }, statusCode: StatusCodes.Status403Forbidden);
+    /// <summary>
+    /// A refusal to act in a person's name — logged, since an administrator reaching for person accounts is the very
+    /// incident this surface's audit is for.
+    /// </summary>
+    private static IResult Refused(ILoggerFactory loggers, Guid administrator, Guid owner, string act)
+    {
+        Log(loggers).LogWarning("Administrator {Administrator} refused to {Act} a service client for account {Owner}: not a service account",
+            administrator, act, owner);
+        return Results.Json(new { error = NotServiceAccount }, statusCode: StatusCodes.Status403Forbidden);
+    }
 
     /// <summary>The administrator: the person whose session cookie the request carries (the group's policy met them).</summary>
     private static async Task<Guid?> AdministratorAsync(HttpContext http)

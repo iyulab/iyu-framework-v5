@@ -100,6 +100,10 @@ public sealed class ServiceClientService
         _store.ListServiceClientsAsync(ct);
 
     /// <summary>The account a client is held under, or <c>null</c> when there is no such client.</summary>
+    /// <remarks>
+    /// Read from the full listing (<see cref="IServiceClientStore.ListServiceClientsAsync"/>) — the store has no lookup by
+    /// id, and an administrator's rotate or re-scope is rare beside the listing it already reads in full.
+    /// </remarks>
     public async Task<Guid?> OwnerOfAsync(Guid id, CancellationToken ct)
         => (await _store.ListServiceClientsAsync(ct)).FirstOrDefault(c => c.Id == id)?.OwnerUserId;
 

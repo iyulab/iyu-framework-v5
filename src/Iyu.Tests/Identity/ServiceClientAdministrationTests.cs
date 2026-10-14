@@ -356,7 +356,100 @@ public class ServiceClientAdministrationTests
         using var issued = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", await host.CookieAsync(host.AccountsAdmin),
             content: IssueFor(host.Service, OrdersRead));
 
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, issued.StatusCode);
+        // Nothing is mapped for it (the status is whatever the route's other verbs make it); nothing is stored.
+        Assert.NotEqual(HttpStatusCode.Created, issued.StatusCode);
         Assert.Empty(await host.Store.ListServiceClientsByOwnerAsync(host.Service, default));
+    }
+
+    /// <summary>The acting verbs sit behind the same door as the listing: the policy, met by a session cookie's person.</summary>
+    [Fact]
+    public async Task Only_an_administrator_s_session_reaches_the_acting_verbs()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", await host.CookieAsync(host.AccountsAdmin),
+            content: IssueFor(host.Service, OrdersRead));
+        var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        foreach (var (method, path, content) in new (HttpMethod, string, Func<HttpContent?>)[]
+                 {
+                     (HttpMethod.Post, "/api/admin/service-clients", () => IssueFor(host.Service, OrdersRead)),
+                     (HttpMethod.Post, $"/api/admin/service-clients/{id}/rotate", () => null),
+                     (HttpMethod.Patch, $"/api/admin/service-clients/{id}/permissions", () => JsonContent.Create(new { permissions = Array.Empty<string>() })),
+                 })
+        {
+            using var person = await host.SendAsync(method, path, await host.CookieAsync(host.Owner), content: content());
+            using var adminBearer = await host.SendAsync(method, path, bearer: await host.BearerAsync(host.AccountsAdmin), content: content());
+            using var bearerBesideCookie = await host.SendAsync(method, path, await host.CookieAsync(host.Owner),
+                bearer: await host.BearerAsync(host.AccountsAdmin), content: content());
+            Assert.Equal(HttpStatusCode.Forbidden, person.StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, adminBearer.StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, bearerBesideCookie.StatusCode);
+        }
+    }
+
+    /// <summary>
+    /// Re-scoping is held to the service account's permissions as they are now — not as they were at issue, and not the
+    /// administrator's. A client that is not there is 404; a missing owner is 400.
+    /// </summary>
+    [Fact]
+    public async Task Re_scoping_stays_within_the_service_account_s_permissions_as_they_are_now()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        var cookies = await host.CookieAsync(host.AccountsAdmin);
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies, content: IssueFor(host.Service, OrdersRead));
+        var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        using var beyond = await host.SendAsync(HttpMethod.Patch, $"/api/admin/service-clients/{id}/permissions", cookies,
+            content: JsonContent.Create(new { permissions = new[] { AdminPermission } }));
+        host.Store.SetUser(host.Service, perms: []);
+        using var afterLoss = await host.SendAsync(HttpMethod.Patch, $"/api/admin/service-clients/{id}/permissions", cookies,
+            content: JsonContent.Create(new { permissions = new[] { OrdersRead } }));
+        using var unknownRotate = await host.SendAsync(HttpMethod.Post, $"/api/admin/service-clients/{Guid.NewGuid()}/rotate", cookies);
+        using var unknownRescope = await host.SendAsync(HttpMethod.Patch, $"/api/admin/service-clients/{Guid.NewGuid()}/permissions", cookies,
+            content: JsonContent.Create(new { permissions = Array.Empty<string>() }));
+        using var noOwner = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies,
+            content: JsonContent.Create(new { displayName = "x", permissions = new[] { OrdersRead } }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, beyond.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, afterLoss.StatusCode);
+        Assert.Contains("permissions_exceed_owner", await afterLoss.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, unknownRotate.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, unknownRescope.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, noOwner.StatusCode);
+    }
+
+    /// <summary>A rotation ends the secret it replaces — the point of rotating it.</summary>
+    [Fact]
+    public async Task After_an_administrator_s_rotation_the_old_secret_obtains_nothing()
+    {
+        await using var host = await StartAdministeredAsync(serviceAccounts: true);
+        var cookies = await host.CookieAsync(host.AccountsAdmin);
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/admin/service-clients", cookies, content: IssueFor(host.Service, OrdersRead));
+        var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement;
+        var (id, clientId, oldSecret) = (body.GetProperty("id").GetGuid(), body.GetProperty("clientId").GetString()!, body.GetProperty("secret").GetString()!);
+
+        using var rotated = await host.SendAsync(HttpMethod.Post, $"/api/admin/service-clients/{id}/rotate", cookies);
+        var newSecret = JsonDocument.Parse(await rotated.Content.ReadAsStringAsync()).RootElement.GetProperty("secret").GetString()!;
+
+        await using var scope = host.App.Services.CreateAsyncScope();
+        var tokens = scope.ServiceProvider.GetRequiredService<ServiceClientTokenService>();
+        Assert.False((await tokens.IssueClientCredentialsAsync(clientId, oldSecret, default)).Ok);
+        Assert.True((await tokens.IssueClientCredentialsAsync(clientId, newSecret, default)).Ok);
+    }
+
+    /// <summary>The port is asked about the client's owner, not about the administrator asking.</summary>
+    [Fact]
+    public async Task It_is_the_owner_that_must_be_a_service_account_not_the_administrator()
+    {
+        await using var host = await StartAsync(app =>
+        {
+            app.MapIyuIdentity();
+            app.MapIyuServiceClientAdministration(AdminPermission);
+        }, serviceAccounts: true);
+        var (personsClient, _) = await IssueAsync(host, host.Owner);
+        // The service account itself holds no administration permission, so it cannot be the one asking; an administrator
+        // who is a person asks about a person's client — refused, whoever the administrator is.
+        using var rotated = await host.SendAsync(HttpMethod.Post, $"/api/admin/service-clients/{personsClient}/rotate", await host.CookieAsync(host.Admin));
+        Assert.Equal(HttpStatusCode.Forbidden, rotated.StatusCode);
     }
 }

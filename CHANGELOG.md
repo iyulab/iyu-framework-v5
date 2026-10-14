@@ -73,6 +73,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   gains `issuedBy`** (after `ownerUserId`) and **`ServiceClientSummary` gains `IssuedBy`** (third positional
   parameter) — the owner for an owner's own credential, the administrator otherwise; the administrator listing
   narrows by it (`?issuer=`), the axis an incident follows when the administrator's account is the compromised one.
+  Existing rows: fill `IssuedBy` with `OwnerUserId` — an owner's own credential is the only kind there was. What this
+  separates is who may mint a credential, not who may use one: the issue and rotate answers carry the secret, once, to
+  the administrator who asked — so refusals are logged as well as acts.
 - **`Iyu.MainServer`: the end of a session sticks — `AddIyuSessionEnds()`.** A session cookie is held by the
   browser and an access token by the client, so until now signing out removed the browser's cookie and revoking a
   refresh token stopped the next refresh, and that was all: a copy of the cookie kept elsewhere stayed valid until

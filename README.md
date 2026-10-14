@@ -178,9 +178,12 @@ The ceiling is the service account's permissions as they are now — the same li
 credential has — not the administrator's: an accounts administrator need not hold the business permissions a
 scheduler's credential carries (separation of duties). A person's account is refused (`403
 owner_not_service_account`): acting in a person's name would hand the administrator that person's permissions.
-Each act is logged with the administrator, and the store records the issuer (`InsertAsync(…, issuedBy, …)`), so
-`?issuer=` finds what a compromised administrator account issued — its credentials are owned by service accounts,
-not by it.
+What it separates is who may mint a credential, not who may use one: an issue or a rotation answers the secret
+to the administrator who asked, once, and its holder obtains tokens with the service account's permissions. So each
+act is logged with the administrator — refusals too — and the store records the issuer (`InsertAsync(…, issuedBy,
+…)`): `?issuer=` finds what a compromised administrator account issued, since its credentials are owned by service
+accounts, not by it. A store that existed before `IssuedBy` fills it for its rows with the owner — an owner's own
+credential is the only kind there was.
 
 **There is no built-in human sign-in endpoint, local or federated.** That
 is deliberate: how a person is authenticated — the credential check, the route, what the response
