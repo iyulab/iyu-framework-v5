@@ -138,20 +138,33 @@ public sealed class FileSystemAttachmentStorageTests : IDisposable
     }
 
     [Fact]
-    public async Task A_replace_that_cannot_be_moved_into_place_leaves_the_object_whole_and_nothing_staged()
+    public async Task An_object_being_read_can_be_replaced_and_the_reader_keeps_what_it_opened()
     {
-        // A download in progress while the object is replaced: Windows refuses to move a file over one that is open,
-        // other systems do not. Either way the object is one whole version and the staged bytes do not stay behind.
+        // A download in progress while the object is replaced (an upload token for replacement): on every system the
+        // replace goes through, the next reader gets the new bytes, and the running download finishes the old ones.
         const string key = "2026/10/held";
         await _storage.SaveAsync(Bytes("one"), key, null);
-        var replaced = true;
-        await using (await _storage.OpenReadAsync(key))
+        await using (var reading = await _storage.OpenReadAsync(key))
         {
-            try { await _storage.SaveAsync(Bytes("two"), key, null); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { replaced = false; }
-        }
+            await _storage.SaveAsync(Bytes("two"), key, null);
 
-        Assert.Equal(replaced ? "two" : "one", await ReadAsync(key));
+            Assert.Equal("two", await ReadAsync(key));
+            using var reader = new StreamReader(reading!);
+            Assert.Equal("one", await reader.ReadToEndAsync());
+        }
+        Assert.Empty(Directory.GetFiles(_root, "*.partial", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task A_replace_that_cannot_be_moved_into_place_leaves_nothing_staged()
+    {
+        // Something that is not a file holds the object's name: the move fails on every system, and the bytes staged
+        // beside it do not stay there.
+        const string key = "2026/10/taken";
+        Directory.CreateDirectory(Path.Combine(_root, "2026", "10", "taken"));
+
+        await Assert.ThrowsAnyAsync<Exception>(() => _storage.SaveAsync(Bytes("two"), key, null));
+
         Assert.Empty(Directory.GetFiles(_root, "*.partial", SearchOption.AllDirectories));
     }
 

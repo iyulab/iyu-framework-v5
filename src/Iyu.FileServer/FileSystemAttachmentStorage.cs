@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Iyu.Core.Attachments;
 
 namespace Iyu.FileServer;
@@ -26,7 +27,7 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
         var staged = await StageAsync(content, path, ct).ConfigureAwait(false);
         try
         {
-            File.Move(staged, path, overwrite: true);
+            Replace(staged, path);
         }
         catch
         {
@@ -99,6 +100,78 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
             $"'{Marshal.GetPInvokeErrorMessage(error)}' (errno {error}). The storage root must be on a volume " +
             "that supports hard links.");
     }
+
+    /// <summary>
+    /// Gives the staged file the object's name, replacing what is there — even while it is being read, on every system.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A rename replaces a file that is open everywhere but on Windows, where the runtime's
+    /// <see cref="File.Move(string, string, bool)"/> refuses while any reader holds the object: a replace during a
+    /// download failed there and succeeded elsewhere. Windows 10 renames with POSIX semantics on request — the name
+    /// moves to the new file and open handles keep reading the old one — provided those handles share delete, which
+    /// <see cref="OpenReadAsync"/> asks for. A volume or a system that cannot rename that way falls back to the runtime's
+    /// move, and a replace during a download fails there as it always did.
+    /// </para>
+    /// </remarks>
+    private static void Replace(string staged, string path)
+    {
+        if (OperatingSystem.IsWindows() && TryReplacePosix(staged, path)) return;
+        File.Move(staged, path, overwrite: true);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool TryReplacePosix(string staged, string path)
+    {
+        using var source = CreateFileW(staged, DeleteAccess, FileShare.ReadWrite | FileShare.Delete, IntPtr.Zero,
+            FileMode.Open, 0, IntPtr.Zero);
+        if (source.IsInvalid) return false;
+
+        // FILE_RENAME_INFO: Flags, RootDirectory, FileNameLength, then the name — a full path, as RootDirectory is null.
+        var nameOffset = (int)Marshal.OffsetOf<FileRenameInfo>(nameof(FileRenameInfo.FileNameLength)) + sizeof(uint);
+        var nameBytes = path.Length * sizeof(char);
+        var size = nameOffset + nameBytes + sizeof(char);
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(new FileRenameInfo
+            {
+                Flags = RenameReplaceIfExists | RenamePosixSemantics,
+                RootDirectory = IntPtr.Zero,
+                FileNameLength = (uint)nameBytes,
+            }, buffer, fDeleteOld: false);
+            Marshal.Copy(path.ToCharArray(), 0, buffer + nameOffset, path.Length);
+            Marshal.WriteInt16(buffer + nameOffset + nameBytes, 0);
+            return SetFileInformationByHandle(source, FileRenameInfoEx, buffer, (uint)size);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    private const uint DeleteAccess = 0x00010000;            // DELETE
+    private const int FileRenameInfoEx = 22;                  // FILE_INFO_BY_HANDLE_CLASS
+    private const uint RenameReplaceIfExists = 0x1;           // FILE_RENAME_FLAG_REPLACE_IF_EXISTS
+    private const uint RenamePosixSemantics = 0x2;            // FILE_RENAME_FLAG_POSIX_SEMANTICS
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileRenameInfo
+    {
+        public uint Flags;
+        public IntPtr RootDirectory;
+        public uint FileNameLength;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(string fileName, uint desiredAccess,
+        FileShare shareMode, IntPtr securityAttributes, FileMode creationDisposition, uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle file,
+        int fileInformationClass, IntPtr fileInformation, uint bufferSize);
 
     /// <summary><c>EEXIST</c> — the same value on Linux and macOS.</summary>
     private const int FileExists = 17;

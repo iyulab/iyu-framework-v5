@@ -240,13 +240,15 @@ onward; earlier entries state the same consequence in prose where it applies.
   were not affected. **A storage root on a volume that cannot hard-link** (some network and FAT-family mounts) now
   fails `TryCreateAsync` with an `IOException` that says so, instead of a create that can lose a race.
 
-- **`Iyu.FileServer`: on Windows, an object being downloaded could not be deleted, and a replace of it left its
-  staged bytes behind.** `FileSystemAttachmentStorage` opened objects for reading without sharing delete, so while
-  a download ran, `DeleteAsync` failed with `UnauthorizedAccessException`; and `SaveAsync`, whose move into place
-  fails over an open file on Windows, left the `*.partial` file it had staged beside the object. A delete now goes
-  through and the running download finishes the bytes it opened; a replace that cannot be moved into place leaves
-  the object as it was and removes what it staged. A replace of an object while it is being downloaded still fails
-  on Windows (other systems replace it); the caller gets the exception, as before.
+- **`Iyu.FileServer`: on Windows, an object being downloaded could be neither replaced nor deleted.**
+  `FileSystemAttachmentStorage` opened objects for reading without sharing delete, and replaced them with the
+  runtime's move, which refuses on Windows while the destination is open: during a download, `SaveAsync` (a
+  replacement upload) and `DeleteAsync` failed with `UnauthorizedAccessException` — and the failed replace left the
+  `*.partial` file it had staged beside the object. Other systems did both. Now reads share delete, and on Windows
+  10 and later a replace renames with POSIX semantics, as other systems do: the next reader gets the new bytes and
+  the running download finishes the ones it opened. A volume that cannot rename that way (FAT-family, some network
+  shares) falls back to the move, which still fails during a download there. A replace that fails for any reason
+  leaves the object as it was and removes what it staged.
 
 ## [0.38.0] - 2026-10-11
 
