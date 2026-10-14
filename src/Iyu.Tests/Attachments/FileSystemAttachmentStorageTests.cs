@@ -138,6 +138,38 @@ public sealed class FileSystemAttachmentStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_replace_that_cannot_be_moved_into_place_leaves_the_object_whole_and_nothing_staged()
+    {
+        // A download in progress while the object is replaced: Windows refuses to move a file over one that is open,
+        // other systems do not. Either way the object is one whole version and the staged bytes do not stay behind.
+        const string key = "2026/10/held";
+        await _storage.SaveAsync(Bytes("one"), key, null);
+        var replaced = true;
+        await using (await _storage.OpenReadAsync(key))
+        {
+            try { await _storage.SaveAsync(Bytes("two"), key, null); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { replaced = false; }
+        }
+
+        Assert.Equal(replaced ? "two" : "one", await ReadAsync(key));
+        Assert.Empty(Directory.GetFiles(_root, "*.partial", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task An_object_being_read_can_be_deleted_and_the_reader_keeps_what_it_opened()
+    {
+        const string key = "2026/10/held-then-deleted";
+        await _storage.SaveAsync(Bytes("one"), key, null);
+        await using (var reading = await _storage.OpenReadAsync(key))
+        {
+            await _storage.DeleteAsync(key);
+            Assert.Null(await _storage.OpenReadAsync(key));
+            using var reader = new StreamReader(reading!);
+            Assert.Equal("one", await reader.ReadToEndAsync());
+        }
+    }
+
+    [Fact]
     public async Task TryCreate_writes_once_and_then_refuses_without_writing()
     {
         const string key = "2026/10/once";

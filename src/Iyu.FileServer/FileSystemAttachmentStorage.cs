@@ -24,7 +24,16 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
         ArgumentNullException.ThrowIfNull(content);
         var path = Resolve(storageKey);
         var staged = await StageAsync(content, path, ct).ConfigureAwait(false);
-        File.Move(staged, path, overwrite: true);
+        try
+        {
+            File.Move(staged, path, overwrite: true);
+        }
+        catch
+        {
+            // The object that was there is untouched; the bytes staged beside it must not stay.
+            TryDelete(staged);
+            throw;
+        }
         return storageKey;
     }
 
@@ -141,7 +150,10 @@ public sealed class FileSystemAttachmentStorage : IAttachmentStorage
             // Opening and catching, rather than File.Exists then opening, keeps this free of a
             // check-then-act race: a concurrent delete between the two would resurrect the very
             // exception this normalisation exists to absorb.
-            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            // Sharing delete lets the object be replaced or deleted while it is read, as it can be on every other
+            // system: the reader keeps the bytes it opened. Without it Windows refuses the write for as long as any
+            // download of the object is running.
+            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             return Task.FromResult<Stream?>(stream);
         }
         catch (FileNotFoundException)
