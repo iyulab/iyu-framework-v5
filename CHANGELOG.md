@@ -176,6 +176,14 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Fixed
 
+- **`Iyu.Server.OData`: a `groupby` over a path through an optional reference answered `200` and then broke off its
+  body when some rows had no reference.** `$apply=groupby((Owner/Id))` puts those rows in a group of their own; the
+  group was written as an `Owner` whose key is null, the writer stopped at the key the model declares
+  non-nullable, and the caller saw a `200` whose JSON never finished — nothing in the status said it had failed. The
+  group is now written with `"Owner": null`, which is what its rows have. A group of present references with a null
+  property (`groupby((Owner/Note))` where some notes are empty) is written as before. Seen on 0.38.0 with a relational
+  provider; nothing in the application needs to change.
+
 - **README: the file gateway's rejection bodies are keyed `error`, not `Error`.** The README showed
   `{"Error":"too_large"}` and its siblings; what the gateway sends is `{"error":"too_large"}` — the property is
   named by the host's JSON options, camel case unless the host changed them. Nothing on the wire changed in this

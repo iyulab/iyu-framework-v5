@@ -8,7 +8,8 @@ namespace Iyu.Server.OData;
 
 /// <summary>
 /// The Iyu runtime's resource serializer: ASP.NET Core OData's own, with <c>$apply</c> results
-/// writing enum values the same way an entity read does.
+/// writing enum values the same way an entity read does, and a group with no reference writing
+/// that reference as null.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,9 +28,21 @@ namespace Iyu.Server.OData;
 /// view. A value the map does not resolve (a combination of flags) is passed through unchanged.
 /// </para>
 /// <para>
+/// A <c>groupby</c> over a path through an optional reference — <c>groupby((Owner/Id))</c> — puts
+/// the rows without one in a group whose nested wrapper holds nothing but nulls, the key included.
+/// The stock serializer writes that wrapper as an instance of the reference's type, and the writer
+/// stops at the key the model declares non-nullable — after the response's 200 has gone out, so the
+/// caller gets a body that breaks off. A nested wrapper whose values are all null, one of them a
+/// property no instance can lack, describes no instance: the view writes the reference as null,
+/// which is what those rows have. All-null values the model allows (a group of present references
+/// with a null property) are left as they are.
+/// </para>
+/// <para>
 /// TODO(upstream): remove this serializer once Microsoft.AspNetCore.OData writes dynamic-type
 /// enum values through <c>ClrEnumMemberAnnotation</c> (<c>CreateODataPropertiesFromDynamicType</c>,
-/// unchanged through 9.5.0). <c>EnumInApplyEndToEndTests</c> stays — it must pass without it.
+/// unchanged through 9.5.0) and writes a group's absent reference as null
+/// (<c>WriteDynamicTypeResourceAsync</c>, same release). <c>EnumInApplyEndToEndTests</c> and
+/// <c>ApplyOverOptionalReferenceEndToEndTests</c> stay — they must pass without it.
 /// </para>
 /// </remarks>
 public sealed class IyuODataResourceSerializer(IODataSerializerProvider serializerProvider)
@@ -40,25 +53,41 @@ public sealed class IyuODataResourceSerializer(IODataSerializerProvider serializ
         ODataSerializerContext writeContext)
         => base.WriteObjectInlineAsync(
             graph is DynamicTypeWrapper wrapper && writeContext?.Model is { } model
-                ? new WireEnumView(wrapper, model)
+                ? new WireView(wrapper, model, expectedType?.Definition as IEdmStructuredType)
                 : graph,
-            expectedType, writer, writeContext!);
+            expectedType!, writer, writeContext!);
 
-    private sealed class WireEnumView(DynamicTypeWrapper inner, IEdmModel model) : DynamicTypeWrapper
+    private sealed class WireView(DynamicTypeWrapper inner, IEdmModel model, IEdmStructuredType? type) : DynamicTypeWrapper
     {
         private Dictionary<string, object>? _values;
 
         public override Dictionary<string, object> Values => _values ??= inner.Values.ToDictionary(
             entry => entry.Key,
-            entry => Map(entry.Value, model),
+            entry => Map(entry.Key, entry.Value),
             inner.Values.Comparer);
 
-        private static object Map(object value, IEdmModel model) => value switch
+        /// <summary>
+        /// Every grouped value is null, and one of them is one the model says cannot be: no instance of this type
+        /// has those values, so the rows of this group have no such reference at all.
+        /// </summary>
+        private bool Absent => type is not null
+                               && Values.Count > 0
+                               && Values.Values.All(v => v is null)
+                               && Values.Keys.Any(k => type.FindProperty(k) is { Type.IsNullable: false });
+
+        private object Map(string name, object value) => value switch
         {
-            DynamicTypeWrapper nested => new WireEnumView(nested, model),
-            IEnumerable<DynamicTypeWrapper> many => many.Select(w => (DynamicTypeWrapper)new WireEnumView(w, model)).ToList(),
+            DynamicTypeWrapper nested => new WireView(nested, model, Target(name)) is var view && view.Absent ? null! : view,
+            IEnumerable<DynamicTypeWrapper> many => many.Select(w => (DynamicTypeWrapper)new WireView(w, model, Target(name))).ToList(),
             Enum member => WireValue(member, model) ?? value,
             _ => value,
+        };
+
+        private IEdmStructuredType? Target(string name) => type?.FindProperty(name)?.Type switch
+        {
+            { } t when t.IsCollection() => t.AsCollection().ElementType().Definition as IEdmStructuredType,
+            { } t => t.Definition as IEdmStructuredType,
+            null => null,
         };
 
         // An ODataEnumValue, not a string: the writer validates an enum-typed property's value
