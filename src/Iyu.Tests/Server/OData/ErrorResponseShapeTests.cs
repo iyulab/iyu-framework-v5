@@ -99,7 +99,8 @@ public class ErrorResponseShapeTests
     private static async Task<WebApplication> StartAsync(
         Action<IyuEdmModelBuilder>? model = null,
         Action<IServiceCollection>? servicesFirst = null,
-        Action<WebApplication>? endpoints = null)
+        Action<WebApplication>? endpoints = null,
+        string? routePrefix = null)
     {
         var dbName = "errorshape-" + Guid.NewGuid().ToString("N");
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
@@ -116,6 +117,7 @@ public class ErrorResponseShapeTests
                 options.ODataModel.AddEntityPair<TallyBookSummaryExt, TallyBookSummary>(
                     Summaries, ODataVerb.Post, ODataVerb.Patch, ODataVerb.Delete);
                 options.ODataModel.DeclareSharedKey(Notes, Ledgers);
+                if (routePrefix is not null) options.ODataRoutePrefix = routePrefix;
                 model?.Invoke(options.ODataModel);
             });
 
@@ -286,6 +288,26 @@ public class ErrorResponseShapeTests
         using var response = await client.PostAsJsonAsync($"/$data/{Summaries}", new { Total = 1 });
 
         Assert.Equal("405 application/json odata-error code='ReadOnlySet'", await ShapeOf(response));
+    }
+
+    [Theory]
+    [InlineData("books")]
+    [InlineData("/books")]       // written as a path: the route is the same, and so are its error bodies
+    [InlineData("/books/")]
+    public async Task A_route_prefix_written_with_slashes_answers_as_the_same_route(string prefix)
+    {
+        await using var app = await StartAsync(routePrefix: prefix);
+        using var client = app.GetTestClient();
+
+        // A path naming no set and a verb nothing answers carry no body of their own: the route's error responses
+        // write one, if they recognise the path as the route's.
+        using var noSet = await client.GetAsync("/books/Nope");
+        using var noVerb = await client.PutAsJsonAsync($"/books/{Ledgers}", new { Title = "x" });
+        using var listed = await client.GetAsync($"/books/{Ledgers}");
+
+        Assert.Equal("404 application/json odata-error code='NotFound'", await ShapeOf(noSet));
+        Assert.Equal("405 application/json odata-error code='MethodNotAllowed'", await ShapeOf(noVerb));
+        Assert.Equal(System.Net.HttpStatusCode.OK, listed.StatusCode);
     }
 
     [Fact]

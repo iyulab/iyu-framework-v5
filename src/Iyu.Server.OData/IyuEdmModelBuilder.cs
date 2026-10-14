@@ -537,8 +537,10 @@ public sealed class IyuEdmModelBuilder
 
     private static HashSet<string> DeclaredRowVersions(Type readType, Type? writeType)
         => readType.GetProperties().Concat(writeType?.GetProperties() ?? [])
-            .Where(p => p.IsDefined(typeof(TimestampAttribute), inherit: true)
-                        || p.IsDefined(typeof(ConcurrencyCheckAttribute), inherit: true))
+            // Attribute.IsDefined, not PropertyInfo.IsDefined: the latter ignores inherit for properties, so an
+            // override that does not repeat the declaration would lose it.
+            .Where(p => Attribute.IsDefined(p, typeof(TimestampAttribute), inherit: true)
+                        || Attribute.IsDefined(p, typeof(ConcurrencyCheckAttribute), inherit: true))
             .Select(p => p.Name)
             .ToHashSet(StringComparer.Ordinal);
 

@@ -203,7 +203,7 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
     public static IReadOnlyList<PropertyInfo> SearchedNavigations(Type elementClrType) => SearchedReferences.GetOrAdd(elementClrType, static type =>
         type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
-            .Where(p => p.IsDefined(typeof(SearchableAttribute), inherit: true))
+            .Where(IsDeclaredSearchable)
             .Where(p => p.PropertyType.IsClass && p.PropertyType != typeof(string)
                 && !typeof(System.Collections.IEnumerable).IsAssignableFrom(p.PropertyType))
             .ToArray());
@@ -213,9 +213,18 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
         var readable = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
             .ToList();
-        var declared = readable.Where(p => p.IsDefined(typeof(SearchableAttribute), inherit: true)).ToList();
+        var declared = readable.Where(IsDeclaredSearchable).ToList();
         return (declared.Count > 0 ? declared : readable)
             .Where(p => p.PropertyType == typeof(string))
             .ToArray();
     });
+
+    /// <summary>
+    /// Whether <paramref name="property"/> carries <see cref="SearchableAttribute"/>, on itself or on the property it
+    /// overrides. <see cref="Attribute.IsDefined(MemberInfo, Type, bool)"/>, not <c>PropertyInfo.IsDefined</c>: the
+    /// latter ignores <c>inherit</c> for properties, and an override that does not repeat the declaration would leave
+    /// its type declaring nothing — searched across every string.
+    /// </summary>
+    private static bool IsDeclaredSearchable(PropertyInfo property)
+        => Attribute.IsDefined(property, typeof(SearchableAttribute), inherit: true);
 }

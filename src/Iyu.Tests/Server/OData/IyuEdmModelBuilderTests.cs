@@ -519,6 +519,27 @@ public class IyuEdmModelBuilderTests
             .FindProperty(nameof(ParcelExt.Carrier)));   // the navigation is in the model, and unmarked
     }
 
+    public class VersionedBase : IyuEntity
+    {
+        public string Label { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Timestamp] public virtual uint Version { get; set; }
+    }
+
+    /// <summary>Overrides the row version without repeating its declaration.</summary>
+    public class VersionedRow : VersionedBase
+    {
+        public override uint Version { get; set; }
+    }
+
+    [Fact]
+    public void A_row_version_declared_on_a_virtual_property_holds_for_its_override()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<VersionedRow, VersionedRow>("VersionedRows");
+
+        Assert.Contains("Version", ComputedProperties(builder.GetEdmModel(), nameof(VersionedRow)));
+    }
+
     /// <summary>A pair served from one type has nothing derived: only the server's timestamps are marked.</summary>
     [Fact]
     public void A_pair_whose_read_and_write_types_match_marks_only_the_timestamps()

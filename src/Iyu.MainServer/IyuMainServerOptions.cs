@@ -81,7 +81,21 @@ public sealed class IyuMainServerOptions
     /// OData route prefix. Defaults to <c>"$data"</c> per the design spec
     /// (resulting URLs of the form <c>/$data/{EntitySet}</c>).
     /// </summary>
-    public string ODataRoutePrefix { get; set; } = "$data";
+    /// <remarks>
+    /// Written as a path or not, it is the same route: leading and trailing <c>/</c> are dropped, as the OData
+    /// routing drops them — so <c>"/odata"</c> and <c>"odata"</c> serve, and answer errors under, <c>/odata</c>.
+    /// </remarks>
+    public string ODataRoutePrefix
+    {
+        get => _odataRoutePrefix;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _odataRoutePrefix = value.Trim('/');
+        }
+    }
+
+    private string _odataRoutePrefix = "$data";
 
     /// <summary>
     /// Whether OData error responses carry <c>innererror</c> — the exception type and stack trace

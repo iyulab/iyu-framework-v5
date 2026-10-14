@@ -30,6 +30,18 @@ public class SearchableDeclarationTests
         public string? Extra { get; set; }
     }
 
+    /// <summary>A base that declares on a virtual property, and a read type that overrides it without repeating it.</summary>
+    public class VirtualDeclaration : IyuEntity
+    {
+        [Searchable] public virtual string Title { get; set; } = "";
+    }
+
+    public class OverridingRead : VirtualDeclaration
+    {
+        public override string Title { get; set; } = "";
+        public string? Memo { get; set; }
+    }
+
     public class NumberOnlyDeclaration : IyuEntity
     {
         [Searchable] public int Seq { get; set; }
@@ -79,6 +91,17 @@ public class SearchableDeclarationTests
 
         Assert.True(predicate(new DerivedOrder { CustomerName = "acme" }));
         Assert.False(predicate(new DerivedOrder { CustomerName = "Other", Extra = "acme" }));
+    }
+
+    [Fact]
+    public void A_declaration_on_a_virtual_property_holds_for_its_override()
+    {
+        // The override is the property the read type has; the declaration on the base still names it — otherwise the
+        // type would declare nothing and be searched across every string, its memo included.
+        var predicate = Bind<OverridingRead>("acme");
+
+        Assert.True(predicate(new OverridingRead { Title = "acme" }));
+        Assert.False(predicate(new OverridingRead { Title = "Other", Memo = "acme" }));
     }
 
     [Fact]

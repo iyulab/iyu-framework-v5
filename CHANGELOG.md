@@ -240,6 +240,19 @@ onward; earlier entries state the same consequence in prose where it applies.
   were not affected. **A storage root on a volume that cannot hard-link** (some network and FAT-family mounts) now
   fails `TryCreateAsync` with an `IOException` that says so, instead of a create that can lose a race.
 
+- 🔇 **`Iyu.Server.OData`: a `[Searchable]` declared on a virtual property was lost on an override that did not
+  repeat it — and the read type was then searched across every string property.** The declaration was read with
+  `PropertyInfo.IsDefined`, which ignores inheritance for properties; a read type whose declared properties were
+  all such overrides counted as declaring nothing, and `$search` matched its memos and tokens again. The same
+  lookup lost a `[Timestamp]` or `[ConcurrencyCheck]` declared on a virtual property, so `$metadata` advertised an
+  overriding row version as writable (no `Core.Computed`). Both now honour the declaration on the overridden
+  property. Nothing changes for a type that declares on the property it has.
+
+- **`Iyu.MainServer`: an `ODataRoutePrefix` written as a path (`"/odata"`) served the route but lost its error
+  bodies.** The OData routing drops the slashes; the check that decides which failures get an OData error object
+  did not, so a path naming no set, an unsupported verb, and a policy's `401`/`403` under that route were answered
+  with no body. The prefix is now stored without leading or trailing `/`, and every reader sees the same route.
+
 - **`Iyu.FileServer`: on Windows, an object being downloaded could be neither replaced nor deleted.**
   `FileSystemAttachmentStorage` opened objects for reading without sharing delete, and replaced them with the
   runtime's move, which refuses on Windows while the destination is open: during a download, `SaveAsync` (a
