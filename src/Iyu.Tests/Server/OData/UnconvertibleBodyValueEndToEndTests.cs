@@ -26,6 +26,7 @@ public sealed class TypedWidget : IyuEntity
     public DateTimeOffset At { get; set; }
     public TypedWidgetKind Kind { get; set; }
     public string Label { get; set; } = "";
+    public decimal Amount { get; set; }
 }
 
 public sealed class TypedWidgetExt : IyuEntity
@@ -37,6 +38,8 @@ public sealed class TypedWidgetExt : IyuEntity
     public TypedWidgetKind Kind { get; set; }
     [System.ComponentModel.DataAnnotations.StringLength(8, ErrorMessage = "Label is too long.")]
     public string Label { get; set; } = "";
+    [Iyu.Core.Attributes.DecimalDigits(6, 2)]
+    public decimal Amount { get; set; }
 }
 
 public sealed class TypedWidgetContext(DbContextOptions<TypedWidgetContext> options) : IyuDbContext(options)
@@ -243,6 +246,31 @@ public class UnconvertibleBodyValueEndToEndTests
             Assert.Equal("Label", detail.Target);
             Assert.Equal("Label is too long.", detail.Message);
             Assert.Equal(ODataErrorDetailCodes.ValidationFailed, detail.Code);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    /// <summary>
+    /// A value with more decimal places than the column keeps is refused like any value the model's rules refuse —
+    /// before, the write succeeded and the database rounded it to a number the caller never sent.
+    /// </summary>
+    [Fact]
+    public async Task A_value_beyond_its_declared_digits_is_refused_and_one_within_them_is_created()
+    {
+        var (app, _) = await StartAsync();
+        try
+        {
+            var client = app.GetTestServer().CreateClient();
+
+            using var beyond = await client.PostAsync("/$data/TypedWidgets", Json("""{"Label":"x","Amount":1.234}"""));
+            var refused = await ReadAsync(beyond);
+            Assert.Equal(ODataErrorCodes.InvalidBody, refused.Code);
+            var detail = Assert.Single(refused.Details);
+            Assert.Equal("Amount", detail.Target);
+            Assert.Equal(ODataErrorDetailCodes.ValidationFailed, detail.Code);
+
+            using var within = await client.PostAsync("/$data/TypedWidgets", Json("""{"Label":"x","Amount":1.20}"""));
+            Assert.Equal(System.Net.HttpStatusCode.Created, within.StatusCode);
         }
         finally { await app.DisposeAsync(); }
     }

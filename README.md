@@ -45,7 +45,7 @@ Declaring them once — in `GlobalUsings.cs`, or any file, with `global using` �
 usually less friction:
 
 ```csharp
-global using Iyu.Core.Attributes;   // Lookup, Rollup, Computed, Reference, Binding, Searchable
+global using Iyu.Core.Attributes;   // Lookup, Rollup, Computed, Reference, Binding, Searchable, DecimalDigits
 global using Iyu.Core.Entities;     // IyuEntity
 global using Iyu.Data;              // IyuDbContext
 global using Iyu.MainServer;        // IyuMainServerOptions
@@ -847,6 +847,13 @@ already holds the type.
 > selection can traverse between read types and there is nothing for either check to refuse. Set the
 > policies before that property exists rather than after — an expand path is not visible in a
 > response that succeeded.
+
+**A decimal column's digits are an input contract.** `[DecimalDigits(precision, scale)]` (`Iyu.Core.Attributes` —
+mdd-booster puts it on a model's `decimal(p,s)` field, as it puts `[StringLength]` on a `string(n)`) refuses a value with
+more than `scale` decimal places or `precision − scale` digits before the point: the data API answers `400 InvalidBody`
+with a `ValidationFailed` entry naming the field, where the database would otherwise round the extra places away (the
+caller reads back a number it never sent) or fail the write. Trailing zeros are not digits (`1.2000` fits two places);
+`null` is `[Required]`'s to judge.
 
 **`$search` — a searchable reference is searched only for a caller who may read it.** Marking a reference
 navigation `[Searchable]` (a single related read type, not a collection) makes `$search` match that type's searched

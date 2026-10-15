@@ -51,6 +51,11 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **`Iyu.Core`: `[DecimalDigits(precision, scale)]` — a `decimal(p,s)` column's digits as a validation rule.** A value
+  with more decimal places than the column keeps was accepted by the data API (`201`) and rounded by the database to a
+  number the caller never sent; one with too many integer digits failed the write instead of the validation. The
+  attribute refuses both as a model-validation failure (`400 InvalidBody`, a `ValidationFailed` entry naming the
+  field). Trailing zeros are not digits; `null` is left to `[Required]`. mdd-booster emits it on `decimal(p,s)` fields.
 - **`Iyu.MainServer`: an administrator can list and revoke every owner's service clients —
   `MapIyuServiceClientAdministration(policy)`.** A password reset and a signed-out session do not end the
   credentials an account issued, and until now only their owner could find or revoke them — the one person who
