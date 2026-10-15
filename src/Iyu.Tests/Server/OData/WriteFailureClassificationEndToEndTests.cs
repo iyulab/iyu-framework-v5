@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Iyu.Tests.Server.OData;
@@ -30,15 +31,18 @@ public sealed class SqlStateException(string? sqlState) : DbException("provider 
     public override string? SqlState { get; } = sqlState;
 }
 
-/// <summary>Fails every save with whatever <see cref="Failure"/> produces.</summary>
+/// <summary>
+/// Fails every asynchronous save with whatever <see cref="Failure"/> produces from this context — so a failure can carry the
+/// entries the save was writing, as EF's own does. The synchronous save is left working, for seeding.
+/// </summary>
 public sealed class ClassifiedWidgetContext(DbContextOptions<ClassifiedWidgetContext> options) : IyuDbContext(options)
 {
-    public static Func<Exception> Failure { get; set; } = () => new DbUpdateException("unset");
+    public static Func<ClassifiedWidgetContext, Exception> Failure { get; set; } = _ => new DbUpdateException("unset");
 
     public DbSet<ClassifiedWidget> Widgets => Set<ClassifiedWidget>();
     public DbSet<ClassifiedWidgetExt> WidgetsExt => Set<ClassifiedWidgetExt>();
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => throw Failure();
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => throw Failure(this);
 }
 
 public sealed class ClassifiedWidgetsController(ClassifiedWidgetContext ctx)
@@ -54,13 +58,19 @@ public class WriteFailureClassificationEndToEndTests
 {
     private const string Set = "ClassifiedWidgets";
 
-    private static async Task<HttpResponseMessage> PostAsync(Func<Exception> failure)
+    private static Task<HttpResponseMessage> PostAsync(Func<ClassifiedWidgetContext, Exception> failure)
+        => SendAsync(failure, client => client.PostAsJsonAsync($"/$data/{Set}", new { Name = "x" }));
+
+    private static async Task<HttpResponseMessage> SendAsync(
+        Func<ClassifiedWidgetContext, Exception> failure, Func<HttpClient, Task<HttpResponseMessage>> send, Guid? seed = null)
     {
         ClassifiedWidgetContext.Failure = failure;
+        // One database per app: configureDb runs per context, so a name made inside it would give each scope its own.
+        var dbName = "classified-" + Guid.NewGuid().ToString("N");
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddIyuMainServer<ClassifiedWidgetContext>(
-            configureDb: db => db.UseInMemoryDatabase("classified-" + Guid.NewGuid().ToString("N")),
+            configureDb: db => db.UseInMemoryDatabase(dbName),
             configure: options =>
             {
                 options.ControllerAssemblies.Add(typeof(ClassifiedWidgetsController).Assembly);
@@ -69,17 +79,27 @@ public class WriteFailureClassificationEndToEndTests
         await using var app = builder.Build();
         app.UseIyuMainServer();
         await app.StartAsync();
-        var response = await app.GetTestServer().CreateClient().PostAsJsonAsync($"/$data/{Set}", new { Name = "x" });
+        if (seed is { } id)
+        {
+            using var scope = app.Services.CreateScope();
+            var ctx = scope.ServiceProvider.GetRequiredService<ClassifiedWidgetContext>();
+            ctx.WidgetsExt.Add(new ClassifiedWidgetExt { Id = id, Name = "seed" });
+            ctx.Widgets.Add(new ClassifiedWidget { Id = id, Name = "seed" });
+            ctx.SaveChanges();
+        }
+        var response = await send(app.GetTestServer().CreateClient());
         await response.Content.LoadIntoBufferAsync();
         return response;
     }
 
-    private static Func<Exception> Refused(string? sqlState)
-        => () => new DbUpdateException("wrapper text that must not leak", new SqlStateException(sqlState));
+    /// <summary>The provider's refusal, carrying the entries the save was writing — as EF's own exception does.</summary>
+    private static Func<ClassifiedWidgetContext, Exception> Refused(string? sqlState)
+        => ctx => new DbUpdateException("wrapper text that must not leak", new SqlStateException(sqlState),
+            ctx.ChangeTracker.Entries().ToList());
 
     [Theory]
     [InlineData("23505", HttpStatusCode.Conflict, ODataErrorCodes.UniqueViolation)]
-    [InlineData("23503", HttpStatusCode.Conflict, ODataErrorCodes.ForeignKeyViolation)]
+    [InlineData("23503", HttpStatusCode.BadRequest, ODataErrorCodes.ReferenceMissing)] // a create removes nothing
     [InlineData("23502", HttpStatusCode.BadRequest, ODataErrorCodes.RequiredValueMissing)]
     [InlineData("22001", HttpStatusCode.BadRequest, ODataErrorCodes.ValueTooLong)]
     public async Task A_refusal_with_a_standard_sqlstate_says_which_kind_it_is(string sqlState, HttpStatusCode status, string code)
@@ -106,7 +126,7 @@ public class WriteFailureClassificationEndToEndTests
     [Fact]
     public async Task A_concurrency_conflict_says_so()
     {
-        using var response = await PostAsync(() => new DbUpdateConcurrencyException("must not leak"));
+        using var response = await PostAsync(_ => new DbUpdateConcurrencyException("must not leak"));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Contains($"\"code\":\"{ODataErrorCodes.ConcurrencyConflict}\"", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
@@ -119,12 +139,28 @@ public class WriteFailureClassificationEndToEndTests
     [Fact]
     public async Task A_write_rule_refusal_carries_the_rule_s_code_and_message()
     {
-        using var response = await PostAsync(() => new WriteRuleViolationException("VatTypeLocked", "Cannot change VAT handling after invoicing."));
+        using var response = await PostAsync(_ => new WriteRuleViolationException("VatTypeLocked", "Cannot change VAT handling after invoicing."));
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("\"code\":\"VatTypeLocked\"", body, StringComparison.Ordinal);
         Assert.Contains("Cannot change VAT handling after invoicing.", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same SQLSTATE on a delete is the other failure: the row is still referred to. That is the data's state, not the
+    /// request's value — a conflict, which clearing the references resolves.
+    /// </summary>
+    [Fact]
+    public async Task A_foreign_key_refusal_of_a_delete_is_a_conflict_with_the_references_still_there()
+    {
+        var id = Guid.NewGuid();
+        using var response = await SendAsync(Refused("23503"), client => client.DeleteAsync($"/$data/{Set}({id})"), seed: id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains($"\"code\":\"{ODataErrorCodes.ReferencedByOthers}\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("must not leak", body, StringComparison.Ordinal);
     }
 
     [Fact]

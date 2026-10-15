@@ -641,7 +641,8 @@ what kind it was, read from the standard SQLSTATE class the provider reports thr
 | The data store refused the write because | Status | `code` |
 |---|---|---|
 | another row already has a value that must be unique (`23505`) | `409` | `UniqueViolation` |
-| it refers to a row that does not exist, or removes one others refer to (`23503`) | `409` | `ForeignKeyViolation` |
+| it removes a row others still refer to (`23503` on a write that removes a row) | `409` | `ReferencedByOthers` |
+| it writes a reference to a row that does not exist (`23503` on a write that removes nothing) | `400` | `ReferenceMissing` |
 | a value it requires is missing (`23502`) | `400` | `RequiredValueMissing` |
 | a value is longer than its column (`22001`) | `400` | `ValueTooLong` |
 | the row changed since it was read (`DbUpdateConcurrencyException`) | `409` | `ConcurrencyConflict` |

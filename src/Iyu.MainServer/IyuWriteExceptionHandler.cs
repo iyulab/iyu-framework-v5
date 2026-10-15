@@ -20,8 +20,12 @@ namespace Iyu.MainServer;
 /// <para>
 /// <b>The data store's refusal</b> (<see cref="DbUpdateException"/>) is classified by the standard SQLSTATE class the
 /// provider reports through ADO.NET's <see cref="DbException.SqlState"/>, which keeps this framework provider-neutral
-/// (no Npgsql or SqlClient reference): a unique or foreign-key violation is <c>409</c>, a missing required value or a
-/// value too long for its column <c>400</c>, each with its own code (<see cref="ODataErrorCodes"/>). A concurrency
+/// (no Npgsql or SqlClient reference): a unique violation is <c>409</c>, a missing required value or a value too long
+/// for its column <c>400</c>, each with its own code (<see cref="ODataErrorCodes"/>). A foreign-key violation is two
+/// failures with one SQLSTATE, told apart by what the failed write did — EF's own record of it
+/// (<see cref="DbUpdateException.Entries"/>): removing a row others still refer to is the data's current state,
+/// <c>409 ReferencedByOthers</c>; writing a reference to a row that does not exist is the request's value,
+/// <c>400 ReferenceMissing</c>. A concurrency
 /// conflict is <c>409 ConcurrencyConflict</c>. Anything else — a provider that reports no SQLSTATE (SQL Server's client
 /// does not), or a class not named here — stays the neutral <c>409 Conflict</c>. The provider's text never reaches
 /// the caller. An application classifies what this does not by registering its own <see cref="IExceptionHandler"/>
@@ -44,7 +48,7 @@ public sealed class IyuWriteExceptionHandler : IExceptionHandler
             DbUpdateConcurrencyException => new Answer(StatusCodes.Status409Conflict, ODataErrorCodes.ConcurrencyConflict,
                 "The data changed since it was read.",
                 "The row was changed or removed after it was read. Read it again and decide whether to reapply."),
-            DbUpdateException update => Classify(SqlStateOf(update)),
+            DbUpdateException update => Classify(SqlStateOf(update), update),
             _ => null,
         };
         if (answer is null) return false;
@@ -76,14 +80,21 @@ public sealed class IyuWriteExceptionHandler : IExceptionHandler
         return null;
     }
 
-    private static Answer Classify(string? sqlState) => sqlState switch
+    private static Answer Classify(string? sqlState, DbUpdateException update) => sqlState switch
     {
         "23505" => new(StatusCodes.Status409Conflict, ODataErrorCodes.UniqueViolation,
             "The write conflicts with the current state of the data.",
             "Another row already has a value that must be unique."),
-        "23503" => new(StatusCodes.Status409Conflict, ODataErrorCodes.ForeignKeyViolation,
+        // One SQLSTATE, two failures. A removal among the failed entries is the row others still refer to — the data's
+        // state, which clearing those references changes. Otherwise the write named a row that does not exist — the
+        // request's value, which sending it again never changes. A batch that mixes both is answered as the removal.
+        "23503" when update.Entries.Any(e => e.State == EntityState.Deleted) => new(StatusCodes.Status409Conflict,
+            ODataErrorCodes.ReferencedByOthers,
             "The write conflicts with the current state of the data.",
-            "The write refers to a row that does not exist, or removes a row that others still refer to."),
+            "The row is still referred to by other rows. Remove or change those references first."),
+        "23503" => new(StatusCodes.Status400BadRequest, ODataErrorCodes.ReferenceMissing,
+            "The write refers to a row that does not exist.",
+            "A reference names a row that does not exist."),
         "23502" => new(StatusCodes.Status400BadRequest, ODataErrorCodes.RequiredValueMissing,
             "The write is missing a required value.",
             "A value the data requires is missing."),

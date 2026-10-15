@@ -57,10 +57,17 @@ public static class ODataErrorCodes
     public const string UniqueViolation = "UniqueViolation";
 
     /// <summary>
-    /// <c>409</c> — the data store refused the write: it refers to a row that does not exist, or removes a row others
-    /// still refer to (SQLSTATE <c>23503</c>).
+    /// <c>400</c> — the data store refused the write: a reference it writes names a row that does not exist (SQLSTATE
+    /// <c>23503</c>, on a write that removes nothing). The request's value is wrong; sending it again fails the same way.
     /// </summary>
-    public const string ForeignKeyViolation = "ForeignKeyViolation";
+    public const string ReferenceMissing = "ReferenceMissing";
+
+    /// <summary>
+    /// <c>409</c> — the data store refused the write: it removes a row other rows still refer to (SQLSTATE <c>23503</c>,
+    /// on a write that removes a row). The data's state is in the way; once those references are gone the same request
+    /// succeeds.
+    /// </summary>
+    public const string ReferencedByOthers = "ReferencedByOthers";
 
     /// <summary><c>400</c> — the data store refused the write: a value it requires is missing (SQLSTATE <c>23502</c>).</summary>
     public const string RequiredValueMissing = "RequiredValueMissing";

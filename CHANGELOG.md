@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
 
 ### Added
 
@@ -43,6 +43,15 @@ onward; earlier entries state the same consequence in prose where it applies.
   with no read policy, so the feature is published there too. A host with a read policy runs it already.
 
 ### Changed
+
+- 🔇 **`Iyu.MainServer`: a foreign-key refusal says which of its two failures it was.** SQLSTATE `23503` was always
+  `409 ForeignKeyViolation` — one code for a write that names a row that does not exist (the request's value: sending it
+  again fails the same way) and a delete of a row others still refer to (the data's state: clearing the references
+  resolves it). They are told apart by what the failed write did, from EF's own record of it
+  (`DbUpdateException.Entries`): a removal among them is **`409 ReferencedByOthers`**, otherwise **`400 ReferenceMissing`**
+  (a mixed batch is answered as the removal). 🔴 **Breaking**: `ODataErrorCodes.ForeignKeyViolation` is gone — read the
+  two new codes; a client that retried every `409` no longer retries a wrong reference. SQL Server, whose client reports
+  no SQLSTATE, is unchanged (`409 Conflict`).
 
 - 🔇 **`Iyu.MainServer`: a `$search` nested where its rows belong to no entity set is refused `400`** on a host whose
   reads are checked — under a `$select`ed property, or in a `$count` over a collection that is not a navigation. What
