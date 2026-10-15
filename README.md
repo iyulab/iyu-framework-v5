@@ -1225,6 +1225,9 @@ A collection on a read type (`ICollection<CommentExt> Comments`) is a connection
 element type's query field: a page of parents carries at most one page of each parent's children,
 in key order, and a client walks the rest with `after`. Each parent's page is read by its own query,
 so a selection that names a collection costs one query per parent on the page — keep such pages small.
+The executor's cost analysis counts the nesting the same way: with both pages left at their defaults a
+nested selection usually exceeds the maximum cost and is refused (`HC0047`), so a client names `first`
+on both levels (`states(first: 10) { nodes { assets(first: 5) { … } } }`).
 
 A connection always has a page, so neither value can be `null`; a small list is served whole by a
 page at least as large as the list. HotChocolate's cost analysis applies on top of these bounds — a
