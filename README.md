@@ -145,6 +145,8 @@ grants that are on, and `unsupported_grant_type` for the rest — and, with serv
 session cookie: a bearer token — a person's or a service client's — never manages service clients, even when
 the host narrows the group with a permission policy that accepts bearer tokens
 (`app.MapGroup("").RequireAuthorization("identity.admin").MapIyuIdentity()` narrows who; it does not widen how).
+The host's policy is met by the person whose session it is — the person the endpoints act for: a bearer token
+that holds the permission, presented beside the session cookie of someone who does not, is answered `403`.
 
 **An administrator's view of every owner's service clients** is mapped separately, behind a policy the host
 names — the framework knows no administrator:

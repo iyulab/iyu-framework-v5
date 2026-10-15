@@ -253,6 +253,32 @@ public class ServiceClientAdministrationTests
         Assert.Equal(HttpStatusCode.Created, cookie.StatusCode);
     }
 
+    /// <summary>
+    /// The host's policy on the owner endpoints is met by the person whose session it is, as the administration
+    /// endpoints' is. A permission policy names the bearer scheme as well as the cookie, so the request's merged principal
+    /// met it with an administrator's bearer token while the endpoint acted for the session cookie beside it — and a
+    /// credential was issued in the name of an account that holds no right to issue one.
+    /// </summary>
+    [Fact]
+    public async Task An_administrator_s_bearer_token_beside_someone_else_s_session_cookie_does_not_meet_the_host_s_policy()
+    {
+        await using var host = await StartAsync(app => app.MapGroup("").RequireAuthorization(AdminPermission).MapIyuIdentity());
+        var othersCookie = await host.CookieAsync(host.Other);
+        var adminBearer = await host.BearerAsync(host.Admin);
+
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/service-clients",
+            cookies: othersCookie, bearer: adminBearer, content: NewClient);
+        using var listed = await host.SendAsync(HttpMethod.Get, "/api/service-clients", cookies: othersCookie, bearer: adminBearer);
+
+        Assert.Equal(HttpStatusCode.Forbidden, created.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, listed.StatusCode);
+        Assert.Empty(await host.Store.ListServiceClientsByOwnerAsync(host.Other, default));
+        // The administrator's own session meets it, with or without someone's bearer token beside it.
+        using var admin = await host.SendAsync(HttpMethod.Post, "/api/service-clients",
+            cookies: await host.CookieAsync(host.Admin), bearer: await host.BearerAsync(host.Other), content: NewClient);
+        Assert.Equal(HttpStatusCode.Created, admin.StatusCode);
+    }
+
     // ── issuance on a service account's behalf ───────────────────────────────────────────────────────────────────
 
     private static JsonContent IssueFor(Guid owner, params string[] permissions)

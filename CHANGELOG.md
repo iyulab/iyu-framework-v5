@@ -29,7 +29,19 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.DocConvert`
+**Packages affected:** `Iyu.DocConvert`, `Iyu.MainServer`
+
+### Security
+
+- 🔴 **`Iyu.MainServer`: a host's policy on the owner's service-client endpoints is met by the person whose session it
+  is.** The endpoints act for the session cookie's person, but a policy the host put on the group
+  (`app.MapGroup("").RequireAuthorization("identity.admin").MapIyuIdentity()`) was checked against the request's merged
+  principal — so an administrator's bearer token presented beside the session cookie of an account without that
+  permission met the policy, and `POST /api/service-clients` issued a credential in that account's name (within its
+  permissions, but by someone it never authorized). Every requirement on these endpoints is now checked against the
+  session cookie's principal alone, and the request is answered `403`. The administration endpoints
+  (`MapIyuServiceClientAdministration`), which already refused this combination, now use the same rule. A host whose
+  administrators manage service clients from their own session sees no change.
 
 ### Changed
 

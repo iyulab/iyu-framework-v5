@@ -1,7 +1,5 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -86,13 +84,11 @@ public static class IdentityEndpointRouteExtensions
             throw new InvalidOperationException(
                 "Service-client administration needs service clients turned on: call services.AddIyuServiceClients().");
 
-        // The policy is met by the person whose session cookie it is — not by a bearer token presented beside it. Both
-        // schemes are asked, as a permission's policy asks them, so a caller with only a bearer token is answered 403.
+        // The policy is met by the person whose session cookie it is — not by a bearer token presented beside it: the
+        // cookie policy checks every requirement on the endpoint again against the cookie's principal alone
+        // (SessionCookieRequirement), the same rule the owner's endpoints follow under a host's policy.
         var admin = app.MapGroup("/api/admin/service-clients")
-            .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName)
-            .RequireAuthorization(p => p
-                .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme)
-                .AddRequirements(new SessionCookiePolicyRequirement(policy)));
+            .RequireAuthorization(IyuIdentityServiceCollectionExtensions.CookiePolicyName, policy);
         admin.MapGet("", async (Guid? owner, Guid? issuer, ServiceClientService svc, CancellationToken ct) =>
         {
             var clients = owner is { } id ? await svc.ListAsync(id, ct) : await svc.ListAllAsync(ct);
