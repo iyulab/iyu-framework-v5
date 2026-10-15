@@ -51,6 +51,55 @@ public sealed class DocConvertServiceExtensionsTests
         Assert.Equal(TimeSpan.FromSeconds(45), client.Timeout);
     }
 
+    // A base URL without a scheme parses: "localhost:3000" reads as the scheme "localhost". The
+    // mistake then surfaced on the first conversion as the NotSupportedException the contract
+    // reserves for an unhandled content type — a configuration error reported as a document one.
+    [Theory]
+    [InlineData("localhost:3000")]
+    [InlineData("gotenberg:3000")]
+    [InlineData("/gotenberg")]
+    [InlineData("ftp://gotenberg.internal")]
+    [InlineData("")]
+    public void A_base_url_that_is_not_an_absolute_http_url_is_refused_at_registration(string baseUrl)
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentException>(() => services.AddIyuDocConvert(o => o.BaseUrl = baseUrl));
+
+        Assert.Contains("GotenbergOptions.BaseUrl", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("http://gotenberg.internal:3000")]
+    [InlineData("https://gotenberg.example/convert/")]
+    public void An_absolute_http_or_https_base_url_is_accepted(string baseUrl)
+    {
+        var services = new ServiceCollection();
+
+        services.AddIyuDocConvert(o => o.BaseUrl = baseUrl);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void A_timeout_that_is_not_positive_is_refused_at_registration(int seconds)
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => services.AddIyuDocConvert(o => o.Timeout = TimeSpan.FromSeconds(seconds)));
+
+        Assert.Contains("GotenbergOptions.Timeout", ex.Message);
+    }
+
+    [Fact]
+    public void An_infinite_timeout_is_accepted()
+    {
+        var services = new ServiceCollection();
+
+        services.AddIyuDocConvert(o => o.Timeout = Timeout.InfiniteTimeSpan);
+    }
+
     [Fact]
     public void GotenbergOptions_is_registered_for_the_host_to_read_back()
     {

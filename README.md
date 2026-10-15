@@ -1569,7 +1569,10 @@ using var pdf = await converter.ConvertToPdfAsync(
 
 Requires a running Gotenberg instance — `docker run --rm -p 3000:3000 gotenberg/gotenberg:8`
 is the whole setup; this fits the on-prem-first deployment `AddIyuMainServer` already assumes
-(the same pattern as pointing `UseSqlServer` at a connection string). `sourceContentType` must
+(the same pattern as pointing `UseSqlServer` at a connection string). `BaseUrl` must be an absolute
+`http`/`https` URL and `Timeout` positive — `AddIyuDocConvert` throws `ArgumentException` at
+startup otherwise, rather than letting a scheme-less `localhost:3000` fail later as an unsupported
+document. `sourceContentType` must
 be one of the MIME types `GotenbergDocumentConverter` maps to a LibreOffice-readable extension
 (`.docx`/`.xlsx`/`.pptx`, legacy `.doc`/`.xls`/`.ppt`, OpenDocument `.odt`/`.ods`/`.odp`,
 `.csv`/`.txt`/`.rtf`) — an unrecognized type throws `NotSupportedException` rather than

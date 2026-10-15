@@ -27,6 +27,19 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.DocConvert`
+
+### Changed
+
+- **`Iyu.DocConvert`: `AddIyuDocConvert` refuses a `GotenbergOptions` it cannot use, at registration instead of on the
+  first conversion.** A `BaseUrl` without a scheme still parses — `localhost:3000` reads as the scheme `localhost` — so
+  the mistake surfaced on the first conversion as the `NotSupportedException` the contract reserves for a content type
+  the converter does not handle: a configuration error reported as a document one. `BaseUrl` must now be an absolute
+  `http` or `https` URL and `Timeout` must be positive (or `Timeout.InfiniteTimeSpan`); anything else throws
+  `ArgumentException` naming the option and the value. A host whose configuration was already valid sees no change.
+
 ## [0.39.0] - 2026-10-15
 
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect` (new), `Iyu.Report`, `Iyu.Server.OData`
