@@ -113,6 +113,19 @@ public sealed class IyuMainServerOptions
     public bool? IncludeODataErrorDetails { get; set; }
 
     /// <summary>
+    /// Whether every OData read works out which entity sets it reaches, and publishes them as
+    /// <see cref="IIyuODataReachFeature"/>, on a host where no entity set has a read policy. A host with one does this on
+    /// every read already — its read authorization is built on that answer — so for it this setting changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// Turning it on brings the check's refusals with it: a query it cannot account for in full — an expression it
+    /// cannot interpret, an option given under both spellings, a navigation to data no set serves — is answered 400
+    /// instead of being run. That is the point rather than a side effect: a host that records what each request read
+    /// cannot record a request whose reach is unknown, for the same reason the read authorization cannot authorize one.
+    /// </remarks>
+    public bool ComputeODataReach { get; set; }
+
+    /// <summary>
     /// Extra assemblies whose controllers must be registered as MVC application
     /// parts. <c>AddIyuMainServer</c> already auto-registers the assemblies of the
     /// <c>TContext</c> and of the registration callback's declaring type — which

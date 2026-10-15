@@ -840,6 +840,31 @@ Authorization does not rest on that number either way: the check walks an expand
 a set is authorized however deep it is reached, and raising the ceiling does not widen what a
 caller can see without the policy.
 
+**What a request reached is handed on too.** A host that records reads — an access log, an audit
+trail, data lineage — needs the answer this check works from, not an approximation of it:
+`HttpContext.Features.Get<IIyuODataReachFeature>()` carries the `EntitySet` the request addressed and
+the `ReachedEntitySets` its navigations and its search read (ordinal order — empty when it read only
+the addressed set). Reached means read, not returned: `Orders?$filter=Customer/TaxId eq '…'` reaches
+`Customers` though no customer row is in the response, and so does a `$search` that matches a
+searchable reference's text — only the references the search follows for this caller. Read it after
+the request has run, from your own middleware:
+
+```csharp
+app.Use(async (http, next) =>
+{
+    await next();
+    if (http.Features.Get<IIyuODataReachFeature>() is { } reach)
+        accessLog.Record(http.User, reach.EntitySet, reach.ReachedEntitySets, http.Response.StatusCode);
+});
+```
+
+It is set before any read policy is evaluated, so a request refused with `401`/`403` carries the
+sets it tried to reach. It is absent when the reach was not determined — a query refused with `400`
+as one the check cannot account for (nothing was read), a request outside the OData read actions.
+The check runs whenever any set has a read policy; on a host with none, set
+`options.ComputeODataReach = true` — which brings the check's `400` refusals along, for the same
+reason the authorization needs them: a request whose reach is unknown cannot be recorded either.
+
 **GraphQL — the policy is on the object type, not only on the root field.** The read policy
 attaches to the query field *and* to the read type it returns. A field on some other type that
 returns the protected type reaches the data without the root field's resolver being involved, so a

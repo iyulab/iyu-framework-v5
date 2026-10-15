@@ -27,6 +27,28 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.MainServer`
+
+### Added
+
+- **`Iyu.MainServer`: `IIyuODataReachFeature` — the entity sets an OData read reached, for a host that records reads.**
+  `HttpContext.Features.Get<IIyuODataReachFeature>()` carries the `EntitySet` the request addressed and the
+  `ReachedEntitySets` its navigations (in any option, at any depth) and its search into searchable references read —
+  the answer the read authorization already works from, so an access log or audit trail no longer re-parses the query
+  string and disagrees with it. Set before the read policies are evaluated (a `401`/`403` carries what was tried);
+  absent when the reach was not determined (a query refused `400`). README: «What a request reached is handed on too».
+- **`Iyu.MainServer`: `IyuMainServerOptions.ComputeODataReach`** — runs the navigation check on every read of a host
+  with no read policy, so the feature is published there too. A host with a read policy runs it already.
+
+### Changed
+
+- 🔇 **`Iyu.MainServer`: a `$search` nested where its rows belong to no entity set is refused `400`** on a host whose
+  reads are checked — under a `$select`ed property, or in a `$count` over a collection that is not a navigation. What
+  such a search might match could not be accounted for; the same rule already refused any construct the check has no
+  rule for.
+
 ## [0.40.0] - 2026-10-15
 
 **Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Server.OData`

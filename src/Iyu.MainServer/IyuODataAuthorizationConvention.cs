@@ -12,7 +12,9 @@ namespace Iyu.MainServer;
 /// <c>DeletePolicy</c> when one was supplied, falling back to <c>WritePolicy</c>. The counterpart of
 /// <c>IyuGraphQLPolicyAuthorizationHandler</c> (Iyu.Server.GraphQL); wired automatically by
 /// <see cref="MainServerExtensions.AddIyuMainServer{TContext}"/> whenever any registered set uses
-/// <c>RestrictPolicy</c>, so there is no separate step for a consumer to remember or forget.
+/// <c>RestrictPolicy</c>, so there is no separate step for a consumer to remember or forget — and, for the
+/// navigation check alone, when <see cref="IyuMainServerOptions.ComputeODataReach"/> asks for the reach on a host
+/// with no policy.
 /// </summary>
 internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry registry) : IControllerModelConvention
 {

@@ -155,7 +155,10 @@ public static class MainServerExtensions
         // its own authorization bridge. AddAuthorizationCore
         // guarantees a working IAuthorizationService even for a consumer that calls
         // RestrictPolicy without ever calling AddIyuIdentity.
-        if (options.ODataModel.Registry.All.Any(p => p.ReadPolicy is not null || p.WritePolicy is not null))
+        // ComputeODataReach attaches the same convention on a host with no policy: the navigation check that read
+        // authorization runs on is also what publishes the reach (IIyuODataReachFeature).
+        if (options.ComputeODataReach
+            || options.ODataModel.Registry.All.Any(p => p.ReadPolicy is not null || p.WritePolicy is not null))
         {
             services.AddAuthorizationCore();
             mvc.AddMvcOptions(o => o.Conventions.Add(

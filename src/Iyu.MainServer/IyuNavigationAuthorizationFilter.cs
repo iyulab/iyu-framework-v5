@@ -61,7 +61,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
 
-        await AllowReadableSearchReferencesAsync(context.HttpContext);
+        var searchAllowed = await AllowReadableSearchReferencesAsync(context.HttpContext);
 
         var request = context.HttpContext.Request;
         var given = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -79,22 +79,15 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             }
             given["$" + option] = values[0];
         }
-        if (given.Count == 0)
-        {
-            await next();
-            return;
-        }
 
         var services = context.HttpContext.RequestServices;
         var registry = services.GetService<IyuEntityPairRegistry>();
-        var authorization = services.GetService<IAuthorizationService>();
         var model = context.HttpContext.ODataFeature().Model;
 
-        // Nothing to enforce against, or nothing to enforce with. Not a silent pass: the filter is
-        // only ever attached when some registered set carries a policy, so this means the request
-        // arrived outside the pipeline the attachment assumed, and the addressed action's own
-        // AuthorizeFilter still applies.
-        if (registry is null || authorization is null || model is null)
+        // Nothing to work the reach out against. Not a silent pass: the filter is only ever attached
+        // through AddIyuMainServer, which registers both, so this means the request arrived outside the
+        // pipeline the attachment assumed, and the addressed action's own AuthorizeFilter still applies.
+        if (registry is null || model is null)
         {
             await next();
             return;
@@ -104,10 +97,10 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         foreach (var alias in request.Query.Where(q => q.Key.StartsWith('@')))
             given[alias.Key] = alias.Value.ToString();
 
-        IReadOnlyCollection<string> reached;
+        Reach reach;
         try
         {
-            reached = ReachedSetNames(model, setName, given, request.GetRouteServices());
+            reach = given.Count == 0 ? new Reach() : ReachedSets(model, setName, given, request.GetRouteServices());
         }
         catch (UninterpretedQueryException refused)
         {
@@ -115,18 +108,31 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             return;
         }
 
-        foreach (var target in reached)
+        // Every navigation the model keeps is bound to a registered set — navigations to types no
+        // set serves are dropped when the model is built. One that still reaches no registered set
+        // has no read policy to apply, and allowing it would serve rows nothing declared a policy
+        // for; refuse it rather than treating "no set" like "an open set".
+        if (reach.Sets.Any(target => registry.Find(target) is null))
         {
-            // Every navigation the model keeps is bound to a registered set — navigations to types no
-            // set serves are dropped when the model is built. One that still reaches no registered set
-            // has no read policy to apply, and allowing it would serve rows nothing declared a policy
-            // for; refuse it rather than treating "no set" like "an open set".
-            if (registry.Find(target) is not { } pair)
-            {
-                context.Result = Refusal("The query reaches data no entity set of this API serves and was refused.");
-                return;
-            }
-            var policy = pair.ReadPolicy;
+            context.Result = Refusal("The query reaches data no entity set of this API serves and was refused.");
+            return;
+        }
+
+        // Published before any policy is evaluated: a refused request is a record of what was tried.
+        if (OptionValues(request, "search").Count > 0) reach.Searched.Add(setName);
+        context.HttpContext.Features.Set<IIyuODataReachFeature>(new IyuODataReachFeature(
+            setName, PublishedReach(registry, setName, reach, searchAllowed)));
+
+        if (services.GetService<IAuthorizationService>() is not { } authorization)
+        {
+            // Attached for the reach alone (ComputeODataReach) on a host with nothing to authorize with.
+            await next();
+            return;
+        }
+
+        foreach (var target in reach.Sets)
+        {
+            var policy = registry.Find(target)!.ReadPolicy;
             if (policy is null) continue;
 
             var result = await authorization.AuthorizeAsync(context.HttpContext.User, policy);
@@ -191,31 +197,60 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
     /// is the server's declaration — refusing the whole search would take search away from everyone who may not read
     /// one referenced set. The binder names what it left out in a response header.
     /// </para>
+    /// <para>
+    /// Returns what it listed — <see langword="null"/> when it listed nothing — so the published reach is worked out
+    /// from the list the binder will read, not from a second evaluation of the same policies.
+    /// </para>
     /// </remarks>
-    private async Task AllowReadableSearchReferencesAsync(HttpContext http)
+    private async Task<IReadOnlySet<string>?> AllowReadableSearchReferencesAsync(HttpContext http)
     {
         var services = http.RequestServices;
         if (services.GetService<IyuEntityPairRegistry>() is not { } registry
             || services.GetService<IyuSearch>() is not { } search
-            || registry.Find(setName) is not { } addressed) return;
+            || registry.Find(setName) is not { } addressed) return null;
 
         // The same decision IyuSearch makes for an endpoint outside OData — one home for «which references may this
         // caller search».
         // Listed for the addressed type alone. A search that binds another type (one nested in an expand) finds
         // nothing listed for it, and leaves that type's protected references out.
+        var allowed = await search.AllowedNavigationsAsync(addressed.ReadType, http.User);
         http.Items[IyuStringSearchBinder.AllowedNavigationsItem] = new Dictionary<Type, IReadOnlySet<string>>
         {
-            [addressed.ReadType] = await search.AllowedNavigationsAsync(addressed.ReadType, http.User),
+            [addressed.ReadType] = allowed,
         };
+        return allowed;
+    }
+
+    /// <summary>
+    /// The sets the request reads besides the one it addressed: those its navigations reach, and those each search in it
+    /// matches through a searchable reference — decided by the binder's own rule
+    /// (<see cref="IyuStringSearchBinder.Partition"/>) over the same allowance the binder reads, so the record names
+    /// exactly the references the search follows. What a search matches does not depend on its text, only on the type
+    /// it binds and the allowance for that type: the addressed type's when the search binds it, none otherwise — the
+    /// binder looks the allowance up by type, and only the addressed type is listed.
+    /// </summary>
+    private static IReadOnlyList<string> PublishedReach(
+        IyuEntityPairRegistry registry, string addressedSet, Reach reach, IReadOnlySet<string>? searchAllowed)
+    {
+        var sets = new HashSet<string>(reach.Sets, StringComparer.Ordinal);
+        var addressedType = registry.Find(addressedSet)?.ReadType;
+        foreach (var searchedSet in reach.Searched)
+        {
+            if (registry.Find(searchedSet) is not { } searched) continue;
+            var allowed = searched.ReadType == addressedType ? searchAllowed : null;
+            foreach (var navigation in IyuStringSearchBinder.Partition(registry, searched.ReadType, allowed).Followed)
+                sets.Add(registry.FindByReadType(navigation.PropertyType)!.SetName);
+        }
+        return sets.Order(StringComparer.Ordinal).ToList();
     }
 
     /// <summary>A query this filter could not account for in full — refused, with words for the caller.</summary>
     private sealed class UninterpretedQueryException(string message) : Exception(message);
 
     /// <summary>
-    /// Parses the request's path-naming options against the EDM and returns the name of every entity set a
-    /// navigation in them reaches, at any depth. A parsed navigation names its target navigation source directly, so
-    /// no mapping from property name to set has to be reinvented here.
+    /// Parses the request's path-naming options against the EDM and collects the name of every entity set a
+    /// navigation in them reaches, at any depth, and of every set a search nested in them binds. A parsed navigation
+    /// names its target navigation source directly, so no mapping from property name to set has to be reinvented here.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -228,7 +263,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
     /// remain; this keeps them from firing on ordinary input.
     /// </para>
     /// </remarks>
-    private static IReadOnlyCollection<string> ReachedSetNames(
+    private static Reach ReachedSets(
         IEdmModel model, string setName, Dictionary<string, string> options, IServiceProvider? routeServices)
     {
         var entitySet = model.EntityContainer?.FindEntitySet(setName)
@@ -249,7 +284,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         {
             foreach (var value in parser.ParameterAliasNodes.Values) reach.Visit(value);
         });
-        return reach.Sets;
+        return reach;
     }
 
     private static void Interpret(string option, Action parse)
@@ -284,6 +319,12 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
     {
         public HashSet<string> Sets { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// The sets whose type a search binds — the search may match a searchable reference of that type, which the
+        /// caller resolves (the walk has no registry). The addressed set's own search is added by the caller.
+        /// </summary>
+        public HashSet<string> Searched { get; } = new(StringComparer.Ordinal);
+
         // An unbound navigation has no set; recorded as an empty name, which no set has, so the caller refuses it
         // instead of skipping it.
         private void Reached(IEdmNavigationSource? source) => Sets.Add(source?.Name ?? "");
@@ -305,7 +346,18 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             foreach (var item in clause.ComputedItems) Visit(item.Expression);
         }
 
-        public void Walk(SearchClause? clause) => Visit(clause?.Expression);
+        /// <summary>
+        /// A search over the rows of <paramref name="owner"/>. It names no path itself, but it may match a searchable
+        /// reference of the owner's type — so the owner is recorded. A search whose rows belong to no set this walk can
+        /// name may follow references nothing here can account for, and is refused like any construct without a rule.
+        /// </summary>
+        private void Walk(SearchClause? clause, IEdmNavigationSource? owner)
+        {
+            if (clause is null) return;
+            if (owner is null) throw new NotImplementedException();
+            Searched.Add(owner.Name);
+            Visit(clause.Expression);
+        }
 
         public void Walk(SelectExpandClause? clause)
         {
@@ -321,7 +373,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
                         Walk(navigation.OrderByOption);
                         Walk(navigation.ComputeOption);
                         Walk(navigation.ApplyOption);
-                        Walk(navigation.SearchOption);
+                        Walk(navigation.SearchOption, navigation.NavigationSource);
                         Walk(navigation.SelectAndExpand);
                         break;
                     case ExpandedReferenceSelectItem reference:                  // includes $expand=Nav/$count
@@ -331,14 +383,15 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
                         Walk(reference.OrderByOption);
                         Walk(reference.ComputeOption);
                         Walk(reference.ApplyOption);
-                        Walk(reference.SearchOption);
+                        Walk(reference.SearchOption, reference.NavigationSource);
                         break;
                     case PathSelectItem path:
                         Walk(path.SelectedPath);
                         Walk(path.FilterOption);
                         Walk(path.OrderByOption);
                         Walk(path.ComputeOption);
-                        Walk(path.SearchOption);
+                        // A selected property's rows are not a set's rows — a search there has no owner to name.
+                        Walk(path.SearchOption, owner: null);
                         Walk(path.SelectAndExpand);
                         break;
                     case WildcardSelectItem or NamespaceQualifiedWildcardSelectItem:
@@ -441,7 +494,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         {
             Visit(nodeIn.Source);
             Walk(nodeIn.FilterClause);
-            Walk(nodeIn.SearchClause);
+            Walk(nodeIn.SearchClause, (nodeIn.Source as CollectionNavigationNode)?.NavigationSource);
             return true;
         }
 
