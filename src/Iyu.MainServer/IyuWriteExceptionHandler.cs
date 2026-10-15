@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Iyu.Data;
 using Iyu.Data.WriteRules;
 using Iyu.Server.OData;
 using Microsoft.AspNetCore.Diagnostics;
@@ -26,8 +27,9 @@ namespace Iyu.MainServer;
 /// (<see cref="DbUpdateException.Entries"/>): removing a row others still refer to is the data's current state,
 /// <c>409 ReferencedByOthers</c>; writing a reference to a row that does not exist is the request's value,
 /// <c>400 ReferenceMissing</c>. A concurrency
-/// conflict is <c>409 ConcurrencyConflict</c>. Anything else — a provider that reports no SQLSTATE (SQL Server's client
-/// does not), or a class not named here — stays the neutral <c>409 Conflict</c>. The provider's text never reaches
+/// conflict is <c>409 ConcurrencyConflict</c>. A provider that reports no SQLSTATE is translated by a registered
+/// <see cref="ISqlStateTranslator"/> (SQL Server's: <c>Iyu.Data.SqlServer</c>). Anything else — no SQLSTATE and no
+/// translation, or a class not named here — stays the neutral <c>409 Conflict</c>. The provider's text never reaches
 /// the caller. An application classifies what this does not by registering its own <see cref="IExceptionHandler"/>
 /// before <c>AddIyuMainServer</c>: handlers are asked in registration order.
 /// </para>
@@ -36,8 +38,10 @@ namespace Iyu.MainServer;
 /// fallback turns it into a structured — if generic — 500.
 /// </para>
 /// </remarks>
-public sealed class IyuWriteExceptionHandler : IExceptionHandler
+public sealed class IyuWriteExceptionHandler(IEnumerable<ISqlStateTranslator> translators) : IExceptionHandler
 {
+    private readonly ISqlStateTranslator[] _translators = translators.ToArray();
+
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
@@ -70,12 +74,18 @@ public sealed class IyuWriteExceptionHandler : IExceptionHandler
 
     private sealed record Answer(int Status, string Code, string Title, string Detail);
 
-    /// <summary>The SQLSTATE the provider's exception inside <paramref name="exception"/> reports, if any.</summary>
-    private static string? SqlStateOf(Exception exception)
+    /// <summary>
+    /// The SQLSTATE of the provider's exception inside <paramref name="exception"/> — as it reports it, or as a
+    /// registered translator names it — if any.
+    /// </summary>
+    private string? SqlStateOf(Exception exception)
     {
         for (var current = exception.InnerException; current is not null; current = current.InnerException)
         {
-            if (current is DbException { SqlState: { Length: > 0 } state }) return state;
+            if (current is not DbException db) continue;
+            if (db.SqlState is { Length: > 0 } state) return state;
+            foreach (var translator in _translators)
+                if (translator.SqlStateOf(db) is { Length: > 0 } translated) return translated;
         }
         return null;
     }

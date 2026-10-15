@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Iyu.Core\Iyu.Core.csproj" />
     <ProjectReference Include="..\Iyu.Data\Iyu.Data.csproj" />
+    <ProjectReference Include="..\Iyu.Data.SqlServer\Iyu.Data.SqlServer.csproj" />
     <ProjectReference Include="..\Iyu.MainServer\Iyu.MainServer.csproj" />
     <ProjectReference Include="..\Iyu.MainServer.GraphQL\Iyu.MainServer.GraphQL.csproj" />
     <ProjectReference Include="..\Iyu.MainServer.OpenIdConnect\Iyu.MainServer.OpenIdConnect.csproj" />

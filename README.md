@@ -7,7 +7,7 @@ generator-produced entities, plus optional modules for identity, attachments,
 chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
-Targets .NET 10. All twelve projects share one version and ship as separate
+Targets .NET 10. All thirteen projects share one version and ship as separate
 NuGet packages.
 
 ## Role in the stack
@@ -26,6 +26,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 |---|---|
 | `Iyu.Core` | `IyuEntity` base class, marker attributes (`[Lookup]`, `[Rollup]`, `[Computed]`, `[Reference]`), value objects (`PhoneNumber`, `EmailAddress`, `WebUrl`), identity contracts, and the attachment contracts (`IAttachmentStorage`, `FileAccessToken`, `FileAccessTokenService`) |
 | `Iyu.Data` | `IyuDbContext` base + `IyuTimestampInterceptor` (automatic `CreatedAt`/`UpdatedAt`) + `IyuDateTimeOffsetNormalizationInterceptor` (normalizes every saved `DateTimeOffset` to UTC) + EF Core `ValueConverter`s for the value objects |
+| `Iyu.Data.SqlServer` | `AddIyuSqlServerErrors` — names SQL Server's error numbers by their SQLSTATE, so a failed write is classified on SQL Server (see «Write failure responses»). Reference it only on SQL Server |
 | `Iyu.Server.OData` | `IyuEdmModelBuilder.AddEntityPair<TRead,TWrite>(setName)` + generic `IyuODataController<TRead,TWrite>` (CRUD), `$search` binder (searches `[Searchable]` properties when a type declares any, otherwise every string property; a `[Searchable]` reference navigation searches the referenced type's text, one step), `$filter` binder (`in` accepts `[EnumMember]` wire values like `eq`) |
 | `Iyu.Server.GraphQL` | `IyuGraphQLSchemaBuilder.AddEntityPair<TRead,TWrite>(queryName, mutationPrefix)` (HotChocolate-based) |
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer sessions; service clients, local credentials and refresh tokens each turned on by their own call). Serves OData; carries no GraphQL dependency |
@@ -648,8 +649,20 @@ what kind it was, read from the standard SQLSTATE class the provider reports thr
 | the row changed since it was read (`DbUpdateConcurrencyException`) | `409` | `ConcurrencyConflict` |
 | anything else, or the provider reports no SQLSTATE | `409` | `Conflict` |
 
-PostgreSQL's client reports SQLSTATE; SQL Server's does not, so on SQL Server every refusal is the
-neutral `409 Conflict` unless you classify it (below). A write rule that refuses with
+PostgreSQL's client reports SQLSTATE; SQL Server's does not — it reports the server's own error
+numbers. **On SQL Server, reference `Iyu.Data.SqlServer` and call `AddIyuSqlServerErrors()`**: it
+names those numbers by their SQLSTATE (`ISqlStateTranslator`), so the table above holds there too —
+`2627`/`2601` unique, `547` foreign key (or `23514` for a check constraint, which stays `Conflict`),
+`515` required value, `2628`/`8152` too long. Error `547` covers both kinds of constraint and only
+the message names which; a server whose messages are not English leaves it the neutral `Conflict`
+rather than guess. Without the package, every SQL Server refusal is `409 Conflict`.
+
+```csharp
+builder.Services.AddIyuSqlServerErrors();   // order relative to AddIyuMainServer does not matter
+builder.Services.AddIyuMainServer<AppDbContext>(...);
+```
+
+A write rule that refuses with
 `WriteRuleViolationException(code, message)` (`Iyu.Data.WriteRules`) is answered `422` with that
 code and message — written for the caller, so they are sent as they are. Every other unhandled
 exception still falls through to a generic, structured `500`. No response includes the provider's
@@ -681,13 +694,16 @@ write-path `DbUpdateException` at all. Nothing breaks loudly when this happens �
 `409` and only the body changes — so a consumer that classified failures itself finds out from its
 own tests, not from a compiler or a stack trace.
 
-**To classify what SQLSTATE does not say — SQL Server's error numbers, say — register your own
-`IExceptionHandler` before `AddIyuMainServer`.** The exception-handling middleware calls handlers in registration order and
-stops at the first one that returns `true`, so ordering is the whole mechanism:
+**A provider that reports no SQLSTATE and has no package here** is translated the same way: register
+an `ISqlStateTranslator` (`Iyu.Data`) that names its errors' SQLSTATE, and the classification above
+applies. **To answer what the table does not cover** — a failure of your own domain, a different status —
+register your own `IExceptionHandler` before `AddIyuMainServer`. The exception-handling middleware calls
+handlers in registration order and stops at the first one that returns `true`, so ordering is the whole
+mechanism:
 
 ```csharp
 // Yours is asked first; whatever it declines falls through to the classification above.
-builder.Services.AddExceptionHandler<SqlServerWriteFailureHandler>();
+builder.Services.AddExceptionHandler<MyWriteFailureHandler>();
 builder.Services.AddIyuMainServer<AppDbContext>(...);
 ```
 
@@ -1656,7 +1672,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All twelve `Iyu.*` packages share one version, so a new number does not by itself mean the
+All thirteen `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking

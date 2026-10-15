@@ -29,7 +29,21 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Server.GraphQL`
+**Packages affected:** `Iyu.Server.GraphQL`, `Iyu.Data`, `Iyu.MainServer`, `Iyu.Data.SqlServer` (new)
+
+### Added
+
+- **`Iyu.Data.SqlServer` (new package): a failed write on SQL Server is classified.** SQL Server's client reports the
+  server's error numbers and no SQLSTATE, so every refusal there was the neutral `409 Conflict`. `AddIyuSqlServerErrors()`
+  names them by SQLSTATE — `2627`/`2601` unique (`409 UniqueViolation`), `547` foreign key (`400 ReferenceMissing` /
+  `409 ReferencedByOthers`, as on PostgreSQL), `515` required value, `2628`/`8152` too long. `547` also covers check
+  constraints and only the message names which; a server whose messages are not English leaves it the neutral conflict.
+  It references `Microsoft.Data.SqlClient` at the floor `Microsoft.EntityFrameworkCore.SqlServer` 10.0.13 requires
+  (6.1.7) and raises `System.Security.Cryptography.Pkcs` past two advisories that version brings. README: «Write failure
+  responses».
+- **`Iyu.Data`: `ISqlStateTranslator`** — names the SQLSTATE of an error whose provider does not report one. The write
+  failure classification (`Iyu.MainServer`) asks the registered translators when `DbException.SqlState` is empty; a
+  provider with no package here gets its own by registering one.
 
 ### Changed
 
