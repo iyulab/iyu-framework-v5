@@ -6,8 +6,9 @@ namespace Iyu.MainServer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Set by the <c>$expand</c> authorization check, which refuses a request because of a set the
-/// request reaches rather than the one it addresses. The endpoint's own authorization metadata
+/// Set by the navigation authorization check, which refuses a request because of a set the
+/// request reaches — through a navigation in any query option — rather than the one it addresses.
+/// What the request reached is handed on as <see cref="IIyuODataReachFeature"/>. The endpoint's own authorization metadata
 /// names the addressed set's policy — one the caller may already satisfy — so a host that reads the
 /// policy from there tells the caller to acquire a permission it has. The failing policy is known
 /// only where it was evaluated, and this is where that knowledge is handed on.
