@@ -1221,6 +1221,11 @@ options.GraphQL.Page("readings", maxPageSize: 200, defaultPageSize: 50);
 options.GraphQL.Page("units",    maxPageSize: 500, defaultPageSize: 500); // a small list read whole
 ```
 
+A collection on a read type (`ICollection<CommentExt> Comments`) is a connection too, bounded by its
+element type's query field: a page of parents carries at most one page of each parent's children,
+in key order, and a client walks the rest with `after`. Each parent's page is read by its own query,
+so a selection that names a collection costs one query per parent on the page — keep such pages small.
+
 A connection always has a page, so neither value can be `null`; a small list is served whole by a
 page at least as large as the list. HotChocolate's cost analysis applies on top of these bounds — a
 large page of a wide selection can exceed the executor's maximum cost (1000 by default) and be

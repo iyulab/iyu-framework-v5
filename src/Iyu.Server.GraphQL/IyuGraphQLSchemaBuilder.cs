@@ -229,11 +229,74 @@ public sealed class IyuGraphQLSchemaBuilder
         {
             if (_authorizePolicies[queryName] is { } policy) d.Authorize(policy);
             foreach (var property in typeof(TRead).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (EntityTypeOf(property.PropertyType) is { } target && !_exposedTypes.ContainsKey(target))
+            {
+                if (EntityTypeOf(property.PropertyType) is not { } target) continue;
+                if (!_exposedTypes.TryGetValue(target, out var targetQuery))
+                {
                     d.Field(property).Ignore();
+                    continue;
+                }
+                if (target != property.PropertyType) ConfigureCollection(d, property, target, targetQuery);
+            }
+            // A collection on this type is read by its own query, from this row's key — so the key is loaded
+            // whatever the selection names.
+            if (typeof(TRead).GetProperty(nameof(IKeyed.Id)) is { } id) d.Field(id).IsProjected(true);
         }));
 
         ApplyPropertyDescriptions<TRead>();
+    }
+
+    /// <summary>
+    /// A collection navigation is a connection paged like the target's own query field. Projected into the parent's
+    /// query as a plain list, it would carry every child row of every parent on the page — the root field's bound would
+    /// bound nothing below it. The projection does not page a nested collection, so the field is taken out of the
+    /// parent's projection and read by its own query: the children whose key points at this row, in key order, with the
+    /// selection projected and the page taken by the database.
+    /// </summary>
+    private void ConfigureCollection<TRead>(
+        IObjectTypeDescriptor<TRead> descriptor, PropertyInfo property, Type target, string targetQuery)
+    {
+        var (maxPageSize, defaultPageSize) = _pages.TryGetValue(targetQuery, out var own)
+            ? own
+            : (MaxPageSize, DefaultPageSize);
+        var resolve = typeof(IyuGraphQLSchemaBuilder)
+            .GetMethod(nameof(ResolveCollection), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(target);
+        descriptor.Field(property)
+            .IsProjected(false)
+            .UsePaging(
+                typeof(ObjectType<>).MakeGenericType(target),
+                options: new PagingOptions { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize })
+            .UseProjection()
+            .Resolve(ctx => resolve.Invoke(null, [ctx, property])!);
+    }
+
+    /// <summary>
+    /// The rows of <typeparamref name="T"/> a parent's collection navigation holds — the ones whose foreign key is the
+    /// parent's principal key, as the context's model maps that navigation — in key order.
+    /// </summary>
+    private static IQueryable<T> ResolveCollection<T>(IResolverContext ctx, PropertyInfo navigation)
+        where T : class
+    {
+        var db = ctx.Service<IyuDbContext>();
+        var parent = ctx.Parent<object>();
+        var foreignKey = db.Model.FindEntityType(parent.GetType())?.FindNavigation(navigation.Name)?.ForeignKey
+            ?? throw new InvalidOperationException(
+                $"'{parent.GetType().Name}.{navigation.Name}' is not a navigation of the context's model, so the rows it holds cannot be read.");
+        if (foreignKey.Properties.Count != 1)
+            throw new InvalidOperationException(
+                $"'{parent.GetType().Name}.{navigation.Name}' has a composite key; a collection on a composite key is not served.");
+
+        var fk = foreignKey.Properties[0];
+        var principalValue = foreignKey.PrincipalKey.Properties[0].PropertyInfo!.GetValue(parent);
+        var row = Expression.Parameter(typeof(T), "e");
+        var keyOfRow = Expression.Call(
+            typeof(EF), nameof(EF.Property), [fk.ClrType], row, Expression.Constant(fk.Name));
+        var matches = Expression.Lambda<Func<T, bool>>(
+            Expression.Equal(keyOfRow, Expression.Constant(principalValue, fk.ClrType)), row);
+
+        var query = ResolveQueryable<T>(ctx);
+        return query.Where(matches);
     }
 
     /// <summary>

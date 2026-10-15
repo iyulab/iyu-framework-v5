@@ -27,6 +27,20 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.Server.GraphQL`
+
+### Changed
+
+- 🔇 **`Iyu.Server.GraphQL`: a collection navigation on a read type is a connection, bounded like a query field.**
+  It was a plain list loaded by the parent's projection — every child row of every parent on the page, in no set
+  order, whatever the root field's page size. It is now `books { nodes { … } pageInfo { … } }` with `first`/`after`,
+  bounded by the element type's query field (`MaxPageSize`/`DefaultPageSize`, or its `Page(…)`), in key order — the
+  bound the OData surface already applies to a collection under `$expand`. A selection that named the collection as a
+  list (`books { title }`) is refused until it names `nodes`. Each parent's page is read by its own query.
+  README: «GraphQL query fields carry their own bounds».
+
 ## [0.41.0] - 2026-10-15
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`
