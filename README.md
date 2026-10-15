@@ -634,13 +634,26 @@ reported as done; see [What a `PATCH` can store](#what-a-patch-can-store).
 `AddIyuMainServer` wires a global exception handler (`AddExceptionHandler` + `AddProblemDetails`,
 completed by `app.UseExceptionHandler()` in `UseIyuErrorResponses()`, the first thing `UseIyuMainServer`
 calls) so no unhandled write-path exception
-reaches a client raw. A `SaveChangesAsync` failure that surfaces as `DbUpdateException` — a
-unique-index violation, a foreign-key violation, an optimistic-concurrency conflict — is answered
-with a `409 Conflict`; every other unhandled exception still falls through to a generic, structured
-`500`. Neither response includes the underlying exception's message or type: this framework stays
-provider-agnostic (no Npgsql/SqlClient package reference), so it does not attempt to distinguish
-*which* constraint failed — only that the write conflicted with the current state of the data. No
-opt-in is needed; a consumer that never hits either path pays nothing for it.
+reaches a client raw. A `SaveChangesAsync` failure that surfaces as `DbUpdateException` is answered by
+what kind it was, read from the standard SQLSTATE class the provider reports through ADO.NET
+(`DbException.SqlState` — this framework references no Npgsql or SqlClient package):
+
+| The data store refused the write because | Status | `code` |
+|---|---|---|
+| another row already has a value that must be unique (`23505`) | `409` | `UniqueViolation` |
+| it refers to a row that does not exist, or removes one others refer to (`23503`) | `409` | `ForeignKeyViolation` |
+| a value it requires is missing (`23502`) | `400` | `RequiredValueMissing` |
+| a value is longer than its column (`22001`) | `400` | `ValueTooLong` |
+| the row changed since it was read (`DbUpdateConcurrencyException`) | `409` | `ConcurrencyConflict` |
+| anything else, or the provider reports no SQLSTATE | `409` | `Conflict` |
+
+PostgreSQL's client reports SQLSTATE; SQL Server's does not, so on SQL Server every refusal is the
+neutral `409 Conflict` unless you classify it (below). A write rule that refuses with
+`WriteRuleViolationException(code, message)` (`Iyu.Data.WriteRules`) is answered `422` with that
+code and message — written for the caller, so they are sent as they are. Every other unhandled
+exception still falls through to a generic, structured `500`. No response includes the provider's
+message or the exception's type. No opt-in is needed; a consumer that never hits either path pays
+nothing for it.
 
 **Under the OData route these are OData errors**, like every refusal the controller makes there —
 one format per route, so a client that reads `error.code` reads these too:
@@ -649,7 +662,7 @@ one format per route, so a client that reads `error.code` reads these too:
 {"error":{"code":"Conflict","message":"…","innererror":{"traceId":"00-…"}}}
 ```
 
-`error.code` is `Conflict` (409) or `InternalServerError` (500) — both in `ODataErrorCodes` — and
+`error.code` is one of the codes above or `InternalServerError` (500) — all in `ODataErrorCodes` — and
 `innererror.traceId` names the request in the server's logs. The rule is the route, not the cause:
 any `ProblemDetails` written for a request under the OData route comes out in this shape, including
 one your own exception handler writes; give it a `code` extension and that is the `error.code`.
@@ -667,20 +680,21 @@ write-path `DbUpdateException` at all. Nothing breaks loudly when this happens �
 `409` and only the body changes — so a consumer that classified failures itself finds out from its
 own tests, not from a compiler or a stack trace.
 
-**To keep provider-specific classification, register your own `IExceptionHandler` before
-`AddIyuMainServer`.** The exception-handling middleware calls handlers in registration order and
+**To classify what SQLSTATE does not say — SQL Server's error numbers, say — register your own
+`IExceptionHandler` before `AddIyuMainServer`.** The exception-handling middleware calls handlers in registration order and
 stops at the first one that returns `true`, so ordering is the whole mechanism:
 
 ```csharp
-// Yours is asked first; whatever it declines falls through to the provider-neutral 409 above.
-builder.Services.AddExceptionHandler<SqlStateExceptionHandler>();
+// Yours is asked first; whatever it declines falls through to the classification above.
+builder.Services.AddExceptionHandler<SqlServerWriteFailureHandler>();
 builder.Services.AddIyuMainServer<AppDbContext>(...);
 ```
 
 Answer only what you recognise — return `false` for everything else rather than mapping unknown
 failures yourself, and the layering stays clean: your handler owns the cases your provider lets you
-name, this framework owns the rest. Registering it *after* `AddIyuMainServer` reverses the order and
-the neutral `409` wins instead.
+name, this framework owns the rest. Give its `ProblemDetails` a `code` extension and that is the
+OData `error.code`. Registering it *after* `AddIyuMainServer` reverses the order and the
+framework's answer wins instead.
 
 A request body a client sends *before* `SaveChangesAsync` is even reached can also fail — a
 malformed EDM literal (e.g. a `DateTimeOffset` string with no UTC offset) fails OData's own body
@@ -958,7 +972,7 @@ of their own (a change log added there is saved by the same `SaveChanges`).
 
 | Kind of rule | Shape |
 |---|---|
-| Conditional lock / permission | check `IsUpdated` + `IsModified`, then **throw** — the exception propagates unchanged, so your own domain exception and its response mapping stay yours |
+| Conditional lock / permission | check `IsUpdated` + `IsModified`, then **throw** — the exception propagates unchanged. Throw `WriteRuleViolationException(code, message)` and the main server answers `422` with that code and message; throw your own exception type and its response mapping stays yours |
 | Default, derivation, normalization | check `IsAdded` (or both) and assign to `ctx.Entity` |
 | Change log | read `Original<T>` / `Current<T>`, `ctx.Db.Add(...)` the record |
 

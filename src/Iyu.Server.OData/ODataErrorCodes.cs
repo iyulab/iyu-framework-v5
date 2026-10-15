@@ -47,11 +47,29 @@ public static class ODataErrorCodes
     public const string PreconditionFailed = "PreconditionFailed";
 
     /// <summary>
-    /// <c>409</c> — the data store refused the write, and nothing classified why (a unique or foreign-key
-    /// violation, a concurrency conflict). Not written by the controller: it is what a failure the
+    /// <c>409</c> — the data store refused the write, and nothing classified why: the provider reported no
+    /// standard SQLSTATE class the codes below name. Not written by the controller: it is what a failure the
     /// exception handlers answer reads as on this route.
     /// </summary>
     public const string Conflict = "Conflict";
+
+    /// <summary><c>409</c> — the data store refused the write: another row already has the value a unique key requires (SQLSTATE <c>23505</c>).</summary>
+    public const string UniqueViolation = "UniqueViolation";
+
+    /// <summary>
+    /// <c>409</c> — the data store refused the write: it refers to a row that does not exist, or removes a row others
+    /// still refer to (SQLSTATE <c>23503</c>).
+    /// </summary>
+    public const string ForeignKeyViolation = "ForeignKeyViolation";
+
+    /// <summary><c>400</c> — the data store refused the write: a value it requires is missing (SQLSTATE <c>23502</c>).</summary>
+    public const string RequiredValueMissing = "RequiredValueMissing";
+
+    /// <summary><c>400</c> — the data store refused the write: a value is longer than its column holds (SQLSTATE <c>22001</c>).</summary>
+    public const string ValueTooLong = "ValueTooLong";
+
+    /// <summary><c>409</c> — the row changed or went away between reading and saving it. Read it again and decide whether to reapply.</summary>
+    public const string ConcurrencyConflict = "ConcurrencyConflict";
 
     /// <summary><c>401</c> — the set's policy needs an authenticated caller and the request has none.</summary>
     public const string Unauthorized = "Unauthorized";

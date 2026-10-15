@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.DocConvert`, `Iyu.MainServer`
+**Packages affected:** `Iyu.Data`, `Iyu.DocConvert`, `Iyu.MainServer`, `Iyu.Server.OData`
 
 ### Security
 
@@ -43,8 +43,24 @@ onward; earlier entries state the same consequence in prose where it applies.
   (`MapIyuServiceClientAdministration`), which already refused this combination, now use the same rule. A host whose
   administrators manage service clients from their own session sees no change.
 
+### Added
+
+- **`Iyu.Data`: `WriteRuleViolationException(code, message)`** — a write rule's refusal written for the caller. The main
+  server answers it `422` with that code (`error.code` on the OData route) and message. A rule that throws its own
+  exception type keeps mapping it itself.
+- **`Iyu.Server.OData`: `ODataErrorCodes.UniqueViolation`, `ForeignKeyViolation`, `RequiredValueMissing`, `ValueTooLong`,
+  `ConcurrencyConflict`.**
+
 ### Changed
 
+- 🔇 **`Iyu.MainServer`: a refused write says what kind of refusal it was.** Every `DbUpdateException` was the same
+  `409 Conflict`. The handler now reads the standard SQLSTATE class the provider reports through
+  `DbException.SqlState`: a unique (`23505`) or foreign-key (`23503`) violation stays `409` with its own code, a
+  missing required value (`23502`) or a value too long for its column (`22001`) is **`400`** with its own code, and a
+  concurrency conflict is `409 ConcurrencyConflict`. Anything else — including every refusal on SQL Server, whose
+  client reports no SQLSTATE — is the `409 Conflict` it was. A client that branched on `409` alone sees two refusals
+  move to `400`; one that reads `error.code` sees `Conflict` replaced by the specific code. An exception handler
+  registered before `AddIyuMainServer` is still asked first.
 - **`Iyu.DocConvert`: `AddIyuDocConvert` refuses a `GotenbergOptions` it cannot use, at registration instead of on the
   first conversion.** A `BaseUrl` without a scheme still parses — `localhost:3000` reads as the scheme `localhost` — so
   the mistake surfaced on the first conversion as the `NotSupportedException` the contract reserves for a content type
