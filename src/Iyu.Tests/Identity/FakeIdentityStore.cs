@@ -5,7 +5,8 @@ namespace Iyu.Tests.Identity;
 
 public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStore
 {
-    private sealed record FakeUser(Guid Id, string Username, string PasswordHash, string DisplayName,
+    // PasswordHash nullable as the contract is: an account with no password stores no hash, not a fake one.
+    private sealed record FakeUser(Guid Id, string Username, string? PasswordHash, string DisplayName,
         string? Email, bool IsActive, DateTimeOffset? LastLoginAt) : IUser;
     /// <remarks>
     /// <c>CreatedAt</c> is declared here rather than inherited: this fake satisfies
@@ -24,7 +25,7 @@ public sealed class FakeIdentityStore : IServiceClientStore, IUserCredentialStor
     private readonly Dictionary<Guid, List<string>> _clientPerms = new();
     public readonly List<Guid> Touched = new();
 
-    public Guid AddUser(string username, string display, string passwordHash = "h", bool active = true, IEnumerable<string>? perms = null)
+    public Guid AddUser(string username, string display, string? passwordHash = "h", bool active = true, IEnumerable<string>? perms = null)
     {
         var id = Guid.NewGuid();
         _users.Add(new FakeUser(id, username, passwordHash, display, null, active, null));

@@ -323,8 +323,9 @@ app.MapPost("/api/auth/login", async (LoginRequest req, UserCredentialService cr
 ```
 
 `UserCredentialService` (registered by `AddIyuUserCredentials`) finds the account, verifies the password against
-`IUser.PasswordHash`, and refuses an account that is not active. Every check costs one hash verification —
-an unknown name and an account without a password included — so response time does not tell which names are
+`IUser.PasswordHash`, and refuses an account that is not active. An account with no password stores no hash
+(`null` — `PasswordHash` is `string?`; empty means the same) and is answered as a name that is not an account.
+Every check costs one hash verification — an unknown name and an account without a password included — so response time does not tell which names are
 accounts, and the password is verified before the account's state is read. The hasher is ASP.NET Core
 Identity's `PasswordHasher<T>`: hash a password you store with the same `IPasswordHasher<IUser>`. **Stored
 hashes in another format need a hasher that reads them** — register your own `IPasswordHasher<IUser>`; without

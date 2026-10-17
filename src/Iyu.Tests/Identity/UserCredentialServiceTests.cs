@@ -78,7 +78,7 @@ public class UserCredentialServiceTests
     [InlineData(null)]
     public async Task An_account_without_a_password_answers_like_a_wrong_one(string? storedHash)
     {
-        _store.AddUser("ext", "ext", storedHash!);
+        _store.AddUser("ext", "ext", storedHash);
 
         var check = await Service().VerifyAsync("ext", "");
 

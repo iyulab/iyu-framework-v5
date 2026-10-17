@@ -29,7 +29,18 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`
+**Packages affected:** `Iyu.Core`, `Iyu.MainServer`
+
+### Changed
+
+- **`Iyu.Core`: `IUser.PasswordHash` is `string?` — an account with no password stores no hash.** The password check
+  already answered a null or empty hash as "no password" (an account that signs in only through an external provider,
+  a service account that only owns machine credentials), but the contract's type said every account had one, so a host
+  that stores no hash as `NULL` could not implement `IUser` directly: `string?` against `string` is `CS8766`, an error
+  under `TreatWarningsAsErrors`, and the way round it was an explicit-interface adapter. `IyuUser.PasswordHash` is
+  `string?` too (no `default!`). An implementation returning `string` still satisfies the contract unchanged; code that
+  reads `IUser.PasswordHash` and uses it without a null check now gets a nullability warning — check for null or empty
+  the way the password check does.
 
 ### Added
 
