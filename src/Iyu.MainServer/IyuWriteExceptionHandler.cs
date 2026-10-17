@@ -34,6 +34,13 @@ namespace Iyu.MainServer;
 /// before <c>AddIyuMainServer</c>: handlers are asked in registration order.
 /// </para>
 /// <para>
+/// The titles and details are English sentences for a person; the <c>code</c> extension is the contract. An application
+/// that words them itself does so in its own <see cref="IProblemDetailsWriter"/>, keyed by the code — and where the
+/// sentence depends on what failed, it reads the classified exception from <see cref="ProblemDetailsContext.Exception"/>
+/// (a <see cref="DbUpdateException"/>'s <see cref="DbUpdateException.Entries"/>), instead of classifying the failure a
+/// second time.
+/// </para>
+/// <para>
 /// Any other exception is left unhandled (returns <see langword="false"/>), so ASP.NET Core's <c>AddProblemDetails()</c>
 /// fallback turns it into a structured — if generic — 500.
 /// </para>
@@ -62,6 +69,9 @@ public sealed class IyuWriteExceptionHandler(IEnumerable<ISqlStateTranslator> tr
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = httpContext,
+            // What failed, for a writer whose sentence depends on it — the rows a removal tripped on, the rule that
+            // refused. A writer decides what of it the caller sees; this framework's own write none of it.
+            Exception = exception,
             ProblemDetails =
             {
                 Status = answer.Status,

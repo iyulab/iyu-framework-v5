@@ -27,6 +27,20 @@ One test decides the mark: *does the compiler refuse the old code?* Nothing wide
 covered "easy to overlook" would end up on every entry and stop meaning anything. Used from 0.27.0
 onward; earlier entries state the same consequence in prose where it applies.
 
+## [Unreleased]
+
+**Packages affected:** `Iyu.MainServer`
+
+### Added
+
+- **`Iyu.MainServer`: a host's `IProblemDetailsWriter` sees what a classified write failure was.** The write failure
+  handler now passes the exception it classified as `ProblemDetailsContext.Exception` — the `DbUpdateException` with its
+  `Entries`, or the `WriteRuleViolationException`. A writer that words the answer itself (another language, a sentence
+  that depends on which rows a removal tripped on) reads it there instead of registering a handler that classifies the
+  same failure a second time. Responses are unchanged: none of this framework's writers put the exception in a body.
+  README: «Write failure responses» now says the messages are English sentences for a person and the `code` is the
+  contract.
+
 ## [0.42.0] - 2026-10-16
 
 **Packages affected:** `Iyu.Server.GraphQL`, `Iyu.Data`, `Iyu.MainServer`, `Iyu.Data.SqlServer` (new)

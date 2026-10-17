@@ -687,6 +687,15 @@ same object, with the status's name as its code. Elsewhere — your `/api` endpo
 `IProblemDetailsWriter` of your own registered before `AddIyuMainServer` is asked first, so an
 application with one error format for every surface keeps it.
 
+**The messages are English sentences for a person; the `code` is the contract.** This framework does
+not translate them. An application that answers in its users' language words them in its own
+`IProblemDetailsWriter`, keyed by the `code` extension — and where the sentence depends on *what*
+failed (which rows a removal tripped on, to say whether "deactivate it instead" is even possible),
+the writer reads the classified exception from `ProblemDetailsContext.Exception`: the
+`DbUpdateException` with its `Entries`, or the `WriteRuleViolationException`. That is the failure
+already classified once — read it there rather than adding a handler that classifies it again. None
+of this framework's writers put the exception in a response; what yours does with it is yours.
+
 ⚠ **This handling runs inside `UseIyuMainServer`, so it displaces an exception-catching middleware
 placed before it.** `UseIyuMainServer` calls `app.UseExceptionHandler()` as its first step; a
 `try`/`catch` middleware registered ahead of that call sits *outside* it and no longer sees a

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace Iyu.Tests.Server.OData;
@@ -252,5 +253,92 @@ public class WriteExceptionHandlingEndToEndTests
             finally { await app.DisposeAsync(); }
         }
         finally { ClassifyingExceptionHandler.Recognises = true; }
+    }
+
+    /// <summary>
+    /// Stands in for an application that words its errors itself: it is asked first (registered before
+    /// <c>AddIyuMainServer</c>) and records what it was handed.
+    /// </summary>
+    private sealed class RecordingProblemDetailsWriter : IProblemDetailsWriter
+    {
+        public Exception? Seen { get; private set; }
+        public object? Code { get; private set; }
+
+        public bool CanWrite(ProblemDetailsContext context) => true;
+
+        public async ValueTask WriteAsync(ProblemDetailsContext context)
+        {
+            Seen = context.Exception;
+            Code = context.ProblemDetails.Extensions.TryGetValue("code", out var code) ? code : null;
+            context.HttpContext.Response.ContentType = "application/json";
+            await context.HttpContext.Response.WriteAsync("""{"error":{"code":"worded-by-the-application"}}""");
+        }
+    }
+
+    [Fact]
+    public async Task A_host_writer_is_handed_the_classified_exception_with_the_classification()
+    {
+        var writer = new RecordingProblemDetailsWriter();
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton<IProblemDetailsWriter>(writer);
+        builder.Services.AddIyuMainServer<ConflictWidgetContext>(
+            configureDb: db => db.UseInMemoryDatabase("conflict-" + Guid.NewGuid().ToString("N")),
+            configure: options =>
+            {
+                options.ControllerAssemblies.Add(typeof(ConflictWidgetsController).Assembly);
+                options.ODataModel.AddEntityPair<ConflictWidgetExt, ConflictWidget>(ConflictSet);
+            });
+        var app = builder.Build();
+        app.UseIyuMainServer();
+        await app.StartAsync();
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient()
+                .PostAsJsonAsync($"/$data/{ConflictSet}", new { Name = "irrelevant" });
+
+            Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+            Assert.Equal("""{"error":{"code":"worded-by-the-application"}}""", await resp.Content.ReadAsStringAsync());
+            // The failure the handler classified, not a copy: a writer reads its Entries from here.
+            var seen = Assert.IsType<DbUpdateException>(writer.Seen);
+            Assert.Equal("simulated-conflict-must-not-leak-to-the-client", seen.Message);
+            Assert.Equal(ODataErrorCodes.Conflict, writer.Code);
+        }
+        finally { await app.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task Off_the_OData_route_the_default_problem_details_carry_no_part_of_the_exception_even_in_Development()
+    {
+        // Handing the exception to the writers must not put it in a response that no application writer
+        // shapes — ASP.NET Core's default problem details writer, in the environment most likely to show detail.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Development });
+        builder.WebHost.UseTestServer();
+        builder.Services.AddIyuMainServer<ConflictWidgetContext>(
+            configureDb: db => db.UseInMemoryDatabase("conflict-" + Guid.NewGuid().ToString("N")),
+            configure: options =>
+            {
+                options.ControllerAssemblies.Add(typeof(ConflictWidgetsController).Assembly);
+                options.ODataModel.AddEntityPair<ConflictWidgetExt, ConflictWidget>(ConflictSet);
+            });
+        var app = builder.Build();
+        app.UseIyuMainServer();
+        app.MapPost("/api/widgets", () =>
+        {
+            throw new DbUpdateException("simulated-api-conflict-must-not-leak-to-the-client");
+        });
+        await app.StartAsync();
+        try
+        {
+            using var resp = await app.GetTestServer().CreateClient().PostAsync("/api/widgets", content: null);
+
+            Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+            Assert.Equal("application/problem+json", resp.Content.Headers.ContentType?.MediaType);
+            var body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains($"\"code\":\"{ODataErrorCodes.Conflict}\"", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("simulated-api-conflict-must-not-leak-to-the-client", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("DbUpdateException", body, StringComparison.Ordinal);
+        }
+        finally { await app.DisposeAsync(); }
     }
 }
