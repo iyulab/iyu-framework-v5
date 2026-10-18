@@ -31,6 +31,17 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.Core`, `Iyu.MainServer`
 
+### Added
+
+- **`Iyu.Core`: `ElementStringLengthAttribute` and `ElementDecimalDigitsAttribute` — a rule each element of a list keeps.**
+  On a list property the data-annotation attributes measure the list, not its elements: `[StringLength]` and `[Length]`
+  count the elements. A list of codes declared `string(10)[]` or of rates declared `decimal(5,2)[]` had no rule an
+  element could break — SQL Server's JSON text keeps any element, PostgreSQL's `numeric(p,s)[]` rounds the extra places
+  away. The two attributes apply the single-value rule (`StringLength`'s maximum, `DecimalDigitsAttribute`'s digits) to
+  every element; a `/$data` write with an element beyond it is `400 InvalidBody` (`ValidationFailed`, `target` the list
+  property), and the message names the first such element by position. A null list or element is for the declaration
+  to judge (`[Required]`, the element type's nullability); a value that is not a list is refused.
+
 ### Changed
 
 - **`Iyu.Core`: `IUser.PasswordHash` is `string?` — an account with no password stores no hash.** The password check

@@ -46,7 +46,7 @@ Declaring them once — in `GlobalUsings.cs`, or any file, with `global using` �
 usually less friction:
 
 ```csharp
-global using Iyu.Core.Attributes;   // Lookup, Rollup, Computed, Reference, Binding, Searchable, DecimalDigits
+global using Iyu.Core.Attributes;   // Lookup, Rollup, Computed, Reference, Binding, Searchable, DecimalDigits, ElementStringLength, ElementDecimalDigits
 global using Iyu.Core.Entities;     // IyuEntity
 global using Iyu.Data;              // IyuDbContext
 global using Iyu.MainServer;        // IyuMainServerOptions
@@ -922,6 +922,12 @@ more than `scale` decimal places or `precision − scale` digits before the poin
 with a `ValidationFailed` entry naming the field, where the database would otherwise round the extra places away (the
 caller reads back a number it never sent) or fail the write. Trailing zeros are not digits (`1.2000` fits two places);
 `null` is `[Required]`'s to judge.
+
+**A list's elements keep the same rules.** On a list property `[StringLength]` and `[Length]` count the elements. For
+the rule of each element there are `[ElementStringLength(max)]` and `[ElementDecimalDigits(precision, scale)]`
+(`Iyu.Core.Attributes` — what mdd-booster puts on a `string(n)[]` or `decimal(p,s)[]` field): an element beyond it is the
+same `400 InvalidBody` / `ValidationFailed` naming the list, and the message gives the element's position. A null list
+or element is the declaration's to judge.
 
 **`$search` — a searchable reference is searched only for a caller who may read it.** Marking a reference
 navigation `[Searchable]` (a single related read type, not a collection) makes `$search` match that type's searched
