@@ -29,6 +29,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-18
+
 **Packages affected:** `Iyu.Core`, `Iyu.MainServer`
 
 ### Added
@@ -41,6 +43,13 @@ onward; earlier entries state the same consequence in prose where it applies.
   every element; a `/$data` write with an element beyond it is `400 InvalidBody` (`ValidationFailed`, `target` the list
   property), and the message names the first such element by position. A null list or element is for the declaration
   to judge (`[Required]`, the element type's nullability); a value that is not a list is refused.
+- **`Iyu.MainServer`: a host's `IProblemDetailsWriter` sees what a classified write failure was.** The write failure
+  handler now passes the exception it classified as `ProblemDetailsContext.Exception` — the `DbUpdateException` with its
+  `Entries`, or the `WriteRuleViolationException`. A writer that words the answer itself (another language, a sentence
+  that depends on which rows a removal tripped on) reads it there instead of registering a handler that classifies the
+  same failure a second time. Responses are unchanged: none of this framework's writers put the exception in a body.
+  README: «Write failure responses» now says the messages are English sentences for a person and the `code` is the
+  contract.
 
 ### Changed
 
@@ -52,16 +61,6 @@ onward; earlier entries state the same consequence in prose where it applies.
   `string?` too (no `default!`). An implementation returning `string` still satisfies the contract unchanged; code that
   reads `IUser.PasswordHash` and uses it without a null check now gets a nullability warning — check for null or empty
   the way the password check does.
-
-### Added
-
-- **`Iyu.MainServer`: a host's `IProblemDetailsWriter` sees what a classified write failure was.** The write failure
-  handler now passes the exception it classified as `ProblemDetailsContext.Exception` — the `DbUpdateException` with its
-  `Entries`, or the `WriteRuleViolationException`. A writer that words the answer itself (another language, a sentence
-  that depends on which rows a removal tripped on) reads it there instead of registering a handler that classifies the
-  same failure a second time. Responses are unchanged: none of this framework's writers put the exception in a body.
-  README: «Write failure responses» now says the messages are English sentences for a person and the `code` is the
-  contract.
 
 ## [0.42.0] - 2026-10-16
 
