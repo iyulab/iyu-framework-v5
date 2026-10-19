@@ -29,12 +29,21 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
         public string Title { get; set; } = "";
         public Guid ShelfId { get; set; }
         public Shelf? Shelf { get; set; }
+        public List<Review> Reviews { get; set; } = [];
+    }
+
+    public sealed class Review : IyuEntity
+    {
+        public string Text { get; set; } = "";
+        public Guid BookId { get; set; }
+        public Book? Book { get; set; }
     }
 
     public sealed class ShelfContext(DbContextOptions<ShelfContext> options) : IyuDbContext(options)
     {
         public DbSet<Shelf> Shelves => Set<Shelf>();
         public DbSet<Book> Books => Set<Book>();
+        public DbSet<Review> Reviews => Set<Review>();
     }
 
     private const int BookCount = 5;
@@ -48,12 +57,14 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
     private sealed class BookReads : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
     {
         public int Count;
+        public int ReviewCount;
 
         public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
             System.Data.Common.DbCommand command, Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
             Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader> result, CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains("FROM \"Books\"", StringComparison.Ordinal)) Interlocked.Increment(ref Count);
+            if (command.CommandText.Contains("FROM \"Reviews\"", StringComparison.Ordinal)) Interlocked.Increment(ref ReviewCount);
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }
@@ -65,6 +76,7 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
         var graphql = new IyuGraphQLSchemaBuilder { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize };
         graphql.AddEntityPair<Shelf, Shelf>("shelves", "shelf");
         graphql.AddEntityPair<Book, Book>("books", "book");
+        graphql.AddEntityPair<Review, Review>("reviews", "review");
 
         var services = new ServiceCollection();
         services.AddDbContext<ShelfContext>(o => o.UseSqlite(_connection).AddInterceptors(_bookReads));
@@ -78,7 +90,13 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
             var ctx = scope.ServiceProvider.GetRequiredService<ShelfContext>();
             await ctx.Database.EnsureCreatedAsync();
             var shelf = new Shelf { Name = "fiction" };
-            for (var i = 0; i < BookCount; i++) shelf.Books.Add(new Book { Title = $"book-{i}" });
+            for (var i = 0; i < BookCount; i++)
+            {
+                var book = new Book { Title = $"book-{i}" };
+                // Every book but the last has two reviews: a page of books with and without reviews.
+                if (i < BookCount - 1) book.Reviews.AddRange([new Review { Text = $"r{i}-a" }, new Review { Text = $"r{i}-b" }]);
+                shelf.Books.Add(book);
+            }
             ctx.Shelves.Add(shelf);
             ctx.Shelves.Add(new Shelf { Name = "empty" });
             for (var s = 0; s < extraShelves; s++)
@@ -138,6 +156,35 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
         Assert.Equal(["extra-2-a", "extra-2-b"], ShelfNode(json, "extra-2").GetProperty("books").GetProperty("nodes")
             .EnumerateArray().Select(b => b.GetProperty("title").GetString()).Order());
         Assert.Equal(0, ShelfNode(json, "empty").GetProperty("books").GetProperty("nodes").GetArrayLength());
+    }
+
+    /// <summary>
+    /// A collection inside a collection: each level is one batch — the books of every shelf in one query, the reviews of
+    /// every book on those pages in one more — and each book gets its own reviews, which needs the book's key to survive
+    /// the books' projection when the selection does not name it.
+    /// </summary>
+    [Fact]
+    public async Task A_collection_inside_a_collection_is_one_batch_per_level()
+    {
+        var executor = await BuildAsync(maxPageSize: 10, defaultPageSize: 10, extraShelves: 2);
+        _bookReads.Count = 0;
+        _bookReads.ReviewCount = 0;
+
+        var json = (await executor.ExecuteAsync(
+            // Each level names its page size: the cost analysis multiplies the levels' sizes and refuses the defaults.
+            "{ shelves(first: 5) { nodes { name books(first: 5) { nodes { title reviews(first: 5) { nodes { text } } } } } } }")).ToJson();
+
+        Assert.Equal(1, _bookReads.Count);
+        // Batched, not one query per book (the page holds 9 books). The scheduler dispatches a batch when the request has
+        // no other work ready, and the books' continuations can reach it apart under load — so a batch may split (seen: in
+        // two, with the whole suite running); what holds is fewer queries than books.
+        Assert.InRange(_bookReads.ReviewCount, 1, 8);
+        var books = ShelfNode(json, "fiction").GetProperty("books").GetProperty("nodes").EnumerateArray()
+            .ToDictionary(b => b.GetProperty("title").GetString()!, b => b.GetProperty("reviews").GetProperty("nodes")
+                .EnumerateArray().Select(r => r.GetProperty("text").GetString()).Order().ToList());
+        Assert.Equal(["r0-a", "r0-b"], books["book-0"]);
+        Assert.Equal(["r3-a", "r3-b"], books["book-3"]);
+        Assert.Empty(books[$"book-{BookCount - 1}"]);
     }
 
     /// <summary>The next page continues where the first ended — the cursor of a batched page reads back.</summary>
