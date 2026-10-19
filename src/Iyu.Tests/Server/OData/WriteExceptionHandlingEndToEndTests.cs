@@ -225,7 +225,7 @@ public class WriteExceptionHandlingEndToEndTests
             var body = await resp.Content.ReadAsStringAsync();
             Assert.Equal(ClassifyingExceptionHandler.Body, body);
             // The framework's provider-neutral wording must not be what the client sees here.
-            Assert.DoesNotContain("conflicts with existing data", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("does not classify", body, StringComparison.Ordinal);
         }
         finally { await app.DisposeAsync(); }
     }
@@ -247,7 +247,7 @@ public class WriteExceptionHandlingEndToEndTests
 
                 var body = await resp.Content.ReadAsStringAsync();
                 Assert.Contains($"\"code\":\"{ODataErrorCodes.Conflict}\"", body, StringComparison.Ordinal);
-                Assert.Contains("conflicts with existing data", body, StringComparison.Ordinal);
+                Assert.Contains("does not classify", body, StringComparison.Ordinal);
                 Assert.DoesNotContain("classified-by-the-consumer", body, StringComparison.Ordinal);
             }
             finally { await app.DisposeAsync(); }

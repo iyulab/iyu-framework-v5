@@ -75,6 +75,18 @@ public static class ODataErrorCodes
     /// <summary><c>400</c> — the data store refused the write: a value is longer than its column holds (SQLSTATE <c>22001</c>).</summary>
     public const string ValueTooLong = "ValueTooLong";
 
+    /// <summary>
+    /// <c>400</c> — the data store refused the write: a check constraint refuses a value of the row (SQLSTATE
+    /// <c>23514</c>). The request's value is wrong; sending it again fails the same way.
+    /// </summary>
+    public const string CheckViolation = "CheckViolation";
+
+    /// <summary>
+    /// <c>400</c> — the data store refused the write: a value is outside what its column holds — a number past its
+    /// precision, a date out of range (SQLSTATE class <c>22</c>, other than <c>22001</c>, which is <see cref="ValueTooLong"/>).
+    /// </summary>
+    public const string InvalidValue = "InvalidValue";
+
     /// <summary><c>409</c> — the row changed or went away between reading and saving it. Read it again and decide whether to reapply.</summary>
     public const string ConcurrencyConflict = "ConcurrencyConflict";
 

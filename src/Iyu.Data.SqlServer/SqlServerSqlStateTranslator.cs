@@ -14,6 +14,7 @@ namespace Iyu.Data.SqlServer;
 /// reports both under one number, and the kind of constraint is named only in the message</description></item>
 /// <item><term>515</term><description><c>23502</c> — a missing required value</description></item>
 /// <item><term>2628, 8152</term><description><c>22001</c> — a value too long for its column</description></item>
+/// <item><term>8115, 220</term><description><c>22003</c> — a number past what its type holds (arithmetic overflow)</description></item>
 /// <item><term>1205</term><description><c>40001</c> — chosen as a deadlock victim</description></item>
 /// </list>
 /// Error 547 is told apart by the constraint kind the message names (<c>FOREIGN KEY</c>, <c>REFERENCE</c>,
@@ -33,6 +34,7 @@ public sealed class SqlServerSqlStateTranslator : ISqlStateTranslator
         547 when message.Contains("CHECK constraint", StringComparison.Ordinal) => "23514",
         515 => "23502",
         2628 or 8152 => "22001",
+        8115 or 220 => "22003",
         1205 => "40001",
         _ => null,
     };

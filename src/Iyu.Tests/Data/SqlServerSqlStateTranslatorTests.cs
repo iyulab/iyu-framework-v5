@@ -20,6 +20,8 @@ public class SqlServerSqlStateTranslatorTests
     [InlineData(515, "Cannot insert the value NULL into column 'Name', table 'dbo.T'; column does not allow nulls.", "23502")]
     [InlineData(2628, "String or binary data would be truncated in table 'dbo.T', column 'Name'.", "22001")]
     [InlineData(8152, "String or binary data would be truncated.", "22001")]
+    [InlineData(8115, "Arithmetic overflow error converting numeric to data type numeric.", "22003")]
+    [InlineData(220, "Arithmetic overflow error for data type smallint, value = 40000.", "22003")]
     [InlineData(1205, "Transaction was deadlocked on lock resources with another process.", "40001")]
     public void A_known_error_number_is_named_by_its_sqlstate(int number, string message, string expected)
         => Assert.Equal(expected, SqlServerSqlStateTranslator.SqlStateOf(number, message));

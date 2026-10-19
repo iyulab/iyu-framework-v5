@@ -647,14 +647,19 @@ what kind it was, read from the standard SQLSTATE class the provider reports thr
 | it writes a reference to a row that does not exist (`23503` on a write that removes nothing) | `400` | `ReferenceMissing` |
 | a value it requires is missing (`23502`) | `400` | `RequiredValueMissing` |
 | a value is longer than its column (`22001`) | `400` | `ValueTooLong` |
+| a check constraint refuses a value of the row (`23514`) | `400` | `CheckViolation` |
+| a value is outside what its column holds — a number past its precision, a date out of range (any other `22xxx`) | `400` | `InvalidValue` |
 | the row changed since it was read (`DbUpdateConcurrencyException`) | `409` | `ConcurrencyConflict` |
 | anything else, or the provider reports no SQLSTATE | `409` | `Conflict` |
+
+A `400` here is the request's value — sending it again fails the same way. `Conflict` is what nothing
+classified; its sentence names no cause.
 
 PostgreSQL's client reports SQLSTATE; SQL Server's does not — it reports the server's own error
 numbers. **On SQL Server, reference `Iyu.Data.SqlServer` and call `AddIyuSqlServerErrors()`**: it
 names those numbers by their SQLSTATE (`ISqlStateTranslator`), so the table above holds there too —
-`2627`/`2601` unique, `547` foreign key (or `23514` for a check constraint, which stays `Conflict`),
-`515` required value, `2628`/`8152` too long. Error `547` covers both kinds of constraint and only
+`2627`/`2601` unique, `547` foreign key (or `23514` for a check constraint),
+`515` required value, `2628`/`8152` too long, `8115`/`220` arithmetic overflow (`22003`). Error `547` covers both kinds of constraint and only
 the message names which; a server whose messages are not English leaves it the neutral `Conflict`
 rather than guess. Without the package, every SQL Server refusal is `409 Conflict`.
 

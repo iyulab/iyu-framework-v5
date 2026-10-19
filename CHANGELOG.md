@@ -29,6 +29,27 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Data.SqlServer`
+
+### Changed
+
+- **`Iyu.MainServer`: a value the data store refuses is `400`, not `409 Conflict`.** 🔇 no build-time signal. A write a
+  check constraint refused (SQLSTATE `23514`) was answered `409 Conflict`, "conflicts with existing data" — but a check
+  constraint judges the row being written, so the cause is the request's value and sending it again fails the same way,
+  like a missing required value or a value too long. It is now `400` with the new code `CheckViolation`. The rest of
+  SQLSTATE class `22` ("data exception" — a number past its precision, a date out of range; `22001` stays
+  `ValueTooLong`) is `400` with the new code `InvalidValue`. A client that branched on `409` for these sees `400`.
+- **`Iyu.MainServer`: the unclassified `409 Conflict` no longer claims a cause.** 🔇 no build-time signal. Its title and
+  detail said the write conflicts with existing data, which nothing had established; they now say the data store
+  refused the write for a reason this server does not classify. Status and `code` are unchanged.
+
+### Added
+
+- **`Iyu.Server.OData`: `ODataErrorCodes.CheckViolation` and `ODataErrorCodes.InvalidValue`** — the codes above.
+- **`Iyu.Data.SqlServer`: SQL Server's arithmetic overflow (`8115`, `220`) is named `22003`**, so an overflow the server
+  reports is `400 InvalidValue` there as on PostgreSQL. A check constraint (`547` naming `CHECK`) was
+  already named `23514`; it is now classified.
+
 ## [0.43.0] - 2026-10-18
 
 **Packages affected:** `Iyu.Core`, `Iyu.MainServer`

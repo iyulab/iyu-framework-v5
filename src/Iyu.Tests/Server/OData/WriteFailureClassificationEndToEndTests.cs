@@ -104,6 +104,9 @@ public class WriteFailureClassificationEndToEndTests
     [InlineData("23503", HttpStatusCode.BadRequest, ODataErrorCodes.ReferenceMissing)] // a create removes nothing
     [InlineData("23502", HttpStatusCode.BadRequest, ODataErrorCodes.RequiredValueMissing)]
     [InlineData("22001", HttpStatusCode.BadRequest, ODataErrorCodes.ValueTooLong)]
+    [InlineData("23514", HttpStatusCode.BadRequest, ODataErrorCodes.CheckViolation)]
+    [InlineData("22003", HttpStatusCode.BadRequest, ODataErrorCodes.InvalidValue)] // numeric value out of range
+    [InlineData("22008", HttpStatusCode.BadRequest, ODataErrorCodes.InvalidValue)] // datetime field overflow
     public async Task A_refusal_with_a_standard_sqlstate_says_which_kind_it_is(string sqlState, HttpStatusCode status, string code)
     {
         using var response = await PostAsync(Refused(sqlState));
@@ -122,7 +125,10 @@ public class WriteFailureClassificationEndToEndTests
         using var response = await PostAsync(Refused(sqlState));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Contains($"\"code\":\"{ODataErrorCodes.Conflict}\"", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains($"\"code\":\"{ODataErrorCodes.Conflict}\"", body, StringComparison.Ordinal);
+        // Nothing classified it, so the sentence must not claim a cause — "conflicts with existing data" is one.
+        Assert.DoesNotContain("existing data", body, StringComparison.Ordinal);
     }
 
     /// <summary>A provider that reports its own error number, not SQLSTATE — named by what it means.</summary>

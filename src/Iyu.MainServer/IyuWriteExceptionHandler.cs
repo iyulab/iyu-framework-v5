@@ -21,15 +21,16 @@ namespace Iyu.MainServer;
 /// <para>
 /// <b>The data store's refusal</b> (<see cref="DbUpdateException"/>) is classified by the standard SQLSTATE class the
 /// provider reports through ADO.NET's <see cref="DbException.SqlState"/>, which keeps this framework provider-neutral
-/// (no Npgsql or SqlClient reference): a unique violation is <c>409</c>, a missing required value or a value too long
-/// for its column <c>400</c>, each with its own code (<see cref="ODataErrorCodes"/>). A foreign-key violation is two
+/// (no Npgsql or SqlClient reference): a unique violation is <c>409</c>; a missing required value, a value too long
+/// for its column, a value a check constraint refuses, or any other value the store cannot hold (SQLSTATE class
+/// <c>22</c>) is <c>400</c> — each with its own code (<see cref="ODataErrorCodes"/>). A foreign-key violation is two
 /// failures with one SQLSTATE, told apart by what the failed write did — EF's own record of it
 /// (<see cref="DbUpdateException.Entries"/>): removing a row others still refer to is the data's current state,
 /// <c>409 ReferencedByOthers</c>; writing a reference to a row that does not exist is the request's value,
 /// <c>400 ReferenceMissing</c>. A concurrency
 /// conflict is <c>409 ConcurrencyConflict</c>. A provider that reports no SQLSTATE is translated by a registered
 /// <see cref="ISqlStateTranslator"/> (SQL Server's: <c>Iyu.Data.SqlServer</c>). Anything else — no SQLSTATE and no
-/// translation, or a class not named here — stays the neutral <c>409 Conflict</c>. The provider's text never reaches
+/// translation, or a class not named here — stays the neutral <c>409 Conflict</c>, whose sentence names no cause. The provider's text never reaches
 /// the caller. An application classifies what this does not by registering its own <see cref="IExceptionHandler"/>
 /// before <c>AddIyuMainServer</c>: handlers are asked in registration order.
 /// </para>
@@ -121,8 +122,20 @@ public sealed class IyuWriteExceptionHandler(IEnumerable<ISqlStateTranslator> tr
         "22001" => new(StatusCodes.Status400BadRequest, ODataErrorCodes.ValueTooLong,
             "A value is too long.",
             "A value is longer than its field holds."),
+        // A check constraint judges the row being written, not the rows already there — the request's value, which
+        // sending it again never changes.
+        "23514" => new(StatusCodes.Status400BadRequest, ODataErrorCodes.CheckViolation,
+            "A value breaks a rule of the data.",
+            "A value breaks a rule its field or row enforces."),
+        // The rest of class 22 ("data exception") is a value the store cannot hold — a number past its precision, a
+        // date out of range. Also the request's value.
+        { Length: 5 } state when state.StartsWith("22", StringComparison.Ordinal) => new(
+            StatusCodes.Status400BadRequest, ODataErrorCodes.InvalidValue,
+            "A value cannot be stored.",
+            "A value is outside what its field holds."),
+        // Nothing classified the refusal, so the answer claims no cause: it is not known to be the data's state.
         _ => new(StatusCodes.Status409Conflict, ODataErrorCodes.Conflict,
-            "The write conflicts with the current state of the data.",
-            "The request could not be completed because it conflicts with existing data."),
+            "The data store refused the write.",
+            "The data store refused the write for a reason this server does not classify."),
     };
 }
