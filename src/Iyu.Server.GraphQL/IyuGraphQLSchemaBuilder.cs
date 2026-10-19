@@ -7,7 +7,12 @@ using HotChocolate.Types;
 using HotChocolate.Types.Pagination;
 using Iyu.Core.Entities;
 using Iyu.Data;
+using GreenDonut;
+using GreenDonut.Data;
+using GreenDonut.DependencyInjection;
+using HotChocolate.Execution.Processing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Iyu.Server.GraphQL;
@@ -259,44 +264,97 @@ public sealed class IyuGraphQLSchemaBuilder
         var (maxPageSize, defaultPageSize) = _pages.TryGetValue(targetQuery, out var own)
             ? own
             : (MaxPageSize, DefaultPageSize);
-        var resolve = typeof(IyuGraphQLSchemaBuilder)
-            .GetMethod(nameof(ResolveCollection), BindingFlags.NonPublic | BindingFlags.Static)!
-            .MakeGenericMethod(target);
         descriptor.Field(property)
             .IsProjected(false)
             .UsePaging(
                 typeof(ObjectType<>).MakeGenericType(target),
                 options: new PagingOptions { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize })
-            .UseProjection()
-            .Resolve(ctx => resolve.Invoke(null, [ctx, property])!);
+            .Resolve(ctx => ResolveCollection(ctx, property, defaultPageSize));
     }
 
     /// <summary>
-    /// The rows of <typeparamref name="T"/> a parent's collection navigation holds — the ones whose foreign key is the
-    /// parent's principal key, as the context's model maps that navigation — in key order.
+    /// The page of rows a parent's collection navigation holds — the ones whose foreign key is the parent's principal key,
+    /// as the context's model maps that navigation — in key order, the selection projected. Loaded through a batch:
+    /// every parent on the page asks for its own page, and one query answers them all.
     /// </summary>
-    private static IQueryable<T> ResolveCollection<T>(IResolverContext ctx, PropertyInfo navigation)
-        where T : class
+    private static ValueTask<object?> ResolveCollection(IResolverContext ctx, PropertyInfo navigation, int defaultPageSize)
     {
         var db = ctx.Service<IyuDbContext>();
-        var parent = ctx.Parent<object>();
-        var foreignKey = db.Model.FindEntityType(parent.GetType())?.FindNavigation(navigation.Name)?.ForeignKey
+        var parentType = ctx.Parent<object>().GetType();
+        var foreignKey = db.Model.FindEntityType(parentType)?.FindNavigation(navigation.Name)?.ForeignKey
             ?? throw new InvalidOperationException(
-                $"'{parent.GetType().Name}.{navigation.Name}' is not a navigation of the context's model, so the rows it holds cannot be read.");
+                $"'{parentType.Name}.{navigation.Name}' is not a navigation of the context's model, so the rows it holds cannot be read.");
         if (foreignKey.Properties.Count != 1)
             throw new InvalidOperationException(
-                $"'{parent.GetType().Name}.{navigation.Name}' has a composite key; a collection on a composite key is not served.");
+                $"'{parentType.Name}.{navigation.Name}' has a composite key; a collection on a composite key is not served.");
+
+        var fkType = foreignKey.Properties[0].ClrType;
+        var keyType = Nullable.GetUnderlyingType(fkType) ?? fkType;
+        return (ValueTask<object?>)typeof(IyuGraphQLSchemaBuilder)
+            .GetMethod(nameof(ResolveCollectionPage), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(keyType, foreignKey.DeclaringEntityType.ClrType)
+            .Invoke(null, [ctx, foreignKey, defaultPageSize])!;
+    }
+
+    private static async ValueTask<object?> ResolveCollectionPage<TKey, T>(
+        IResolverContext ctx, IForeignKey foreignKey, int defaultPageSize)
+        where TKey : notnull
+        where T : class
+    {
+        if (foreignKey.PrincipalKey.Properties[0].PropertyInfo!.GetValue(ctx.Parent<object>()) is not TKey key)
+            return Page<T>.Empty.ToConnection();
+
+        // The paging middleware has already refused a page over the maximum; with no size named, the default page.
+        var first = ctx.ArgumentValue<int?>("first");
+        var last = ctx.ArgumentValue<int?>("last");
+        var arguments = new PagingArguments(
+            first is null && last is null ? defaultPageSize : first,
+            ctx.ArgumentValue<string?>("after"),
+            last,
+            ctx.ArgumentValue<string?>("before"));
+        var selection = new QueryContext<T>(ctx.Selection.AsSelector<T>(ctx.IncludeFlags));
 
         var fk = foreignKey.Properties[0];
-        var principalValue = foreignKey.PrincipalKey.Properties[0].PropertyInfo!.GetValue(parent);
-        var row = Expression.Parameter(typeof(T), "e");
-        var keyOfRow = Expression.Call(
-            typeof(EF), nameof(EF.Property), [fk.ClrType], row, Expression.Constant(fk.Name));
-        var matches = Expression.Lambda<Func<T, bool>>(
-            Expression.Equal(keyOfRow, Expression.Constant(principalValue, fk.ClrType)), row);
+        var loader = ctx.RequestServices.GetRequiredService<IDataLoaderScope>().GetDataLoader(
+            services => new CollectionPageLoader<TKey, T>(
+                services.GetRequiredService<IBatchScheduler>(), services.GetRequiredService<DataLoaderOptions>(), services, fk),
+            name: $"Iyu.Collection:{fk.DeclaringType.Name}.{fk.Name}");
+        var page = await loader.With(arguments, selection).LoadAsync(key, ctx.RequestAborted);
+        return (page ?? Page<T>.Empty).ToConnection();
+    }
 
-        var query = ResolveQueryable<T>(ctx);
-        return query.Where(matches);
+    /// <summary>
+    /// The pages of one collection for a batch of parents: the rows whose foreign key is one of the parents' keys, grouped
+    /// by it and paged in key order inside each group — one query for the batch.
+    /// </summary>
+    private sealed class CollectionPageLoader<TKey, T>(
+        IBatchScheduler scheduler, DataLoaderOptions options, IServiceProvider services, IProperty foreignKey)
+        : StatefulBatchDataLoader<TKey, Page<T>>(scheduler, options)
+        where TKey : notnull
+        where T : class
+    {
+        protected override string CacheKeyType { get; } =
+            $"{typeof(CollectionPageLoader<TKey, T>).FullName}:{foreignKey.DeclaringType.Name}.{foreignKey.Name}";
+
+        protected override async Task<IReadOnlyDictionary<TKey, Page<T>>> LoadBatchAsync(
+            IReadOnlyList<TKey> keys, DataLoaderFetchContext<Page<T>> context, CancellationToken cancellationToken)
+        {
+            var db = services.GetRequiredService<IyuDbContext>();
+            var row = Expression.Parameter(typeof(T), "e");
+            Expression fkOfRow = foreignKey.PropertyInfo is { } property
+                ? Expression.Property(row, property)
+                : Expression.Call(typeof(EF), nameof(EF.Property), [foreignKey.ClrType], row, Expression.Constant(foreignKey.Name));
+            if (fkOfRow.Type != typeof(TKey)) fkOfRow = Expression.Convert(fkOfRow, typeof(TKey));
+            var keySelector = Expression.Lambda<Func<T, TKey>>(fkOfRow, row);
+            var inBatch = Expression.Lambda<Func<T, bool>>(
+                Expression.Call(typeof(Enumerable), nameof(Enumerable.Contains), [typeof(TKey)],
+                    Expression.Constant(keys.ToList()), fkOfRow),
+                row);
+
+            return await OrderedByKey(db, db.Set<T>().AsNoTracking().Where(inBatch))
+                .With(context.GetQueryContext<Page<T>, T>())
+                .ToBatchPageAsync(keySelector, context.GetPagingArguments(), cancellationToken);
+        }
     }
 
     /// <summary>
@@ -524,18 +582,32 @@ public sealed class IyuGraphQLSchemaBuilder
         where T : class
     {
         var db = ctx.Service<IyuDbContext>();
-        IQueryable<T> query = db.Set<T>().AsNoTracking();
+        return OrderedByKey(db, db.Set<T>().AsNoTracking());
+    }
+
+    /// <summary>
+    /// The rows in primary-key order, each key part a typed member access where the property has one — a page of a
+    /// batch reads its cursor back from the ordering, which an untyped <c>EF.Property&lt;object&gt;</c> cannot give.
+    /// </summary>
+    private static IQueryable<T> OrderedByKey<T>(IyuDbContext db, IQueryable<T> query)
+        where T : class
+    {
         var key = db.Model.FindEntityType(typeof(T))?.FindPrimaryKey();
         if (key is null) return query;
 
-        IOrderedQueryable<T>? ordered = null;
+        var ordered = query.Expression;
+        var first = true;
         foreach (var property in key.Properties)
         {
-            var name = property.Name;
-            ordered = ordered is null
-                ? query.OrderBy(e => EF.Property<object>(e, name))
-                : ordered.ThenBy(e => EF.Property<object>(e, name));
+            var row = Expression.Parameter(typeof(T), "e");
+            Expression part = property.PropertyInfo is { } member
+                ? Expression.Property(row, member)
+                : Expression.Call(typeof(EF), nameof(EF.Property), [property.ClrType], row, Expression.Constant(property.Name));
+            ordered = Expression.Call(
+                typeof(Queryable), first ? nameof(Queryable.OrderBy) : nameof(Queryable.ThenBy), [typeof(T), part.Type],
+                ordered, Expression.Quote(Expression.Lambda(part, row)));
+            first = false;
         }
-        return ordered ?? query;
+        return query.Provider.CreateQuery<T>(ordered);
     }
 }

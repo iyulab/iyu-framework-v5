@@ -29,10 +29,15 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Data`, `Iyu.Data.SqlServer`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.Data`, `Iyu.Data.SqlServer`
 
 ### Changed
 
+- **`Iyu.Server.GraphQL`: a page of parents reads its collection navigations in one query.** Each parent's collection
+  (`shelves { nodes { books { … } } }`) was read by its own query — a page of 50 shelves was 51 queries. The children of
+  every parent on the page are now one batched query, grouped by the foreign key and paged in key order inside each
+  group, with the same page bounds. 🔇 A collection's cursors are now keyset cursors (they name the last row's key) instead
+  of offsets — a cursor saved from an earlier version does not read the next page; start from the first page.
 - **`Iyu.MainServer`: a value the data store refuses is `400`, not `409 Conflict`.** 🔇 no build-time signal. A write a
   check constraint refused (SQLSTATE `23514`) was answered `409 Conflict`, "conflicts with existing data" — but a check
   constraint judges the row being written, so the cause is the request's value and sending it again fails the same way,
