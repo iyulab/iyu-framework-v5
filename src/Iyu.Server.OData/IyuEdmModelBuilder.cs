@@ -650,7 +650,8 @@ public sealed class IyuEdmModelBuilder
     {
         var enumTypes = Registry.All
             .SelectMany(pair => pair.ReadType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            .Select(p => Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType)
+            .Select(p => ElementOrSelf(p.PropertyType))
+            .Select(t => Nullable.GetUnderlyingType(t) ?? t)
             .Where(t => t.IsEnum)
             .Distinct();
 
@@ -665,6 +666,19 @@ public sealed class IyuEdmModelBuilder
                     member.Name = wireName;
             }
         }
+    }
+
+    /// <summary>
+    /// The element type of a list property (<c>List&lt;Shade&gt;</c> → <c>Shade</c>) — the EDM describes it as
+    /// <c>Collection(Shade)</c>, so its enum needs the same wire names a single enum property gets — or the type itself.
+    /// </summary>
+    private static Type ElementOrSelf(Type type)
+    {
+        if (type == typeof(string)) return type;
+        var enumerable = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+            ? type
+            : type.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+        return enumerable?.GetGenericArguments()[0] ?? type;
     }
 
     /// <summary>

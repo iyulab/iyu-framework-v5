@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Data.SqlServer`
+**Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Data`, `Iyu.Data.SqlServer`
 
 ### Changed
 
@@ -45,6 +45,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **Lists of enum values (`List<Shade>`) work like a single enum property.** `Iyu.Data`: `IyuDbContext` stores each
+  element by its `[EnumMember]` wire name (`["light_red","deep_blue"]`), as it already stored a single enum.
+  `Iyu.Server.OData`: `$metadata` describes the property as `Collection(Shade)` with the members named by their wire
+  names, so `/$data` accepts and returns those names and `Shades/any(s: s eq 'light_red')` filters by them; a value that
+  is no member is `400 InvalidBody`. Before, such a list was stored as the CLR member names and `/$data` refused the wire
+  names as "not a member".
 - **`Iyu.Server.OData`: `ODataErrorCodes.CheckViolation` and `ODataErrorCodes.InvalidValue`** — the codes above.
 - **`Iyu.Data.SqlServer`: SQL Server's arithmetic overflow (`8115`, `220`) is named `22003`**, so an overflow the server
   reports is `400 InvalidValue` there as on PostgreSQL. A check constraint (`547` naming `CHECK`) was

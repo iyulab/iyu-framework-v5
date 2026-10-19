@@ -78,16 +78,27 @@ public abstract class IyuDbContext(DbContextOptions options) : DbContext(options
         {
             foreach (var property in entityType.GetProperties())
             {
-                var clrType = property.ClrType;
-                var underlyingType = Nullable.GetUnderlyingType(clrType) ?? clrType;
-                if (!underlyingType.IsEnum) continue;
-                if (!HasEnumMemberAttributes(underlyingType)) continue;
-
-                var converterType = typeof(EnumMemberConverter<>).MakeGenericType(underlyingType);
-                var converter = (ValueConverter)Activator.CreateInstance(converterType)!;
-                property.SetValueConverter(converter);
+                // A list of enum values (`List<Shade>`, a primitive collection) stores each element by the same wire
+                // name a single enum property does.
+                if (property.IsPrimitiveCollection && property.GetElementType() is { } element)
+                {
+                    if (WireNameConverter(element.ClrType) is { } elementConverter)
+                        element.SetValueConverter(elementConverter);
+                    continue;
+                }
+                if (WireNameConverter(property.ClrType) is { } converter)
+                    property.SetValueConverter(converter);
             }
         }
+    }
+
+    /// <summary>The wire-name converter for an enum (or nullable enum) type whose members declare one; otherwise null.</summary>
+    private static ValueConverter? WireNameConverter(Type clrType)
+    {
+        var underlyingType = Nullable.GetUnderlyingType(clrType) ?? clrType;
+        if (!underlyingType.IsEnum || !HasEnumMemberAttributes(underlyingType)) return null;
+        var converterType = typeof(EnumMemberConverter<>).MakeGenericType(underlyingType);
+        return (ValueConverter)Activator.CreateInstance(converterType)!;
     }
 
     private static bool HasEnumMemberAttributes(Type enumType) =>
