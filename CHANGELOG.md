@@ -29,6 +29,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-27
+
 **Packages affected:** `Iyu.VaultAi`, `Iyu.Server.GraphQL`
 
 ### Changed
