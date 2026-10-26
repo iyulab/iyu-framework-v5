@@ -29,6 +29,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-26
+
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.Data`, `Iyu.Data.SqlServer`
 
 ### Changed
