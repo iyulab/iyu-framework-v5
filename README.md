@@ -897,6 +897,16 @@ The check runs whenever any set has a read policy; on a host with none, set
 `options.ComputeODataReach = true` — which brings the check's `400` refusals along, for the same
 reason the authorization needs them: a request whose reach is unknown cannot be recorded either.
 
+**The GraphQL surface hands on its reach the same way.** A host that serves both surfaces and records reads would otherwise
+miss every GraphQL read: `HttpContext.Features.Get<IIyuGraphQLReachFeature>()` carries `AddressedQueries` (the query fields at
+the root of the operation) and `ReachedQueries` (the other served entities the operation selects into through a navigation —
+`{ shelves { nodes { books { nodes { title } } } } }` addresses `shelves` and reaches `books`), as the query names the entities
+are registered under, in ordinal order. Fragments, aliases and a request's named operation are followed; reached means *selected*,
+so a field a variable-driven `@skip`/`@include` later drops still counts, and arguments are not followed. It is computed from the
+document before the request is validated or any policy runs, so a refused request carries it too, and it is on whenever any query
+field has a policy; on a host with none, set `IyuGraphQLSchemaBuilder.ComputeReach = true` before `ApplyTo`. It is absent for an
+executor called outside an HTTP request, for a document that does not parse, and for a persisted operation sent by id alone.
+
 **GraphQL — the policy is on the object type, not only on the root field.** The read policy
 attaches to the query field *and* to the read type it returns. A field on some other type that
 returns the protected type reaches the data without the root field's resolver being involved, so a

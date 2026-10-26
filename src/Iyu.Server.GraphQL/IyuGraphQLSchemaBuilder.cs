@@ -76,6 +76,19 @@ public sealed class IyuGraphQLSchemaBuilder
     /// </summary>
     public int DefaultPageSize { get; set; } = 100;
 
+    /// <summary>
+    /// Whether each request's reach is put on <c>HttpContext.Features</c> as <see cref="IIyuGraphQLReachFeature"/> — the
+    /// query fields it addressed and the other served entities it selects into. Off by default; on by itself once any
+    /// query field carries a policy (the same rule as <c>IyuMainServerOptions.ComputeODataReach</c> for OData). Set it on a
+    /// host that records what each request read and has no read policies.
+    /// </summary>
+    /// <remarks>
+    /// Adds a request middleware right after the document is parsed, so the reach is known before the document is
+    /// validated or any field policy runs — a refused request carries it too. Like <see cref="Restrict"/>, it is read by
+    /// <see cref="ApplyTo"/> — set it before.
+    /// </remarks>
+    public bool ComputeReach { get; set; }
+
     private readonly Dictionary<string, (int MaxPageSize, int DefaultPageSize)> _pages = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -544,6 +557,14 @@ public sealed class IyuGraphQLSchemaBuilder
         }
         if (_usesAuthorization)
             executorBuilder.AddIyuGraphQLAuthorization();
+        if (ComputeReach || _usesAuthorization)
+        {
+            // The middleware finds the request's HttpContext through the accessor, as the authorization handler does.
+            executorBuilder.Services.AddHttpContextAccessor();
+            executorBuilder.UseRequest(
+                next => context => IyuGraphQLReachMiddleware.InvokeAsync(this, next, context),
+                key: IyuGraphQLReachMiddleware.Key, after: HotChocolate.Execution.WellKnownRequestMiddleware.DocumentParserMiddleware);
+        }
     }
 
     /// <summary>Exposes the mutation prefix recorded for a given query name.</summary>

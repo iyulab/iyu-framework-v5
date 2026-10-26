@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.VaultAi`
+**Packages affected:** `Iyu.VaultAi`, `Iyu.Server.GraphQL`
 
 ### Changed
 
@@ -56,6 +56,13 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **`Iyu.Server.GraphQL`: a GraphQL request's reach is handed on to the host (`IIyuGraphQLReachFeature`).** The OData surface
+  already puts the entity sets a request reads on `HttpContext.Features` for a host that records what each request read; the
+  GraphQL surface left its reads out, so a host serving both silently under-recorded. `AddressedQueries` lists the query fields at
+  the root of the operation and `ReachedQueries` the other served entities it selects into through a navigation, by the query
+  names the entities are registered under. Computed from the request's document right after it is parsed — before validation or
+  any policy — so a refused request carries it too. On whenever any query field has a policy; otherwise opt in with
+  `IyuGraphQLSchemaBuilder.ComputeReach`. Nothing changes for a host that does not read the feature and has no policy.
 - **`VaultAiSettings.AllowUntrustedServerCertificate`** (default `false`) — the explicit opt-out described above.
 - **`VaultAiSettings.AuthorizationPolicy`** and **`VaultAiSettings.AllowAnonymous`** (default `false`) — the policy and the explicit opt-out described above.
 
