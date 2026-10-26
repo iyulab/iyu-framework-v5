@@ -4,6 +4,15 @@ public class VaultAiSettings
 {
     public string Url { get; set; } = "";
     public string Token { get; set; } = "";
+
+    /// <summary>
+    /// true 이면 서버 인증서 검증을 끈다(어떤 인증서든 받아들인다). 기본값 false — 운영체제 신뢰 저장소로
+    /// 서버 인증서를 검증한다. 자체 서명 인증서를 쓰는 내부 서버에 붙을 때만 켠다: 켜면 연결 상대가
+    /// 진짜 서버인지 확인되지 않아 <see cref="Token"/> 이 가로채일 수 있다. 가능하면 서버 인증서의 발급
+    /// 기관을 운영체제 신뢰 저장소에 추가하는 쪽을 권한다.
+    /// </summary>
+    public bool AllowUntrustedServerCertificate { get; set; }
+
     public Guid ReportAgentId { get; set; }
     public string ReportPath { get; set; } = "reports";
 

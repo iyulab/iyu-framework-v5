@@ -29,6 +29,23 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.VaultAi`
+
+### Changed
+
+- **`Iyu.VaultAi`: the server certificate is verified.** 🔇 no build-time signal. The client sends the configured `Token`
+  as a bearer credential, but it accepted any server certificate — a self-signed one, an expired one, one issued for a
+  different host — so a party able to intercept the connection could read the token. It now validates the certificate
+  against the operating system trust store, like any HTTPS client. **A host that talks to a server with a self-signed
+  certificate stops working until it does one of two things:** add that certificate's issuing authority to the
+  machine's trust store (preferred), or set `VaultAi:AllowUntrustedServerCertificate` to `true`, which restores the old
+  behaviour and logs a warning at startup. Report generation that used to succeed fails with an `HttpRequestException`
+  (inner `AuthenticationException`) until then.
+
+### Added
+
+- **`VaultAiSettings.AllowUntrustedServerCertificate`** (default `false`) — the explicit opt-out described above.
+
 ## [0.44.0] - 2026-10-26
 
 **Packages affected:** `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.Data`, `Iyu.Data.SqlServer`

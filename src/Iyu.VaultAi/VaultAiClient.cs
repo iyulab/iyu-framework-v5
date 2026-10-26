@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -11,18 +12,27 @@ public class VaultAiClient : IVaultAiClient
     private readonly HttpClient _http;
     private readonly VaultAiSettings _settings;
 
-    public VaultAiClient(IOptions<VaultAiSettings> options)
+    public VaultAiClient(IOptions<VaultAiSettings> options, ILogger<VaultAiClient>? logger = null)
     {
         _settings = options.Value;
-        var handler = new HttpClientHandler
-        {
-            ServerCertificateCustomValidationCallback =
-                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-        };
-        _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
+        if (_settings.AllowUntrustedServerCertificate)
+            logger?.LogWarning(
+                "VaultAi:AllowUntrustedServerCertificate is on — the server certificate is not verified, " +
+                "so the bearer token can be intercepted. Trust the server's issuing authority instead.");
+        _http = new HttpClient(CreateHandler(_settings)) { Timeout = TimeSpan.FromMinutes(10) };
         _http.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _settings.Token);
         _http.BaseAddress = new Uri(_settings.Url.TrimEnd('/') + "/");
+    }
+
+    // 기본은 운영체제 신뢰 저장소 검증 그대로 — 콜백을 달지 않는다. 검증을 끄는 것은 명시한 설정뿐이다.
+    internal static HttpClientHandler CreateHandler(VaultAiSettings settings)
+    {
+        var handler = new HttpClientHandler();
+        if (settings.AllowUntrustedServerCertificate)
+            handler.ServerCertificateCustomValidationCallback =
+                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+        return handler;
     }
 
     public async Task<string> GetMessageAsync(Guid agentId, string prompt, CancellationToken ct = default)

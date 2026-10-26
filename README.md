@@ -1578,9 +1578,17 @@ app.UseVaultAiReports();   // API + SPA at VaultAiSettings.BasePath (default "/v
   "Url": "https://vault-ai.internal",
   "Token": "...",
   "ReportAgentId": "...",
-  "ReportPath": "reports"   // see below
+  "ReportPath": "reports",  // see below
+  "AllowUntrustedServerCertificate": false   // default; see below
 }
 ```
+
+**The server certificate is verified.** The client sends `Token` as a bearer credential, so it checks the
+server's certificate against the operating system trust store like any HTTPS client. A server that presents a
+self-signed certificate is refused — the preferred fix is to add that certificate's issuing authority to the trust
+store of the machine running the host. Setting `AllowUntrustedServerCertificate` to `true` turns verification off
+entirely (a warning is logged at startup): the connection is then encrypted but its far end is not identified, so
+anyone able to intercept it can read the token. Earlier versions never verified it.
 
 **`ReportPath` accepts an absolute path, and that is the supported way to keep report history
 across deployments.** When it is relative (the default, `"reports"`), both the scheduler and
