@@ -13,6 +13,21 @@ public class VaultAiSettings
     /// </summary>
     public bool AllowUntrustedServerCertificate { get; set; }
 
+    /// <summary>
+    /// Name of the authorization policy every route of the module is held to — the report API, the viewer, and the
+    /// report folders served at <c>{BasePath}-files</c>. Empty (the default) means any signed-in user. The policy must
+    /// be registered with <c>AddAuthorization</c>; a name that is not registered fails at <c>UseVaultAiReports()</c>.
+    /// Reading the reports and generating, editing or deleting them share this one policy.
+    /// </summary>
+    public string? AuthorizationPolicy { get; set; }
+
+    /// <summary>
+    /// true serves the module to anonymous callers, which also lets them start report generation (an LLM call),
+    /// edit and delete reports and read the report folders. Default false. Turn it on only when something in front of
+    /// the host — a network boundary or a reverse proxy that authenticates — already decides who gets here.
+    /// </summary>
+    public bool AllowAnonymous { get; set; }
+
     public Guid ReportAgentId { get; set; }
     public string ReportPath { get; set; } = "reports";
 

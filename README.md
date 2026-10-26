@@ -1579,9 +1579,25 @@ app.UseVaultAiReports();   // API + SPA at VaultAiSettings.BasePath (default "/v
   "Token": "...",
   "ReportAgentId": "...",
   "ReportPath": "reports",  // see below
-  "AllowUntrustedServerCertificate": false   // default; see below
+  "AllowUntrustedServerCertificate": false,   // default; see below
+  "AuthorizationPolicy": null,                // null = any signed-in user
+  "AllowAnonymous": false                     // default; see below
 }
 ```
+
+**Access is authorization-gated.** Every route the module serves — the report API under `/api/vault-ai`, the viewer at
+`BasePath`, the report folders browsable at `{BasePath}-files`, and the `GET {BasePath}/{folder}/new` link that starts a
+generation — requires a signed-in user by default, and the module answers `401`/`403` through your authentication scheme
+like any protected endpoint. Reading, generating (an LLM call), editing and deleting reports are all behind that one gate.
+Name a stricter policy with `VaultAi:AuthorizationPolicy` (register it with `AddAuthorization`; a name that is not
+registered fails at `UseVaultAiReports()`). The host needs authentication configured and `app.UseAuthentication()` before
+`app.UseVaultAiReports()`. `GET {BasePath}/{folder}/new` changes state (it starts a generation), so a browser request
+that another site started — `Sec-Fetch-Site` other than `same-origin` or `none`, or without that header an `Origin` or
+`Referer` of another origin — is refused with `403`; typed URLs, the viewer and
+non-browser callers such as a monitor are not affected. The bundled viewer calls the API with the browser's own credentials, so a signed-in browser
+session means a cookie-based scheme. `VaultAi:AllowAnonymous` = `true` turns the gate off — meant for a host whose network boundary or
+authenticating reverse proxy already decides who reaches it, because anonymous callers can then start generations and read
+the report folders, which hold prompts and run logs.
 
 **The server certificate is verified.** The client sends `Token` as a bearer credential, so it checks the
 server's certificate against the operating system trust store like any HTTPS client. A server that presents a

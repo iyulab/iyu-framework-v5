@@ -26,6 +26,19 @@ public static class VaultAiMiddleware
         var client = app.ApplicationServices
             .GetRequiredService<IVaultAiClient>();
 
+        // Everything below — the report folders, the API, the viewer — is held to the module's authorization policy.
+        // This guard is registered first so the static-file and directory-browser middleware that follow never
+        // answer an unauthorized request.
+        VaultAiAuthorization.EnsureConfigured(app.ApplicationServices, settings);
+        var guardBasePath = "/" + settings.BasePath.Trim('/');
+        app.Use(async (context, next) =>
+        {
+            if (VaultAiAuthorization.Guards(context.Request.Path, guardBasePath)
+                && !await VaultAiAuthorization.AuthorizeAsync(context, settings))
+                return;
+            await next();
+        });
+
         // 사전 집계 데이터 주입기(소비앱이 등록). 미등록이면 {{data}}는 빈 안내로 치환된다.
         var dataProvider = app.ApplicationServices
             .GetService<IReportDataProvider>();
@@ -138,6 +151,16 @@ public static class VaultAiMiddleware
                 if (segments.Length == 2
                     && string.Equals(segments[1], "new", StringComparison.OrdinalIgnoreCase))
                 {
+                    // A GET that starts an LLM call: a page on another site must not be able to send a signed-in
+                    // user here with a link or an image. Typed URLs, the viewer and non-browser callers pass.
+                    if (VaultAiAuthorization.IsInitiatedByAnotherSite(context.Request))
+                    {
+                        context.Response.StatusCode = 403;
+                        await context.Response.WriteAsJsonAsync(
+                            new { error = "Another site cannot start a report generation." }, VaultAiReportsApi.WebJson);
+                        return;
+                    }
+
                     await VaultAiReportsApi.GenerateNewAsync(
                         context, reportPath, client, settings.ReportAgentId, settings, segments[0], dataProvider);
                     return;

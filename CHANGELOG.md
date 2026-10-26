@@ -41,10 +41,23 @@ onward; earlier entries state the same consequence in prose where it applies.
   machine's trust store (preferred), or set `VaultAi:AllowUntrustedServerCertificate` to `true`, which restores the old
   behaviour and logs a warning at startup. Report generation that used to succeed fails with an `HttpRequestException`
   (inner `AuthenticationException`) until then.
+- **`Iyu.VaultAi`: the module's routes require authorization.** 🔇 no build-time signal. `UseVaultAiReports()` served its
+  report API, the viewer, and a directory browser over the report folders (prompts, generated reports, run logs) to
+  anyone who could reach the host, anonymous callers included — they could list, read, edit and delete reports, read the
+  logs, and start report generation (an LLM call). Every route of the module is now held to an authorization policy:
+  any signed-in user by default, or the policy named by `VaultAi:AuthorizationPolicy`; unauthenticated callers get
+  `401` (or the scheme's redirect), callers the policy refuses get `403`. **A host that relied on the old behaviour
+  stops serving the module to anonymous callers.** Either authenticate (register an authentication scheme and call
+  `app.UseAuthentication()` before `app.UseVaultAiReports()`) or, when a network boundary or authenticating reverse proxy
+  already decides who reaches the host, set `VaultAi:AllowAnonymous` to `true` to restore it.
+  Separately, `GET {BasePath}/{folder}/new` — a link that starts a generation — now answers `403` to a browser request another
+  site started (`Sec-Fetch-Site` neither `same-origin` nor `none`; without that header, an `Origin` or `Referer` of another origin); typed URLs, the viewer and
+  non-browser callers are unaffected.
 
 ### Added
 
 - **`VaultAiSettings.AllowUntrustedServerCertificate`** (default `false`) — the explicit opt-out described above.
+- **`VaultAiSettings.AuthorizationPolicy`** and **`VaultAiSettings.AllowAnonymous`** (default `false`) — the policy and the explicit opt-out described above.
 
 ## [0.44.0] - 2026-10-26
 
