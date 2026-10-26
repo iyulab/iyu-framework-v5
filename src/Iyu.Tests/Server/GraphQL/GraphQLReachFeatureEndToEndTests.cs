@@ -88,9 +88,12 @@ public sealed class GraphQLReachFeatureEndToEndTests : IAsyncLifetime
         public IIyuGraphQLReachFeature? Reach;
     }
 
-    private async Task<(HttpClient Client, Seen Seen)> Host(bool computeReach, bool restrictBooks = false)
+    private async Task<(HttpClient Client, Seen Seen)> Host(bool computeReach, bool restrictBooks = false, int maxDocumentSelections = 10_000)
     {
-        var graphql = new IyuGraphQLSchemaBuilder { ComputeReach = computeReach, MaxPageSize = 3, DefaultPageSize = 2 };
+        var graphql = new IyuGraphQLSchemaBuilder
+        {
+            ComputeReach = computeReach, MaxPageSize = 3, DefaultPageSize = 2, MaxDocumentSelections = maxDocumentSelections,
+        };
         graphql.AddEntityPair<ReachShelf, ReachShelf>("shelves", "shelf");
         graphql.AddEntityPair<ReachBook, ReachBook>("books", "book");
         graphql.AddEntityPair<ReachReview, ReachReview>("reviews", "review");
@@ -282,19 +285,75 @@ public sealed class GraphQLReachFeatureEndToEndTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_document_past_the_reading_budget_records_no_reach()
+    public async Task A_document_past_the_size_budget_is_refused_before_it_runs_and_records_no_reach()
     {
-        var (client, seen) = await Host(computeReach: true);
-        var fields = string.Join(" ", Enumerable.Range(0, IyuGraphQLReachBudget + 1).Select(i => $"a{i}: name"));
+        var (client, seen) = await Host(computeReach: true, maxDocumentSelections: 50);
+        var fields = string.Join(" ", Enumerable.Range(0, 60).Select(i => $"a{i}: name"));
 
         using var response = await Post(client, $"{{ shelves {{ nodes {{ {fields} }} }} }}");
 
+        Assert.Contains("IYU_DOCUMENT_TOO_LARGE", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Null(seen.Reach);
-        _ = response;
     }
 
-    // Mirrors IyuGraphQLReach.MaxSelections (internal): one more selection than the reading allows.
-    private const int IyuGraphQLReachBudget = 10_000;
+    /// <summary>
+    /// Fragments that each spread the next one twice are 2^n paths in n lines. The executor was measured to take minutes on
+    /// forty of them (seconds already at twenty-four), and it reads the whole document before any limit of its own applies.
+    /// The size budget counts each fragment once, so the request is refused at once — even with no reach computed, no policy
+    /// and a document that is otherwise valid.
+    /// </summary>
+    [Fact]
+    public async Task A_fragment_bomb_is_refused_at_once_by_every_host()
+    {
+        var (client, seen) = await Host(computeReach: false);
+        const int levels = 40;
+        var document = new System.Text.StringBuilder("query { shelves { nodes { ...F0 } } } ");
+        for (var i = 0; i < levels; i++)
+            document.Append($"fragment F{i} on ReachShelf {{ ...F{i + 1} ...F{i + 1} }} ");
+        document.Append($"fragment F{levels} on ReachShelf {{ books {{ nodes {{ title }} }} }} ");
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        using var response = await Post(client, document.ToString());
+        started.Stop();
+
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(5), $"took {started.Elapsed}");
+        Assert.Contains("IYU_DOCUMENT_TOO_LARGE", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Null(seen.Reach);
+    }
+
+    [Fact]
+    public void The_budget_counts_each_fragment_once_and_follows_the_limit_it_is_given()
+    {
+        var small = HotChocolate.Language.Utf8GraphQLParser.Parse("query { shelves { nodes { name books { nodes { title } } } } }");
+
+        Assert.Null(IyuGraphQLDocumentBudget.Exceeds(small, maxSelections: 100));
+        Assert.Contains("more than 4 fields", IyuGraphQLDocumentBudget.Exceeds(small, maxSelections: 4));
+
+        // Twenty levels of fragments that spread the next one twice: counted without expanding, so it answers at once.
+        var bomb = new System.Text.StringBuilder("query { shelves { nodes { ...F0 } } } ");
+        for (var i = 0; i < 20; i++) bomb.Append($"fragment F{i} on ReachShelf {{ ...F{i + 1} ...F{i + 1} }} ");
+        bomb.Append("fragment F20 on ReachShelf { name } ");
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var reason = IyuGraphQLDocumentBudget.Exceeds(HotChocolate.Language.Utf8GraphQLParser.Parse(bomb.ToString()), 10_000);
+        started.Stop();
+        Assert.NotNull(reason);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(1), $"took {started.Elapsed}");
+
+        // A fragment that spreads itself is invalid GraphQL, the executor reports it; sizing it must still end.
+        var cycle = HotChocolate.Language.Utf8GraphQLParser.Parse("query { shelves { nodes { ...A } } } fragment A on ReachShelf { ...A name }");
+        Assert.Null(IyuGraphQLDocumentBudget.Exceeds(cycle, 100));
+    }
+
+    [Fact]
+    public void A_document_nested_deeper_than_the_limit_is_refused()
+    {
+        var depth = IyuGraphQLDocumentBudget.MaxDepth + 1;
+        var text = "query { " + string.Concat(Enumerable.Repeat("a { ", depth)) + "b" + string.Concat(Enumerable.Repeat(" }", depth)) + " }";
+
+        var reason = IyuGraphQLDocumentBudget.Exceeds(HotChocolate.Language.Utf8GraphQLParser.Parse(text), 10_000);
+
+        Assert.Contains("deeper than", reason);
+    }
 
     [Fact]
     public async Task The_request_still_runs_normally_with_the_reach_computed()

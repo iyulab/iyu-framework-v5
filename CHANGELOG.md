@@ -54,6 +54,17 @@ onward; earlier entries state the same consequence in prose where it applies.
   site started (`Sec-Fetch-Site` neither `same-origin` nor `none`; without that header, an `Origin` or `Referer` of another origin); typed URLs, the viewer and
   non-browser callers are unaffected.
 
+### Security
+
+- **`Iyu.Server.GraphQL`: a document too large to read is refused.** 🔇 no build-time signal. The executor validates and
+  compiles a document in full before any limit of its own applies, and fragments that each spread the next one more than once
+  make that grow exponentially with the document's length: a document of forty such fragments held a request for more than
+  five minutes (twenty-four took six seconds) — to any caller who can post a document to the endpoint. A document that
+  selects more than `IyuGraphQLSchemaBuilder.MaxDocumentSelections` fields once its fragments are expanded (default 10,000,
+  counted without expanding, so the check is linear in the document) or nests deeper than 64 levels is now answered with
+  the error code `IYU_DOCUMENT_TOO_LARGE` before it is validated or run. A real client document is far below both; a
+  host that generates unusually large documents raises the limit.
+
 ### Added
 
 - **`Iyu.Server.GraphQL`: a GraphQL request's reach is handed on to the host (`IIyuGraphQLReachFeature`).** The OData surface

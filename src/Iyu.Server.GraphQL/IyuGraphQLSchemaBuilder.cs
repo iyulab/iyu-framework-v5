@@ -89,6 +89,21 @@ public sealed class IyuGraphQLSchemaBuilder
     /// </remarks>
     public bool ComputeReach { get; set; }
 
+    internal bool ReachIsComputed => ComputeReach || _usesAuthorization;
+
+    /// <summary>
+    /// The most fields one document may select once its fragments are expanded; a request whose document selects more is
+    /// refused with the error code <c>IYU_DOCUMENT_TOO_LARGE</c> before the executor validates or runs it. Defaults to
+    /// 10,000 — far above what a client writes by hand or generates for a screen.
+    /// </summary>
+    /// <remarks>
+    /// The executor reads a document in full before any of its own limits apply, and fragments that each spread the next
+    /// one more than once make that grow exponentially with the document's <em>length</em>: a document of a few dozen
+    /// lines was measured to hold a request for minutes. The count here is linear in the document, whatever it expands to.
+    /// A document nested deeper than 64 levels is refused the same way.
+    /// </remarks>
+    public int MaxDocumentSelections { get; set; } = 10_000;
+
     private readonly Dictionary<string, (int MaxPageSize, int DefaultPageSize)> _pages = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -539,6 +554,7 @@ public sealed class IyuGraphQLSchemaBuilder
         if (MaxPageSize <= 0) throw new InvalidOperationException($"{nameof(MaxPageSize)} must be positive.");
         if (DefaultPageSize <= 0 || DefaultPageSize > MaxPageSize)
             throw new InvalidOperationException($"{nameof(DefaultPageSize)} must be positive and not exceed {nameof(MaxPageSize)}.");
+        if (MaxDocumentSelections <= 0) throw new InvalidOperationException($"{nameof(MaxDocumentSelections)} must be positive.");
         _applied = true;
         var fieldBuilders = _fieldBuilders.ToArray(); // capture snapshot
         // Every query field resolves through UseProjection; the projection conventions are
@@ -557,14 +573,11 @@ public sealed class IyuGraphQLSchemaBuilder
         }
         if (_usesAuthorization)
             executorBuilder.AddIyuGraphQLAuthorization();
-        if (ComputeReach || _usesAuthorization)
-        {
-            // The middleware finds the request's HttpContext through the accessor, as the authorization handler does.
-            executorBuilder.Services.AddHttpContextAccessor();
-            executorBuilder.UseRequest(
-                next => context => IyuGraphQLReachMiddleware.InvokeAsync(this, next, context),
-                key: IyuGraphQLReachMiddleware.Key, after: HotChocolate.Execution.WellKnownRequestMiddleware.DocumentParserMiddleware);
-        }
+        // The reach is recorded on the request's HttpContext, found through the accessor as the authorization handler does.
+        executorBuilder.Services.AddHttpContextAccessor();
+        executorBuilder.UseRequest(
+            next => context => IyuGraphQLRequestMiddleware.InvokeAsync(this, next, context),
+            key: IyuGraphQLRequestMiddleware.Key, after: HotChocolate.Execution.WellKnownRequestMiddleware.DocumentParserMiddleware);
     }
 
     /// <summary>Exposes the mutation prefix recorded for a given query name.</summary>

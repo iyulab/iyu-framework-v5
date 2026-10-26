@@ -907,6 +907,14 @@ document before the request is validated or any policy runs, so a refused reques
 field has a policy; on a host with none, set `IyuGraphQLSchemaBuilder.ComputeReach = true` before `ApplyTo`. It is absent for an
 executor called outside an HTTP request, for a document that does not parse, and for a persisted operation sent by id alone.
 
+**GraphQL — a document too large to read is refused.** The executor validates and compiles a document in full before any
+limit of its own applies, and fragments that each spread the next one more than once grow that work exponentially with the
+document's *length* — a document of a few dozen lines was measured to hold a request for minutes (seconds at twenty-four
+levels). This surface counts a document's fields with every fragment sized once, right after it is parsed: more than
+`IyuGraphQLSchemaBuilder.MaxDocumentSelections` (default 10,000 once expanded), or nesting deeper than 64 levels, is
+refused with the error code `IYU_DOCUMENT_TOO_LARGE` before it is validated or run. It applies to every host, with or without
+policies.
+
 **GraphQL — the policy is on the object type, not only on the root field.** The read policy
 attaches to the query field *and* to the read type it returns. A field on some other type that
 returns the protected type reaches the data without the root field's resolver being involved, so a

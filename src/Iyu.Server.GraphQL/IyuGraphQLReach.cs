@@ -89,7 +89,7 @@ internal static class IyuGraphQLReach
                             && schema.Types.TryGetType<ITypeDefinition>(condition.Name.Value, out var conditioned)
                                 ? conditioned
                                 : parent;
-                        Walk(inline.SelectionSet, scope, atRoot, ignore, depth + 1);
+                        Walk(inline.SelectionSet, scope, atRoot, ignore, depth);
                         break;
 
                     case FragmentSpreadNode spread
