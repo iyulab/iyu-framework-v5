@@ -43,6 +43,7 @@ public static class IyuLowlineServiceCollectionExtensions
         services.AddSingleton<ILowlineStore>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
         services.AddSingleton<ILowlineRecordIndex>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
         services.AddScoped<IyuLowlineSettleService>();
+        services.AddScoped<IyuLowlineProposeService>();
         services.AddSingleton<IyuLowlineRecoveryService>();
         services.AddHostedService<IyuLowlineRecoveryWorker>();
         services.AddSingleton(provider =>

@@ -31,6 +31,16 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 **Packages affected:** `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.Lowline`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.GraphQL`
 
+### Added
+
+- **`Iyu.Lowline`: `IyuLowlineProposeService` — proposing for a record without the mapped route.** The hold-back check
+  (the draw, its keeping for the settle, the `MaxPendingChecks` limit) was reachable only through the `propose` route, so a
+  host that derives the values of a proposal on its server — and so cannot hand the request's `values` to that route — had
+  no way to have its answers checked. `ProposeAsync(form, recordId, values, user)` (scoped, the mirror of
+  `IyuLowlineSettleService`) asks the hook's `OpenAsync`, has the engine propose from the values it is given, applies the
+  check, and answers a status (`Proposed`, `FormUnknown`, `RecordNotFound`, `Refused`, `CheckBacklog` with `RetryAfter`). The
+  `propose` route now calls it; its request, its responses and its status codes are unchanged.
+
 ### Changed
 
 - **Dependencies move to the latest patch and minor lines: `Microsoft.*` 10.0.13 → 10.0.14, `HotChocolate.*` 16.6.8 → 16.7.3.**

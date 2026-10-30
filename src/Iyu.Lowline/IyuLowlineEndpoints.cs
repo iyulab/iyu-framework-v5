@@ -73,54 +73,40 @@ public static class IyuLowlineEndpoints
     private static async Task<IResult> ProposeAsync(
         string form,
         HttpContext http,
-        LowlineForms forms,
         IEnumerable<ILowlineFormHook> hooks,
-        IyuLowlineRecheck recheck,
-        IOptions<IyuLowlineOptions> options,
-        ILoggerFactory loggers)
+        IyuLowlineProposeService service,
+        IOptions<IyuLowlineOptions> options)
     {
         var settings = options.Value;
-        if (!settings.Engine.Forms.ContainsKey(form) || Hook(hooks, form) is not { } hook)
+        if (!settings.Engine.Forms.ContainsKey(form) || Hook(hooks, form) is null)
             return Results.NotFound();
 
         var (request, refusal) = await ReadAsync<ProposeRequest>(http, settings.MaxRequestBytes);
         if (request is null || string.IsNullOrWhiteSpace(request.Id) || request.Values is null)
             return refusal ?? Results.Problem("The request body does not read.", statusCode: StatusCodes.Status400BadRequest);
 
-        var context = await hook.OpenAsync(request.Id, http.User, http.RequestAborted);
-        if (context is null) return Results.NotFound();
-
-        try
+        // The route hands the service what the request carried; a host that derives the values itself calls the same service.
+        var outcome = await service.ProposeAsync(form, request.Id, request.Values, http.User, http.RequestAborted);
+        switch (outcome.Status)
         {
-            var scope = new LowlineScope(form, context.Space);
-            var shown = await forms.ProposeAsync(scope, request.Id, request.Values, context.Allowed, http.RequestAborted);
+            case IyuLowlineProposeStatus.Proposed:
+                // The engine's types carry their own wire names and enum spellings, so the default serializer writes them as
+                // the engine's own host does.
+                return Results.Json(outcome.Proposals, Web);
 
-            // With a settler id (a salt) the server holds some answers back to check the values people then settle; a machine
-            // is not checked, and a caller with no account id has no settler to keep the draw under.
-            if (!settings.Settler.IsServiceAccount(http.User)
-                && IyuLowlineSettlerIdentity.Resolve(settings.Settler, http.User, out _) is { } settler)
-                shown = await recheck.ApplyAsync(scope, request.Id, settler, request.Values, shown, http.RequestAborted);
+            case IyuLowlineProposeStatus.Refused:
+                // The input here is the caller's own, so the engine's words about it go back to them.
+                return Results.Problem(outcome.Detail, statusCode: StatusCodes.Status400BadRequest);
 
-            // The engine's types carry their own wire names and enum spellings, so the default serializer writes them as
-            // the engine's own host does.
-            return Results.Json(shown, Web);
-        }
-        catch (ArgumentException refused)
-        {
-            // The input here is the caller's own, so the engine's words about it go back to them.
-            return Results.Problem(refused.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (IyuLowlineCheckBacklogException backlog)
-        {
-            // Not answered without the check: that would be the way round it for anyone who fills the limit. Logged for
-            // whoever runs the host, without the record or the person: the id is the caller's and the pseudonym ties to records.
-            loggers.CreateLogger("Iyu.Lowline.Endpoints").LogWarning(
-                "Lowline refused a proposal of form {Form}: the settler already has {Limit} records awaiting settlement with a check.",
-                form, settings.MaxPendingChecks);
-            http.Response.Headers.RetryAfter = ((int)Math.Ceiling(backlog.RetryAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return Results.Problem(
-                "Too many records are awaiting settlement. Settle them, or wait for the oldest to lapse.",
-                statusCode: StatusCodes.Status429TooManyRequests);
+            case IyuLowlineProposeStatus.CheckBacklog:
+                http.Response.Headers.RetryAfter = ((int)Math.Ceiling((outcome.RetryAfter ?? TimeSpan.Zero).TotalSeconds))
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Problem(
+                    "Too many records are awaiting settlement. Settle them, or wait for the oldest to lapse.",
+                    statusCode: StatusCodes.Status429TooManyRequests);
+
+            default:
+                return Results.NotFound();
         }
     }
 

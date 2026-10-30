@@ -1908,6 +1908,16 @@ tables for a caller, or answers `null` for one that does not exist *or that call
 - the outcome is a status (`Settled`, `Unauthenticated`, `FormUnknown`, `RecordNotFound`, `Refused`); a refusal's
   `Detail` is for your log and can quote a stored value, so it does not belong in a response.
 
+**Proposing without the route.** `IyuLowlineProposeService.ProposeAsync(form, recordId, values, user)` (scoped) is what the
+`propose` route calls, for a host whose proposals rest on values it derives itself — from a catalogue, a parent record, a
+rule of its own domain — rather than on what a request carried. The values are the ones you hand over; the service reads
+nothing else. It asks the hook's `OpenAsync` for the memory space and the choices the caller may pick, has the engine
+propose, and — when `Settler.Salt` is set and the caller is a person with an account id — holds some answers back and keeps
+the draw for the settle (below), within the same `MaxPendingChecks` limit as the route. The outcome is a status
+(`Proposed`, `FormUnknown`, `RecordNotFound`, `Refused`, `CheckBacklog`) with the proposals, a refusal's `Detail`, or the
+`RetryAfter` of a full backlog; `CheckBacklog` is what the route answers as 429. Use the same record id for the proposal and
+for `SettleAsync`: the draw kept by one is the check the other finds.
+
 **The two routes.** `app.MapIyuLowline()` (`"/lowline"` by default) maps `POST /{form}/propose` and
 `POST /{form}/settle` with the same request and response bodies as the engine's own web host, so its form element talks
 to either: `propose` takes `{ "id", "values" }` and answers what to show for each open decided field; `settle` takes
