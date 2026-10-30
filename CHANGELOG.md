@@ -29,6 +29,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-10-30
+
 **Packages affected:** `Iyu.Lowline`
 
 ### Fixed
