@@ -1224,6 +1224,11 @@ code from `ODataErrorCodes` — branch on the code, not on the message text:
 | `409` | `SharedKeyRowExists` | the principal already has its one shared-key row |
 | `412` | `PreconditionFailed` | a `PATCH` or `DELETE` sent `If-Match` naming a version the row no longer has (below) |
 
+An `InvalidQuery` message is the query library's own sentence, not this framework's: it echoes what the caller wrote and
+can name an entity type of the model (the types `$metadata` already lists), in English, and its wording follows the
+library's version. Show it to a developer; do not show it to an end user, and do not match on it. A stack trace is never in
+it — `innererror` appears only where the host turned detailed errors on.
+
 Each `details[]` entry carries its own `code` from `ODataErrorDetailCodes`. Where a refusal has one cause,
 that is the refusal's code (`UnknownProperty`, `UnwritableProperty`, `SharedKeyRequired`). `InvalidBody`
 has two, told apart by the entry: `Unconvertible` — the value could not be read as the property's type, and

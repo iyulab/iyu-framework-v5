@@ -195,6 +195,25 @@ public class ErrorResponseShapeTests
         Assert.Equal("400 application/json odata-error code='InvalidQuery'", await ShapeOf(response));
     }
 
+    [Fact]
+    public async Task A_query_option_error_speaks_in_the_query_librarys_words_so_only_its_code_is_stable()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync($"/$data/{Ledgers}?$filter=Nope eq 1");
+
+        var error = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("error");
+        Assert.Equal("InvalidQuery", error.GetProperty("code").GetString());
+
+        // The words are the query library's, not this framework's: they echo what the caller wrote and name the model's type
+        // (which $metadata already publishes). Nothing here pins their wording — only the code is a contract.
+        var message = error.GetProperty("message").GetString();
+        Assert.Contains("Nope", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", message, StringComparison.Ordinal);
+        Assert.False(error.TryGetProperty("innererror", out _), "no inner error unless detailed errors are on");
+    }
+
     /// <summary>
     /// An unknown navigation is refused by the query layer. The authorization filter's own refusal of
     /// an <c>$expand</c> it cannot parse carries the same code; no request is known that reaches it
