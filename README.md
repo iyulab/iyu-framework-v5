@@ -1790,6 +1790,7 @@ by the test suite against these packages, so it cannot drift from them.
 <!-- lowline-sample -->
 ```csharp
 using System.Security.Claims;
+using Iyu.Core.Lowline;
 using Iyu.Lowline;
 using Lowline;
 using Microsoft.AspNetCore.Builder;
@@ -1884,8 +1885,8 @@ public static class LowlineSample
 
 | Table | Entity implements | Unique key |
 |---|---|---|
-| settled records | `ILowlineRecordRow` — `Form`, `Space`, `RecordId`, `SettledAt` (`DateTimeOffset`), `Json` | `Form`, `Space`, `RecordId` |
-| chosen thresholds | `ILowlineTuningRow` — `Form`, `Space`, `Tuning` | `Form`, `Space` |
+| settled records | `ILowlineRecordRow` (in `Iyu.Core`, namespace `Iyu.Core.Lowline`) — `Form`, `Space`, `RecordId`, `SettledAt` (`DateTimeOffset`), `Json` | `Form`, `Space`, `RecordId` |
+| chosen thresholds | `ILowlineTuningRow` (same place) — `Form`, `Space`, `Tuning` | `Form`, `Space` |
 
 `EfLowlineStore<TContext, TRecord, TTuning>` reads and writes them through your `DbContext`, one fresh scope per
 call, because the engine chooses its thresholds again on a background worker after a save. A second save of one record

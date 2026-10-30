@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.Lowline`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.GraphQL`
+**Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.Lowline`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.GraphQL`
 
 ### Added
 
@@ -43,6 +43,14 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **Breaking — `Iyu.Lowline`: the two row interfaces move to `Iyu.Core`.** `ILowlineRecordRow` and `ILowlineTuningRow` are
+  nothing but the shape of the two tables an application declares (text, a timestamp), yet they were declared in
+  `Iyu.Lowline`, which brings the ASP.NET Core shared framework, the native engine and EF Core — so the assembly that holds an
+  application's entities, which has no web in it, had to reference the whole host to implement them. They are now in
+  `Iyu.Core`, which has no dependencies and which every entity layer already references, in the namespace
+  `Iyu.Core.Lowline`; `Iyu.Lowline` references `Iyu.Core`. **To upgrade:** add `using Iyu.Core.Lowline;` wherever the two
+  entities implement them; an assembly that holds only the entities can drop its reference to `Iyu.Lowline`. There is no
+  forwarding alias — the old names no longer exist in `Iyu.Lowline`.
 - **Dependencies move to the latest patch and minor lines: `Microsoft.*` 10.0.13 → 10.0.14, `HotChocolate.*` 16.6.8 → 16.7.3.**
   The `Microsoft.*` packages (EF Core, the ASP.NET Core authentication handlers, the `Microsoft.Extensions.*` abstractions,
   and the `System.Security.Cryptography.Pkcs` floor `Iyu.Data.SqlServer` carries) are the packages' declared minimum now; an

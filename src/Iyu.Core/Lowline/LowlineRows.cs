@@ -1,9 +1,10 @@
-namespace Iyu.Lowline;
+namespace Iyu.Core.Lowline;
 
 /// <summary>
 /// One settled record, as the application's own table holds it. The application declares the table in its own schema
-/// and gives its entity this interface; <see cref="EfLowlineStore{TContext, TRecord, TTuning}"/> reads and writes it
-/// through the application's <c>DbContext</c>.
+/// and gives its entity this interface; the store of the <c>Iyu.Lowline</c> package reads and writes it
+/// through the application's <c>DbContext</c>. The interface lives here, not there, so the assembly that holds the
+/// entities can implement it without referencing the host (ASP.NET Core, the engine, EF Core).
 /// </summary>
 /// <remarks>
 /// The table needs a unique key over <see cref="Form"/>, <see cref="Space"/> and <see cref="RecordId"/>: the engine
