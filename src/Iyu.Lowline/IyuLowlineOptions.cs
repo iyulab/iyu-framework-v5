@@ -53,6 +53,15 @@ public sealed class IyuLowlineOptions
     public TimeSpan CheckLifetime { get; set; } = TimeSpan.FromHours(6);
 
     /// <summary>
+    /// The most records one settler can have awaiting settlement with an answer held back. A proposal that would draw a check
+    /// for one more is refused (429) instead of answered without the check — answering it would let anyone who fills the
+    /// limit avoid every check after. Honest use never gets near it: only about one proposal in twenty keeps anything, and a
+    /// settled record frees its place. Under several nodes the count is approximate: it limits memory, it is not a quota.
+    /// Defaults to 256.
+    /// </summary>
+    public int MaxPendingChecks { get; set; } = 256;
+
+    /// <summary>
     /// How often a field whose answer would be shown is held back instead, so the value the person settles can be checked
     /// against it (above 0, at most 1). Needs <see cref="IyuLowlineSettlerOptions.Salt"/>: without a settler id nothing is held
     /// back. Defaults to 0.05 — one answer in twenty, the engine's own default.
@@ -127,6 +136,9 @@ internal sealed class IyuLowlineOptionsValidator : IValidateOptions<IyuLowlineOp
             return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.CheckRate)} must be above 0 and at most 1.");
         if (options.CheckLifetime <= TimeSpan.Zero)
             return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.CheckLifetime)} must be positive.");
+
+        if (options.MaxPendingChecks < 1)
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.MaxPendingChecks)} must be at least 1.");
 
         if (options.RecoveryInterval < TimeSpan.Zero)
             return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.RecoveryInterval)} must not be negative.");

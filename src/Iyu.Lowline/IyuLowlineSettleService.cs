@@ -119,9 +119,11 @@ public sealed class IyuLowlineSettleService(
             // The checks drawn when this record was proposed for are the server's word on which fields were held back; the
             // draft's own word on them is replaced.
             var recheck = services.GetRequiredService<IyuLowlineRecheck>();
+            var drawn = false;
             if (settler is not null
                 && await recheck.PeekAsync(scope, recordId, settler, cancellationToken) is { } pending)
             {
+                drawn = true;
                 draft = IyuLowlineRecheck.MergeDraft(draft, pending, saved.Values);
                 attestation = new Attestation
                 {
@@ -134,7 +136,7 @@ public sealed class IyuLowlineSettleService(
                 scope, recordId, saved.Values, draft, SettledBy.Person, attestation, cancellationToken);
 
             // Used up only now that the record is settled: a settle that failed leaves the draw for the retry.
-            if (settler is not null) await recheck.ClearAsync(scope, recordId, settler, cancellationToken);
+            if (drawn) await recheck.ClearAsync(scope, recordId, settler!, cancellationToken);
         }
         catch (ArgumentException refusal)
         {

@@ -1933,9 +1933,21 @@ the salt, the held answer is left out of the `propose` response, and the draw is
 the record and the caller's settler id for `IyuLowlineOptions.CheckLifetime` (six hours). The `settle` route reads it back
 and tells the engine — so a caller can neither claim a check it was not given nor avoid one it was, and what the draft
 says it was shown for a held field is replaced by what was held back. A draw is sticky — asking again with other values
-adds to it and never clears it. The held answer is written into the record only if the saved record agrees with the values
-it rested on; if it does not, the field is still a check but no answer is written, so a proposal cannot plant an answer and
-cannot escape the check by disagreeing with it. A settle that fails leaves the draw for the retry. **One limit:** the draw is
+adds to it and never clears it. The held answer is written into the record only if the saved record has exactly the
+context the answer rested on — every value of the record other than the field itself was sent with the proposal, unchanged,
+and nothing was left out; if not, the field is still a check but no answer is written, so a proposal cannot plant an answer
+(not on values the record never had, and not on fewer values than it ends up with) and cannot escape the check by
+disagreeing with it. For the answer to be recorded, make the last proposal before saving with every value you will save
+except the field being asked about; a value filled in after it costs the answer, not the check. A settle that fails leaves
+the draw for the retry. **At most `IyuLowlineOptions.MaxPendingChecks` (256) records per settler wait for their settle with a
+draw kept** — a settled record, or a draw that lapses, frees its place. A proposal that would keep a draw past the limit is
+refused with 429 and a `Retry-After`, not answered without the check (that would be the way round it for anyone who fills the
+limit); one settler at the limit does not affect another. Within a node a settler's requests take turns, so the limit holds.
+A cache has no atomic update, so with several nodes requests of one settler that reach different nodes at the same moment can
+overwrite each other's list: the limit is then a bound on what the cache is made to hold, not a count to rely on. The cache
+is given a fixed-size digest of the form, the space and the record id — never the id itself, which is the caller's and can be
+as long as a request body. A cache that cannot be written or read fails the request; it is never treated as a record with
+no draw. **One limit:** the draw is
 a function of the record id, so a caller who chooses the id of a new record could try ids until one is not drawn, or ask
 again under another id and read the answer that was held back. The checks guard the measurement against honest use and
 against forged claims, not against a settler set on skewing their own space's numbers — closing that would hide the same

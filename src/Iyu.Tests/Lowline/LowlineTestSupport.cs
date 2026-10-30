@@ -13,12 +13,16 @@ public sealed class OrderHook : ILowlineFormHook
 
     public string Form => "order";
 
-    public void Save(string id, string owner, string space, string customer, string colour) =>
-        _rows[id] = (owner, new LowlineSavedRecord(space, new Dictionary<string, FieldValue>
+    public void Save(string id, string owner, string space, string customer, string colour, string? site = null)
+    {
+        var values = new Dictionary<string, FieldValue>
         {
             ["customer"] = customer,
             ["colour"] = colour,
-        }));
+        };
+        if (site is not null) values["site"] = site;
+        _rows[id] = (owner, new LowlineSavedRecord(space, values));
+    }
 
     /// <summary>Whether this hook lists its sources (a form that does not leaves its records to be forgotten some other way).</summary>
     public bool CanList { get; set; }

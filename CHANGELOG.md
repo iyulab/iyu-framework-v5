@@ -29,6 +29,28 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.Lowline`
+
+### Fixed
+
+- **`Iyu.Lowline`: a held-back answer is recorded only when the saved record has exactly the context it rested on.** The
+  check compared only the values the proposal carried, so a proposal sent with fewer values than the record ends up with
+  recorded an answer for a narrower question than the record answers. Now every value of the record other than the field
+  itself must have been sent, unchanged, and none left out; otherwise the field is still a check, but no answer is recorded.
+  A value filled in after the last proposal costs the answer, not the check.
+- **`Iyu.Lowline`: the draws a settler leaves waiting are bounded.** `IyuLowlineOptions.MaxPendingChecks` (default 256)
+  limits the records per settler that wait for their settle with a draw kept; a settled record or a lapsed draw frees its
+  place. A proposal past the limit is refused with 429 and `Retry-After` instead of being answered without the check, and
+  the refusal is logged as a warning (the form and the limit; never the record or the person). A
+  cache that fails on a read or a write fails the request, and a settle whose clean-up fails keeps its draw, so the retry is
+  still checked. Within a node a settler's requests take turns, so the limit holds; with several nodes it is a bound, not a
+  count. 🔇 A host whose people leave more than 256 proposed records unsettled for six hours now sees 429 on `propose`;
+  raise the limit, or shorten `CheckLifetime`.
+- **`Iyu.Lowline`: the cache is given a digest of the record, not the record's id.** The id is the caller's and can be as
+  long as a request body, while a cache can bound the length of a key. 🔇 A draw kept under the earlier key by `0.46.0` is not
+  found after the upgrade (it lapses within six hours): that record is settled with no check, which the engine counts as a
+  value settled with nothing in view.
+
 ## [0.46.0] - 2026-10-30
 
 **Packages affected:** `Iyu.Data`, `Iyu.Lowline`

@@ -65,6 +65,17 @@ internal sealed class HmacLowlineRoll : ILowlineRoll
     }
 }
 
+/// <summary>
+/// A settler already has as many records awaiting settlement with a check as the host allows
+/// (<see cref="IyuLowlineOptions.MaxPendingChecks"/>). Raised instead of answering without the check.
+/// </summary>
+internal sealed class IyuLowlineCheckBacklogException(TimeSpan retryAfter)
+    : Exception("too many records of this settler are awaiting settlement with a check")
+{
+    /// <summary>When the earliest of them lapses and a place frees.</summary>
+    public TimeSpan RetryAfter { get; } = retryAfter;
+}
+
 /// <summary>One field drawn for a check: with what probability, and the answer that was held back.</summary>
 internal sealed record HeldField(
     double Probability, string? Value, string? Origin, string? Fit, string? Layer, double? Promise,
@@ -98,12 +109,53 @@ internal sealed record PendingCheck(Dictionary<string, HeldField> Held, List<str
 /// fewer checks, never a wrong count.
 /// </para>
 /// </remarks>
-internal sealed class IyuLowlineRecheck(IDistributedCache cache, ILowlineRoll roll, IOptions<IyuLowlineOptions> options)
+internal sealed class IyuLowlineRecheck(
+    IDistributedCache cache, ILowlineRoll roll, IOptions<IyuLowlineOptions> options, TimeProvider time)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// What names a record in the cache: a digest of the form, the space and the id, each length-prefixed. The id is the
+    /// caller's and can be as long as a request body, and a cache can bound a key's length (a SQL Server cache keeps 449
+    /// characters); a digest is the same short size whatever it names, and no two records can run together.
+    /// </summary>
+    private static string Digest(string form, string space, string recordId)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var part in new[] { form, space, recordId })
+        {
+            var bytes = Encoding.UTF8.GetBytes(part);
+            hash.AppendData(BitConverter.GetBytes(bytes.Length));
+            hash.AppendData(bytes);
+        }
+
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
     private static string Key(string form, string space, string recordId, string settler) =>
-        $"iyu-lowline/check/{form}/{space}/{recordId}/{settler}";
+        $"iyu-lowline/check/{settler}/{Digest(form, space, recordId)}";
+
+    /// <summary>
+    /// The index of a settler is read, changed and written back in three cache calls, so two requests of one settler could
+    /// overwrite each other's change and slip past the limit; they take turns here, per settler (a few stripes shared by
+    /// all). This holds within a node only: see <see cref="IyuLowlineOptions.MaxPendingChecks"/>.
+    /// </summary>
+    private readonly SemaphoreSlim[] _turns = Enumerable.Range(0, 32).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
+    private async Task<IDisposable> TakeTurnAsync(string settler, CancellationToken cancellationToken)
+    {
+        var turn = _turns[(uint)settler.GetHashCode() % (uint)_turns.Length];
+        await turn.WaitAsync(cancellationToken);
+        return new Release(turn);
+    }
+
+    private sealed class Release(SemaphoreSlim turn) : IDisposable
+    {
+        public void Dispose() => turn.Release();
+    }
+
+    /// <summary>Where a settler's pending draws are listed, so there can be a limit on them (the cache cannot be enumerated).</summary>
+    private static string IndexKey(string settler) => $"iyu-lowline/check-index/{settler}";
 
     /// <summary>Draws the checks for <paramref name="proposals"/>, keeps them, and returns the proposals with the held answers removed.</summary>
     public async Task<IReadOnlyList<Proposal>> ApplyAsync(
@@ -138,6 +190,8 @@ internal sealed class IyuLowlineRecheck(IDistributedCache cache, ILowlineRoll ro
             if (!hidden.Contains(field)) hidden.Add(field);
         if (held.Count == 0 && hidden.Count == 0) return proposals;
 
+        // A place is taken before the draw is kept, and a settler with none left is refused rather than answered without it.
+        await ReserveAsync(settler, Digest(scope.Form, scope.Space, recordId), cancellationToken);
         await cache.SetStringAsync(
             key,
             JsonSerializer.Serialize(new PendingCheck(held, hidden), Json),
@@ -157,16 +211,73 @@ internal sealed class IyuLowlineRecheck(IDistributedCache cache, ILowlineRoll ro
         return stored is null ? null : JsonSerializer.Deserialize<PendingCheck>(stored, Json);
     }
 
-    /// <summary>Forgets the checks drawn for this record: it was settled.</summary>
-    public Task ClearAsync(LowlineScope scope, string recordId, string settler, CancellationToken cancellationToken) =>
-        cache.RemoveAsync(Key(scope.Form, scope.Space, recordId, settler), cancellationToken);
+    /// <summary>
+    /// Forgets the checks drawn for this record: it was settled. The draw itself goes last: a cache that fails half way leaves
+    /// it in place, so the retry of the settle is still checked instead of being settled as if nothing had been held back.
+    /// </summary>
+    public async Task ClearAsync(LowlineScope scope, string recordId, string settler, CancellationToken cancellationToken)
+    {
+        using (await TakeTurnAsync(settler, cancellationToken))
+        {
+            var index = await ReadIndexAsync(settler, cancellationToken);
+            if (index.Remove(Digest(scope.Form, scope.Space, recordId))) await WriteIndexAsync(settler, index, cancellationToken);
+        }
+
+        await cache.RemoveAsync(Key(scope.Form, scope.Space, recordId, settler), cancellationToken);
+    }
+
+    /// <summary>The settler's pending draws, each with the moment (Unix seconds) its place lapses; those already gone are left out.</summary>
+    private async Task<Dictionary<string, long>> ReadIndexAsync(string settler, CancellationToken cancellationToken)
+    {
+        var stored = await cache.GetStringAsync(IndexKey(settler), cancellationToken);
+        var index = stored is null ? [] : JsonSerializer.Deserialize<Dictionary<string, long>>(stored, Json) ?? [];
+        var now = time.GetUtcNow().ToUnixTimeSeconds();
+        foreach (var lapsed in index.Where(entry => entry.Value <= now).Select(entry => entry.Key).ToList())
+            index.Remove(lapsed);
+        return index;
+    }
+
+    private Task WriteIndexAsync(string settler, Dictionary<string, long> index, CancellationToken cancellationToken) =>
+        index.Count == 0
+            ? cache.RemoveAsync(IndexKey(settler), cancellationToken)
+            : cache.SetStringAsync(
+                IndexKey(settler),
+                JsonSerializer.Serialize(index, Json),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = options.Value.CheckLifetime },
+                cancellationToken);
 
     /// <summary>
-    /// Whether the saved record agrees with every value a held answer rested on. When it does not, the field is still a
-    /// check but its answer is not written into the record.
+    /// Takes one of the settler's places for the record named by <paramref name="key"/> (a digest; one already there keeps its
+    /// place and has it extended). Within a node the settler's requests take turns, so the limit holds. A cache has no atomic
+    /// update, so requests of one settler that reach different nodes at the same moment can still overwrite each other's
+    /// list: with several nodes the limit is a bound on what the cache is made to hold, not a count to rely on.
     /// </summary>
-    private static bool Rested(HeldField held, IReadOnlyDictionary<string, FieldValue> saved) =>
-        held.Inputs.All(input => saved.TryGetValue(input.Key, out var value) && value.Values.SequenceEqual(input.Value));
+    private async Task ReserveAsync(string settler, string key, CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        using var turn = await TakeTurnAsync(settler, cancellationToken);
+        var index = await ReadIndexAsync(settler, cancellationToken);
+        var now = time.GetUtcNow().ToUnixTimeSeconds();
+        if (!index.ContainsKey(key) && index.Count >= settings.MaxPendingChecks)
+            throw new IyuLowlineCheckBacklogException(TimeSpan.FromSeconds(Math.Max(1, index.Values.Min() - now)));
+
+        index[key] = now + (long)Math.Ceiling(settings.CheckLifetime.TotalSeconds);
+        await WriteIndexAsync(settler, index, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether the saved record agrees with the context a held answer for <paramref name="field"/> rested on: every other
+    /// value the record has was there, unchanged, when the answer was drawn — and nothing the answer rested on is gone. A
+    /// proposal made on fewer values than the record ends up with (or other ones) is a narrower question than the one the
+    /// record answers. When the context differs the field is still a check, but its answer is not written into the record.
+    /// </summary>
+    private static bool Rested(string field, HeldField held, IReadOnlyDictionary<string, FieldValue> saved)
+    {
+        var inputs = held.Inputs.Where(input => input.Key != field).ToList();
+        var others = saved.Where(value => value.Key != field).ToList();
+        return inputs.Count == others.Count
+            && inputs.All(input => saved.TryGetValue(input.Key, out var value) && value.Values.SequenceEqual(input.Value));
+    }
 
     /// <summary>
     /// The draft with the server's account of the held fields written over whatever the caller said of them: for a field
@@ -198,7 +309,7 @@ internal sealed class IyuLowlineRecheck(IDistributedCache cache, ILowlineRoll ro
             if (pending.Held.TryGetValue(field, out var held))
             {
                 track["held"] = held.Probability;
-                if (held.Value is not null && Rested(held, saved))
+                if (held.Value is not null && Rested(field, held, saved))
                 {
                     track["withheld"] = new JsonObject
                     {

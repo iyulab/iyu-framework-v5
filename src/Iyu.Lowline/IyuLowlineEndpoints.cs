@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Iyu.Lowline;
@@ -75,7 +76,8 @@ public static class IyuLowlineEndpoints
         LowlineForms forms,
         IEnumerable<ILowlineFormHook> hooks,
         IyuLowlineRecheck recheck,
-        IOptions<IyuLowlineOptions> options)
+        IOptions<IyuLowlineOptions> options,
+        ILoggerFactory loggers)
     {
         var settings = options.Value;
         if (!settings.Engine.Forms.ContainsKey(form) || Hook(hooks, form) is not { } hook)
@@ -107,6 +109,18 @@ public static class IyuLowlineEndpoints
         {
             // The input here is the caller's own, so the engine's words about it go back to them.
             return Results.Problem(refused.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (IyuLowlineCheckBacklogException backlog)
+        {
+            // Not answered without the check: that would be the way round it for anyone who fills the limit. Logged for
+            // whoever runs the host, without the record or the person: the id is the caller's and the pseudonym ties to records.
+            loggers.CreateLogger("Iyu.Lowline.Endpoints").LogWarning(
+                "Lowline refused a proposal of form {Form}: the settler already has {Limit} records awaiting settlement with a check.",
+                form, settings.MaxPendingChecks);
+            http.Response.Headers.RetryAfter = ((int)Math.Ceiling(backlog.RetryAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Results.Problem(
+                "Too many records are awaiting settlement. Settle them, or wait for the oldest to lapse.",
+                statusCode: StatusCodes.Status429TooManyRequests);
         }
     }
 

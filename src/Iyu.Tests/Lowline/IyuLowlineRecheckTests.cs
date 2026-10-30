@@ -13,6 +13,8 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace Iyu.Tests.Lowline;
@@ -26,7 +28,10 @@ public sealed class IyuLowlineRecheckTests : IAsyncLifetime
     private const string OrderForm =
         """{"form":{"fields":[{"name":"customer","kind":"choice","choices":["acme","globex"]},{"name":"colour","kind":"choice","choices":["red","blue"]}]}}""";
 
-    private const string Salt = "0123456789abcdef0123456789abcdef-installation-salt";
+    private const string SiteForm =
+        """{"form":{"fields":[{"name":"customer","kind":"choice","choices":["acme","globex"]},{"name":"colour","kind":"choice","choices":["red","blue"]},{"name":"site","kind":"choice","choices":["north","south"]}]}}""";
+
+    private const string Salt ="0123456789abcdef0123456789abcdef-installation-salt";
 
     private readonly string _file = Path.Combine(Path.GetTempPath(), $"iyu-lowline-{Guid.NewGuid():N}.db");
     private readonly OrderHook _hook = new();
@@ -46,19 +51,25 @@ public sealed class IyuLowlineRecheckTests : IAsyncLifetime
     }
 
     /// <summary>Starts a host whose every roll is <paramref name="roll"/> (0 draws every suggested field; 0.99 draws none).</summary>
-    private async Task StartAsync(double roll, bool withSalt = true)
+    private async Task StartAsync(
+        double roll, bool withSalt = true, int? maxPending = null, TimeProvider? time = null, IDistributedCache? cache = null,
+        string form = OrderForm, ILoggerProvider? logs = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddLogging();
+        if (logs is not null) builder.Logging.AddProvider(logs);
+        if (time is not null) builder.Services.AddSingleton(time);
+        if (cache is not null) builder.Services.AddSingleton(cache);
         builder.Services.AddDbContext<LowlineTestDb>(o => o.UseSqlite($"Data Source={_file}"));
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, LowlineTestAuthHandler>("Test", null);
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<ILowlineRoll>(new FixedRoll(roll));
         builder.Services.AddIyuLowline<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>(o =>
         {
-            o.Engine.Form("order", OrderForm);
+            o.Engine.Form("order", form);
             if (withSalt) o.Settler.Salt = Salt;
+            if (maxPending is { } limit) o.MaxPendingChecks = limit;
         });
         builder.Services.AddScoped<ILowlineFormHook>(_ => _hook);
         _app = builder.Build();
@@ -259,6 +270,170 @@ public sealed class IyuLowlineRecheckTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_proposal_made_on_fewer_values_than_the_record_ends_up_with_is_still_a_check_but_plants_no_answer()
+    {
+        await StartAsync(roll: 0, form: SiteForm);
+        // Asked with the customer only: the answer held back for colour rests on a narrower question than the record answers.
+        await ColourProposal();
+        _hook.Save("new", "alice", "plant-a", "acme", "red", site: "north");
+
+        var response = await Send("/lowline/order/settle", """{"id":"new","draft":null}""");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var record = await Stored("new");
+        Assert.Equal("Check", record.GetProperty("settlements").GetProperty("colour").GetString());
+        Assert.False(record.TryGetProperty("suggested", out var suggested) && suggested.TryGetProperty("colour", out _),
+            record.GetRawText());
+    }
+
+    [Fact]
+    public async Task A_settler_at_the_limit_is_refused_instead_of_answered_without_the_check()
+    {
+        await StartAsync(roll: 0, maxPending: 2);
+        await ColourProposal("r1");
+        await ColourProposal("r2");
+
+        var third = await Send("/lowline/order/propose", """{"id":"r3","values":{"customer":"acme"}}""");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, third.StatusCode);
+        Assert.True(third.Headers.RetryAfter?.Delta > TimeSpan.Zero);
+        // A record that already has its place is not a new one.
+        Assert.False(HasSuggestion(await ColourProposal("r1")));
+    }
+
+    [Fact]
+    public async Task A_refused_proposal_is_logged_for_the_host_without_the_record_or_the_person()
+    {
+        var logs = new CollectedLogs();
+        await StartAsync(roll: 0, maxPending: 1, logs: logs);
+        await ColourProposal("first-record");
+
+        var refused = await Send("/lowline/order/propose", """{"id":"second-record","values":{"customer":"acme"}}""");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        var warning = Assert.Single(logs.Warnings, line => line.Contains("refused a proposal", StringComparison.Ordinal));
+        Assert.Contains("order", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("second-record", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain(IyuLowlineSettlerIdentity.Pseudonym(Salt, "account-alice"), warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_settled_record_gives_its_place_back()
+    {
+        await StartAsync(roll: 0, maxPending: 1);
+        await ColourProposal("r1");
+        _hook.Save("r1", "alice", "plant-a", "acme", "red");
+        Assert.Equal(HttpStatusCode.OK, (await Send("/lowline/order/settle", """{"id":"r1","draft":null}""")).StatusCode);
+
+        Assert.False(HasSuggestion(await ColourProposal("r2")));
+    }
+
+    [Fact]
+    public async Task A_place_lapses_when_the_draw_does()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero));
+        await StartAsync(roll: 0, maxPending: 1, time: time);
+        await ColourProposal("r1");
+        Assert.Equal(HttpStatusCode.TooManyRequests,
+            (await Send("/lowline/order/propose", """{"id":"r2","values":{"customer":"acme"}}""")).StatusCode);
+
+        time.Advance(TimeSpan.FromHours(6) + TimeSpan.FromSeconds(1));
+
+        Assert.False(HasSuggestion(await ColourProposal("r2")));
+    }
+
+    [Fact]
+    public async Task One_settler_at_the_limit_does_not_stop_another()
+    {
+        await StartAsync(roll: 0, maxPending: 1);
+        await ColourProposal("r1");
+
+        var other = await Send("/lowline/order/propose", """{"id":"r2","values":{"customer":"acme"}}""", user: "bob");
+
+        Assert.Equal(HttpStatusCode.OK, other.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_cache_that_cannot_keep_the_draw_fails_the_proposal_rather_than_answering_without_the_check()
+    {
+        var cache = new FlakyCache();
+        await StartAsync(roll: 0, cache: cache);
+        cache.FailWrites = true;
+
+        await Assert.ThrowsAsync<IOException>(() => Send("/lowline/order/propose", """{"id":"new","values":{"customer":"acme"}}"""));
+    }
+
+    [Fact]
+    public async Task A_cache_that_cannot_be_read_fails_the_settle_rather_than_settling_without_the_check()
+    {
+        var cache = new FlakyCache();
+        await StartAsync(roll: 0, cache: cache);
+        await ColourProposal();
+        _hook.Save("new", "alice", "plant-a", "acme", "red");
+        cache.FailReads = true;
+
+        await Assert.ThrowsAsync<IOException>(() => Send("/lowline/order/settle", """{"id":"new","draft":null}"""));
+
+        cache.FailReads = false;
+        Assert.Equal(HttpStatusCode.OK, (await Send("/lowline/order/settle", """{"id":"new","draft":null}""")).StatusCode);
+        Assert.Equal("Check", (await Stored("new")).GetProperty("settlements").GetProperty("colour").GetString());
+    }
+
+    [Fact]
+    public async Task Requests_of_one_settler_that_arrive_together_cannot_slip_past_the_limit()
+    {
+        var cache = new FlakyCache();
+        await StartAsync(roll: 0, maxPending: 3, cache: cache);
+        cache.ReadDelay = TimeSpan.FromMilliseconds(40);
+
+        var replies = await Task.WhenAll(Enumerable.Range(0, 12).Select(i =>
+            Send("/lowline/order/propose", "{\"id\":\"together" + i + "\",\"values\":{\"customer\":\"acme\"}}")));
+
+        cache.ReadDelay = TimeSpan.Zero;
+        Assert.Equal(3, replies.Count(r => r.StatusCode == HttpStatusCode.OK));
+        Assert.Equal(9, replies.Count(r => r.StatusCode == HttpStatusCode.TooManyRequests));
+        Assert.Equal(3, cache.Keys.Count(key => key.StartsWith("iyu-lowline/check/", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task The_cache_is_given_a_digest_of_the_record_id_not_the_id()
+    {
+        var cache = new FlakyCache();
+        await StartAsync(roll: 0, cache: cache);
+        var id = new string('q', 5000);
+
+        var proposed = await Send("/lowline/order/propose", "{\"id\":\"" + id + "\",\"values\":{\"customer\":\"acme\"}}");
+
+        Assert.Equal(HttpStatusCode.OK, proposed.StatusCode);
+        Assert.NotEmpty(cache.Keys);
+        Assert.All(cache.Keys, key => Assert.True(key.Length < 200, key.Length.ToString()));
+        Assert.DoesNotContain(cache.Texts, text => text.Contains("qqqqqqqq", StringComparison.Ordinal));
+
+        // The draw is found again from the same digest at settle.
+        _hook.Save(id, "alice", "plant-a", "acme", "red");
+        Assert.Equal(HttpStatusCode.OK, (await Send("/lowline/order/settle", "{\"id\":\"" + id + "\",\"draft\":null}")).StatusCode);
+        Assert.Equal("Check", (await Stored(id)).GetProperty("settlements").GetProperty("colour").GetString());
+    }
+
+    [Fact]
+    public async Task A_settle_whose_cleanup_fails_leaves_the_draw_so_the_retry_is_still_checked()
+    {
+        var cache = new FlakyCache();
+        await StartAsync(roll: 0, cache: cache);
+        await ColourProposal("other");   // a second pending draw, so the settler's list is rewritten rather than dropped
+        await ColourProposal();
+        _hook.Save("new", "alice", "plant-a", "acme", "red");
+        cache.FailWrites = true;
+
+        // The record is settled and learned; clearing its place in the list fails after that.
+        await Assert.ThrowsAsync<IOException>(() => Send("/lowline/order/settle", """{"id":"new","draft":null}"""));
+
+        cache.FailWrites = false;
+        Assert.Equal(HttpStatusCode.OK, (await Send("/lowline/order/settle", """{"id":"new","draft":null}""")).StatusCode);
+        Assert.Equal("Check", (await Stored("new")).GetProperty("settlements").GetProperty("colour").GetString());
+    }
+
+    [Fact]
     public async Task Without_a_salt_nothing_is_held_back_even_when_every_roll_would_draw()
     {
         await StartAsync(roll: 0, withSalt: false);
@@ -294,5 +469,84 @@ public sealed class IyuLowlineRecheckTests : IAsyncLifetime
     private sealed class FixedRoll(double value) : ILowlineRoll
     {
         public double Roll(string salt, string form, string space, string recordId, string field) => value;
+    }
+
+    /// <summary>A logger provider that keeps what is written to it.</summary>
+    private sealed class CollectedLogs : ILoggerProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _warnings = new();
+
+        public IReadOnlyCollection<string> Warnings => [.. _warnings];
+
+        public ILogger CreateLogger(string categoryName) => new Sink(_warnings);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Sink(System.Collections.Concurrent.ConcurrentQueue<string> warnings) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel == LogLevel.Warning) warnings.Enqueue(formatter(state, exception));
+            }
+        }
+    }
+
+    /// <summary>A cache that works until it is told not to — the shared cache of a host with a node or a network that goes down.</summary>
+    private sealed class FlakyCache : IDistributedCache
+    {
+        private readonly Dictionary<string, byte[]> _entries = [];
+
+        public bool FailReads { get; set; }
+
+        /// <summary>Whether storing an entry fails (removing one does not).</summary>
+        public bool FailWrites { get; set; }
+
+        /// <summary>How long a read takes — long enough for requests that arrive together to read before any of them writes.</summary>
+        public TimeSpan ReadDelay { get; set; }
+
+        /// <summary>Every key the cache holds.</summary>
+        public IReadOnlyList<string> Keys { get { lock (_entries) return [.. _entries.Keys]; } }
+
+        /// <summary>Every value the cache holds, as text.</summary>
+        public IReadOnlyList<string> Texts { get { lock (_entries) return [.. _entries.Values.Select(Encoding.UTF8.GetString)]; } }
+
+        public byte[]? Get(string key) => GetAsync(key).GetAwaiter().GetResult();
+
+        public async Task<byte[]?> GetAsync(string key, CancellationToken token = default)
+        {
+            if (FailReads) throw new IOException("the cache is unreachable");
+            if (ReadDelay > TimeSpan.Zero) await Task.Delay(ReadDelay, token);
+            lock (_entries) return _entries.GetValueOrDefault(key);
+        }
+
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
+            SetAsync(key, value, options).GetAwaiter().GetResult();
+
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+        {
+            if (FailWrites) throw new IOException("the cache is unreachable");
+            lock (_entries) _entries[key] = value;
+            return Task.CompletedTask;
+        }
+
+        public void Refresh(string key)
+        {
+        }
+
+        public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+
+        public void Remove(string key) => RemoveAsync(key).GetAwaiter().GetResult();
+
+        public Task RemoveAsync(string key, CancellationToken token = default)
+        {
+            lock (_entries) _entries.Remove(key);
+            return Task.CompletedTask;
+        }
     }
 }
