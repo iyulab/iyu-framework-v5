@@ -1819,6 +1819,16 @@ cannot act with the caller's cookie. A form that is not defined, a form with no 
 return for the caller are all 404; a refused settle is 400 without the engine's words, which can quote a stored value.
 The package now references the ASP.NET Core shared framework.
 
+**Who settled a record.** The engine tells one person's settlements from another's by an opaque id, never a name. Set
+`IyuLowlineOptions.Settler.Salt` (at least 32 characters, kept with your other secrets) and each record carries
+`HMAC-SHA256` of the signed-in caller's account id — the claim named by `Settler.AccountClaimType`, `NameIdentifier` by
+default — under a key derived from the salt (HKDF-SHA256); it cannot be turned back into the account id without the salt
+and is the same for one account for as long as the salt is. **Changing or losing the salt re-attributes every later
+settlement to new ids**, so do not rotate it casually. Without a salt no settler is recorded, and a salt that is present
+but too short stops the host from starting. A caller who carries the service-client claim (`Settler.IsServiceAccount`) is a
+machine: only a person settles a record, and the route answers 403. With a salt, a signed-in caller who has no account id
+claim cannot settle.
+
 **Deleting a source forgets its record.** The hook's optional `ListSourceKeysAsync(space)` lists the keys of every record
 that still exists in a memory space. A background pass (`IyuLowlineOptions.RecoveryInterval`, hourly by default; zero
 turns it off) compares them with the ids the store holds and has the store and the running engine forget the records

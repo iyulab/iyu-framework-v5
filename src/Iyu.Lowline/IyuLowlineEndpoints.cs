@@ -123,6 +123,7 @@ public static class IyuLowlineEndpoints
             IyuLowlineSettleStatus.Settled => Results.Json(
                 new SettleResponse(request.Id, outcome.SettledAt!.Value), Web),
             IyuLowlineSettleStatus.Unauthenticated => Results.Unauthorized(),
+            IyuLowlineSettleStatus.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
             IyuLowlineSettleStatus.FormUnknown or IyuLowlineSettleStatus.RecordNotFound => Results.NotFound(),
             _ => Results.Problem("The record was refused.", statusCode: StatusCodes.Status400BadRequest),
         };

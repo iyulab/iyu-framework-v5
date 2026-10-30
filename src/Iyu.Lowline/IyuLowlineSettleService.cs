@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Lowline;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,6 +15,9 @@ public enum IyuLowlineSettleStatus
 
     /// <summary>The caller is not signed in. Nothing was read or stored.</summary>
     Unauthenticated,
+
+    /// <summary>The caller is a machine (a service client): only a person settles a record. Nothing was read or stored.</summary>
+    Forbidden,
 
     /// <summary>No form of that name is defined, or no hook serves it.</summary>
     FormUnknown,
@@ -46,9 +51,11 @@ public sealed record IyuLowlineSettleOutcome(
 /// <para>
 /// Three things are fixed here, because a request cannot be trusted with them. <b>The values</b> come from the stored row;
 /// the request carries only a record id and a draft. <b>The memory space</b> comes from the hook. <b>Who settled it, in
-/// which batch, and which fields were drawn for a check</b> are never taken from the draft: an empty
-/// <see cref="Attestation"/> is always given, and the engine lets an attestation replace the draft's own word on those
-/// even where it names none — without one, a caller could sign a record as someone else or claim a check it was not given.
+/// which batch, and which fields were drawn for a check</b> are never taken from the draft: an
+/// <see cref="Attestation"/> is always given — naming the settler this host derives from the signed-in caller
+/// (<see cref="IyuLowlineSettlerOptions"/>), and nothing else — and the engine lets an attestation replace the draft's own
+/// word on those even where it names none. Without one, a caller could sign a record as someone else or claim a check it
+/// was not given. A machine (a service client) is refused: only a person settles a record.
 /// </para>
 /// <para>
 /// What the draft can still say is what the person was <em>shown</em> and what they did with it; the engine reads that
@@ -82,6 +89,18 @@ public sealed class IyuLowlineSettleService(
             return new(IyuLowlineSettleStatus.Unauthenticated);
 
         var settings = options.Value;
+        if (settings.Settler.IsServiceAccount(user))
+            return new(IyuLowlineSettleStatus.Forbidden);
+
+        string? settler = null;
+        if (settings.Settler.Salt is { } salt)
+        {
+            var account = user.FindFirst(settings.Settler.AccountClaimType)?.Value;
+            if (string.IsNullOrEmpty(account))
+                return new(IyuLowlineSettleStatus.Refused, "the signed-in caller carries no account id claim to name the settler by");
+            settler = Pseudonym(salt, account);
+        }
+
         if (string.IsNullOrEmpty(form) || !settings.Engine.Forms.ContainsKey(form))
             return new(IyuLowlineSettleStatus.FormUnknown);
         var hook = hooks.FirstOrDefault(h => string.Equals(h.Form, form, StringComparison.Ordinal));
@@ -106,7 +125,7 @@ public sealed class IyuLowlineSettleService(
                 saved.Values,
                 draft,
                 SettledBy.Person,
-                new Attestation(),
+                new Attestation { Settler = settler },
                 cancellationToken);
         }
         catch (ArgumentException refusal)
@@ -118,5 +137,17 @@ public sealed class IyuLowlineSettleService(
         }
 
         return new(IyuLowlineSettleStatus.Settled, SettledAt: settled.SettledAt);
+    }
+
+    /// <summary>
+    /// The opaque id the engine keeps for <paramref name="accountId"/>: <c>HMAC-SHA256</c> under a key derived from the salt
+    /// (HKDF-SHA256, purpose <c>iyu-lowline/settler</c>), lower-case hex. The recheck draw uses a key derived from the same
+    /// salt under another purpose. This is stored in every record, so changing it re-attributes history: the algorithm is
+    /// pinned by a test.
+    /// </summary>
+    internal static string Pseudonym(string salt, string accountId)
+    {
+        var key = HKDF.DeriveKey(HashAlgorithmName.SHA256, Encoding.UTF8.GetBytes(salt), 32, info: "iyu-lowline/settler"u8.ToArray());
+        return Convert.ToHexStringLower(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(accountId)));
     }
 }

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Lowline;
 using Microsoft.Extensions.Options;
 
@@ -44,6 +45,40 @@ public sealed class IyuLowlineOptions
     /// mean a source listing that came back short than a source that emptied. Defaults to 0.5; 1 turns the guard off.
     /// </summary>
     public double MaxForgetFraction { get; set; } = 0.5;
+
+    /// <summary>Who settled a record, as the engine is told: an opaque id, never an account id.</summary>
+    public IyuLowlineSettlerOptions Settler { get; } = new();
+}
+
+/// <summary>How a signed-in caller becomes the opaque id the engine keeps as the person who settled a record.</summary>
+/// <remarks>
+/// The engine tells one person's settlements from another's to judge whether an answer has been checked by someone
+/// other than whoever settled the field before; it needs a stable id for that, not a name. The id is
+/// <c>HMAC-SHA256</c> of the account id under a key derived (HKDF) from <see cref="Salt"/>, so it cannot be turned back
+/// into the account id without the salt and is the same for the same account for as long as the salt is.
+/// <b>Changing or losing the salt re-attributes every later settlement to a new set of ids</b> — keep it with the other
+/// secrets, and do not rotate it casually.
+/// </remarks>
+public sealed class IyuLowlineSettlerOptions
+{
+    /// <summary>The shortest salt accepted, in characters.</summary>
+    public const int MinSaltLength = 32;
+
+    /// <summary>
+    /// The installation's secret salt, at least <see cref="MinSaltLength"/> characters. Left out (the default), settlers
+    /// are not recorded: a record carries no settler and the settler-based checks do not run. A salt that is present
+    /// but too short stops the host from starting.
+    /// </summary>
+    public string? Salt { get; set; }
+
+    /// <summary>The claim holding the account id. Defaults to <see cref="ClaimTypes.NameIdentifier"/>.</summary>
+    public string AccountClaimType { get; set; } = ClaimTypes.NameIdentifier;
+
+    /// <summary>
+    /// Whether a caller is a machine (a service client) rather than a person; such a caller cannot settle a record.
+    /// Defaults to the presence of the claim the framework's service-client tokens carry.
+    /// </summary>
+    public Func<ClaimsPrincipal, bool> IsServiceAccount { get; set; } = static principal => principal.HasClaim(c => c.Type == "sc_stamp");
 }
 
 /// <summary>
@@ -60,6 +95,19 @@ internal sealed class IyuLowlineOptionsValidator : IValidateOptions<IyuLowlineOp
                 "AddIyuLowline was called but no form is defined. Define at least one with "
                 + $"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.Engine)}.{nameof(LowlineOptions.Form)}(name, definition), "
                 + "or do not call AddIyuLowline.");
+        }
+
+        if (options.Settler.Salt is { } salt && salt.Length < IyuLowlineSettlerOptions.MinSaltLength)
+        {
+            return ValidateOptionsResult.Fail(
+                $"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.Settler)}.{nameof(IyuLowlineSettlerOptions.Salt)} "
+                + $"must be at least {IyuLowlineSettlerOptions.MinSaltLength} characters, or left out to record no settlers.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Settler.AccountClaimType))
+        {
+            return ValidateOptionsResult.Fail(
+                $"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.Settler)}.{nameof(IyuLowlineSettlerOptions.AccountClaimType)} must not be empty.");
         }
 
         if (options.RecoveryInterval < TimeSpan.Zero)
