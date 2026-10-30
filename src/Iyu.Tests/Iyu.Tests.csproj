@@ -32,6 +32,7 @@
     <ProjectReference Include="..\Iyu.MainServer.GraphQL\Iyu.MainServer.GraphQL.csproj" />
     <ProjectReference Include="..\Iyu.MainServer.OpenIdConnect\Iyu.MainServer.OpenIdConnect.csproj" />
     <ProjectReference Include="..\Iyu.Report\Iyu.Report.csproj" />
+    <ProjectReference Include="..\Iyu.Lowline\Iyu.Lowline.csproj" />
     <ProjectReference Include="..\Iyu.FileServer\Iyu.FileServer.csproj" />
     <ProjectReference Include="..\Iyu.DocConvert\Iyu.DocConvert.csproj" />
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />

@@ -36,6 +36,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
+| `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host and keeps its records in the application's own tables (not on Alpine: the engine has no musl build) |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
@@ -1760,6 +1761,39 @@ an already-produced Office file and renders it to PDF — the two compose (bind 
 convert the result) but neither depends on the other. `Iyu.DocConvert` has no `Iyu.Core`
 reference and no `Microsoft.AspNetCore.App` framework reference, same independence as
 `Iyu.Report`.
+
+## Learning from confirmed records (`Iyu.Lowline`)
+
+Runs the [Lowline](https://github.com/iyulab/lowline) engine — suggestions for a form's decided fields, learned from the
+records people have confirmed — inside your host, and keeps what the engine hands back in **your own tables**. The
+engine keeps the rules and the ports; this package is the host around them. It carries no screen and creates no table.
+
+```csharp
+builder.Services.AddIyuLowline<AppDbContext, LowlineRecord, LowlineTuning>(o =>
+{
+    o.Engine.Form("order", orderFormDefinitionJson);   // the engine's own options; a definition it refuses stops startup
+});
+```
+
+Nothing is registered until `AddIyuLowline` is called, and a host that calls it without defining a form does not
+start (the message names the setting, never a value). A `Lowline.ILowlineModel` already in the container is used to
+fill forms from what a person wrote. `Lowline.LowlineForms` is registered as a singleton.
+
+**The tables are yours.** Declare them in your own schema and give the entities these interfaces:
+
+| Table | Entity implements | Unique key |
+|---|---|---|
+| settled records | `ILowlineRecordRow` — `Form`, `Space`, `RecordId`, `SettledAt` (`DateTimeOffset`), `Json` | `Form`, `Space`, `RecordId` |
+| chosen thresholds | `ILowlineTuningRow` — `Form`, `Space`, `Tuning` | `Form`, `Space` |
+
+`EfLowlineStore<TContext, TRecord, TTuning>` reads and writes them through your `DbContext`, one fresh scope per
+call, because the engine chooses its thresholds again on a background worker after a save. A second save of one record
+id replaces the first. The package does not map the entities: the key, the column types and the names stay with the
+schema you already run.
+
+**Platforms.** The engine is a native library; its package carries it for Windows, Linux (glibc) and macOS, on x64 and
+arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as
+`mcr.microsoft.com/dotnet/aspnet`.
 
 ## Upgrading
 

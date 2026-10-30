@@ -29,9 +29,16 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data`
+**Packages affected:** `Iyu.Data`, `Iyu.Lowline`
 
 ### Added
+
+- **`Iyu.Lowline` (new package, first part): the Lowline engine in the host, over the application's own tables.**
+  `AddIyuLowline<TContext, TRecord, TTuning>(o => …)` is an explicit opt-in: it registers the engine's `LowlineForms`
+  and an `ILowlineStore` that keeps the settled records and the chosen thresholds in two tables the application declares
+  (entities implementing `ILowlineRecordRow` and `ILowlineTuningRow`; the package maps and creates nothing). A host that
+  calls it without defining a form does not start, and neither does one whose form definition the engine refuses.
+  **Not for Alpine images** — the engine package has no `linux-musl` native library. More of the package follows in later releases.
 
 - **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
   delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`
