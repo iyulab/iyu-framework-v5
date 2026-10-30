@@ -21,7 +21,7 @@ namespace Iyu.Lowline;
 /// whole to start its engine anyway.
 /// </para>
 /// </remarks>
-public sealed class EfLowlineStore<TContext, TRecord, TTuning>(IServiceScopeFactory scopes) : ILowlineStore
+public sealed class EfLowlineStore<TContext, TRecord, TTuning>(IServiceScopeFactory scopes) : ILowlineStore, ILowlineRecordIndex
     where TContext : DbContext
     where TRecord : class, ILowlineRecordRow, new()
     where TTuning : class, ILowlineTuningRow, new()
@@ -29,6 +29,31 @@ public sealed class EfLowlineStore<TContext, TRecord, TTuning>(IServiceScopeFact
     // A key list longer than this is removed in pieces, which keeps a retention purge inside the parameter limit of
     // the providers that have one.
     private const int KeyBatch = 500;
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<LowlineScope>> ListScopesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var services = scopes.CreateAsyncScope();
+        var db = services.ServiceProvider.GetRequiredService<TContext>();
+        var pairs = await db.Set<TRecord>().AsNoTracking()
+            .Select(r => new { r.Form, r.Space })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        return pairs.Select(p => new LowlineScope(p.Form, p.Space)).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> ListRecordIdsAsync(LowlineScope scope, CancellationToken cancellationToken = default)
+    {
+        await using var services = scopes.CreateAsyncScope();
+        var db = services.ServiceProvider.GetRequiredService<TContext>();
+        var form = scope.Form;
+        var space = scope.Space;
+        return await db.Set<TRecord>().AsNoTracking()
+            .Where(r => r.Form == form && r.Space == space)
+            .Select(r => r.RecordId)
+            .ToListAsync(cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<SettledRecord>> ReadRecordsAsync(LowlineScope scope, CancellationToken cancellationToken = default)

@@ -24,6 +24,16 @@ public interface ILowlineFormHook
     Task<LowlineFormContext?> OpenAsync(string recordId, ClaimsPrincipal user, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The keys of every record that exists in <paramref name="space"/> — the ids a settled record may carry. The recovery
+    /// pass forgets the settled records whose id is not in this set, which is how a deleted source is forgotten whatever
+    /// removed it. <c>null</c> (the default) means this form cannot list its sources, and its records are never forgotten
+    /// that way. A set that comes back short makes the pass forget records that still have a source — see
+    /// <see cref="IyuLowlineOptions.MaxForgetFraction"/>.
+    /// </summary>
+    Task<IReadOnlySet<string>?> ListSourceKeysAsync(string space, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlySet<string>?>(null);
+
+    /// <summary>
     /// Reads the saved record <paramref name="recordId"/> as the application stored it, or <c>null</c> when there is no
     /// such record <em>that <paramref name="user"/> may settle</em>. Answering <c>null</c> for a record the caller may not
     /// see is how the hook keeps one person from settling another's record; the caller cannot tell the two apart.

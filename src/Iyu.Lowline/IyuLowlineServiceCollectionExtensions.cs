@@ -1,6 +1,7 @@
 using Lowline;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace Iyu.Lowline;
@@ -34,8 +35,13 @@ public static class IyuLowlineServiceCollectionExtensions
         services.AddSingleton<IValidateOptions<IyuLowlineOptions>, IyuLowlineOptionsValidator>();
         services.AddOptions<IyuLowlineOptions>().ValidateOnStart();
 
-        services.AddSingleton<ILowlineStore, EfLowlineStore<TContext, TRecord, TTuning>>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<EfLowlineStore<TContext, TRecord, TTuning>>();
+        services.AddSingleton<ILowlineStore>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
+        services.AddSingleton<ILowlineRecordIndex>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
         services.AddScoped<IyuLowlineSettleService>();
+        services.AddSingleton<IyuLowlineRecoveryService>();
+        services.AddHostedService<IyuLowlineRecoveryWorker>();
         services.AddSingleton(provider =>
         {
             var engine = provider.GetRequiredService<IOptions<IyuLowlineOptions>>().Value.Engine;

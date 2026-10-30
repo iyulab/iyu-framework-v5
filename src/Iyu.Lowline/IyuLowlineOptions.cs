@@ -31,6 +31,19 @@ public sealed class IyuLowlineOptions
 
     /// <summary>The largest request body an endpoint reads, in bytes. A larger one is refused with 413. Defaults to 256 KiB.</summary>
     public int MaxRequestBytes { get; set; } = 256 * 1024;
+
+    /// <summary>
+    /// How often the recovery pass runs, forgetting the records whose source is gone. <see cref="TimeSpan.Zero"/> turns
+    /// it off. A record's source can be deleted and the engine keep answering from it for up to this long. Defaults to one hour.
+    /// </summary>
+    public TimeSpan RecoveryInterval { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// The largest share of a scope's records (from ten records up) one recovery pass will forget. A pass that would forget
+    /// more leaves the scope alone and logs an error: forgetting cannot be undone, and so many missing sources more likely
+    /// mean a source listing that came back short than a source that emptied. Defaults to 0.5; 1 turns the guard off.
+    /// </summary>
+    public double MaxForgetFraction { get; set; } = 0.5;
 }
 
 /// <summary>
@@ -48,6 +61,11 @@ internal sealed class IyuLowlineOptionsValidator : IValidateOptions<IyuLowlineOp
                 + $"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.Engine)}.{nameof(LowlineOptions.Form)}(name, definition), "
                 + "or do not call AddIyuLowline.");
         }
+
+        if (options.RecoveryInterval < TimeSpan.Zero)
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.RecoveryInterval)} must not be negative.");
+        if (!(options.MaxForgetFraction > 0 && options.MaxForgetFraction <= 1))
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.MaxForgetFraction)} must be above 0 and at most 1.");
 
         return ValidateOptionsResult.Success;
     }

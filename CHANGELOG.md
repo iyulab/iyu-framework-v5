@@ -43,7 +43,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   `ILowlineFormHook` reads from the stored row, in the space the hook names, and never a value, settler, batch or check
   the request carries. `MapIyuLowline()` maps `POST /lowline/{form}/propose` and `/settle` with the same bodies as the
   engine's own web host; the routes require a signed-in caller (or a policy), JSON, a bounded body and a same-origin
-  request, and the package references the ASP.NET Core shared framework. More of the package follows in later releases.
+  request, and the package references the ASP.NET Core shared framework. A background pass forgets the records whose
+  source is gone (the hook's optional `ListSourceKeysAsync`; `IyuLowlineOptions.RecoveryInterval`, hourly by default),
+  guarded against forgetting most of a scope on a short listing. More of the package follows in later releases.
 
 - **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
   delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`

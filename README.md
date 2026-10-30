@@ -1819,6 +1819,16 @@ cannot act with the caller's cookie. A form that is not defined, a form with no 
 return for the caller are all 404; a refused settle is 400 without the engine's words, which can quote a stored value.
 The package now references the ASP.NET Core shared framework.
 
+**Deleting a source forgets its record.** The hook's optional `ListSourceKeysAsync(space)` lists the keys of every record
+that still exists in a memory space. A background pass (`IyuLowlineOptions.RecoveryInterval`, hourly by default; zero
+turns it off) compares them with the ids the store holds and has the store and the running engine forget the records
+with no source — whatever removed the source: a database cascade, a bulk delete, another system. It compares rather than
+watching deletes, so the delay is up to one interval. The pass reads the stored ids *before* it asks the hook, so a record
+settled in between is never mistaken for a deleted one, and a pass that would forget more than
+`IyuLowlineOptions.MaxForgetFraction` (half, from ten records up) of a scope leaves it alone and logs an error —
+forgetting cannot be undone, and so many missing sources more likely mean a listing that came back short. A hook that does
+not implement the method is skipped. `IyuLowlineRecoveryService.RunOnceAsync` runs one pass on demand.
+
 **Platforms.** The engine is a native library; its package carries it for Windows, Linux (glibc) and macOS, on x64 and
 arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as
 `mcr.microsoft.com/dotnet/aspnet`.
