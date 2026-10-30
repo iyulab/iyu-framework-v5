@@ -1779,6 +1779,102 @@ Nothing is registered until `AddIyuLowline` is called, and a host that calls it 
 start (the message names the setting, never a value). A `Lowline.ILowlineModel` already in the container is used to
 fill forms from what a person wrote. `Lowline.LowlineForms` is registered as a singleton.
 
+**A whole host.** This is every line an application writes — its two tables, one hook, and the wiring. It is compiled
+by the test suite against these packages, so it cannot drift from them.
+
+<!-- lowline-sample -->
+```csharp
+using System.Security.Claims;
+using Iyu.Lowline;
+using Lowline;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+// Your tables, in your own schema: two for Lowline, plus the data the form edits.
+public class LowlineRecord : ILowlineRecordRow
+{
+    public string Form { get; set; } = "";
+    public string Space { get; set; } = "";
+    public string RecordId { get; set; } = "";
+    public DateTimeOffset SettledAt { get; set; }
+    public string Json { get; set; } = "";
+}
+
+public class LowlineTuning : ILowlineTuningRow
+{
+    public string Form { get; set; } = "";
+    public string Space { get; set; } = "";
+    public string Tuning { get; set; } = "";
+}
+
+public class Order
+{
+    public Guid Id { get; set; }
+    public string Plant { get; set; } = "";
+    public string Customer { get; set; } = "";
+    public string Colour { get; set; } = "";
+}
+
+public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<LowlineRecord> LowlineRecords => Set<LowlineRecord>();
+    public DbSet<LowlineTuning> LowlineTunings => Set<LowlineTuning>();
+
+    protected override void OnModelCreating(ModelBuilder model)
+    {
+        model.Entity<LowlineRecord>().HasKey(r => new { r.Form, r.Space, r.RecordId });
+        model.Entity<LowlineTuning>().HasKey(t => new { t.Form, t.Space });
+    }
+}
+
+// The one place your domain meets the engine: how to read a saved order back. A caller sees only their own plant.
+public class OrderForm(AppDb db) : ILowlineFormHook
+{
+    public string Form => "order";
+
+    public Task<LowlineFormContext?> OpenAsync(string recordId, ClaimsPrincipal user, CancellationToken ct) =>
+        Task.FromResult<LowlineFormContext?>(new(Plant(user)));
+
+    public async Task<LowlineSavedRecord?> ReadSavedAsync(string recordId, ClaimsPrincipal user, CancellationToken ct)
+    {
+        if (!Guid.TryParse(recordId, out var id)) return null;
+        var plant = Plant(user);
+        var order = await db.Orders.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id && o.Plant == plant, ct);
+        return order is null
+            ? null
+            : new(order.Plant, new Dictionary<string, FieldValue> { ["customer"] = order.Customer, ["colour"] = order.Colour });
+    }
+
+    // Optional: lets the recovery pass forget the records of orders that were deleted, however they were deleted.
+    public async Task<IReadOnlySet<string>?> ListSourceKeysAsync(string space, CancellationToken ct) =>
+        (await db.Orders.Where(o => o.Plant == space).Select(o => o.Id).ToListAsync(ct)).Select(id => id.ToString()).ToHashSet();
+
+    private static string Plant(ClaimsPrincipal user) => user.FindFirst("plant")?.Value ?? "main";
+}
+
+public static class LowlineSample
+{
+    public static WebApplication Build(WebApplicationBuilder builder, string orderFormDefinition, string settlerSalt)
+    {
+        builder.Services.AddDbContext<AppDb>(o => o.UseSqlite("Data Source=app.db"));
+        builder.Services.AddIyuLowline<AppDb, LowlineRecord, LowlineTuning>(o =>
+        {
+            o.Engine.Form("order", orderFormDefinition);
+            o.Settler.Salt = settlerSalt;
+        });
+        builder.Services.AddScoped<ILowlineFormHook, OrderForm>();
+
+        var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapIyuLowline();
+        return app;
+    }
+}
+```
+
 **The tables are yours.** Declare them in your own schema and give the entities these interfaces:
 
 | Table | Entity implements | Unique key |
@@ -1838,6 +1934,20 @@ settled in between is never mistaken for a deleted one, and a pass that would fo
 `IyuLowlineOptions.MaxForgetFraction` (half, from ten records up) of a scope leaves it alone and logs an error —
 forgetting cannot be undone, and so many missing sources more likely mean a listing that came back short. A hook that does
 not implement the method is skipped. `IyuLowlineRecoveryService.RunOnceAsync` runs one pass on demand.
+
+**Changing a form while the host runs.** `AddIyuLowline` defines the forms once, at startup. A form whose definition is edited
+while the application runs is redefined on the engine's `LowlineForms` (inject it): `forms.Define(name, definition)`
+starts that form's engines again on their next use.
+
+**Moving a hand-built host over.** An application that already wraps the engine itself can drop these, one for one:
+the class that holds `LowlineForms` and redefines forms (→ `AddIyuLowline`, and `Define` above); its `ILowlineStore` over two
+tables (→ give the two entities the row interfaces; the store is `EfLowlineStore`); the code that re-reads the saved row to
+settle it (→ `ILowlineFormHook.ReadSavedAsync`, called by `IyuLowlineSettleService` and the routes); the background service that
+forgets records whose source went (→ `ListSourceKeysAsync` and the recovery pass); and an interceptor that forgets on delete
+(→ the same pass). **Two differences to expect.** Forgetting is no longer immediate: it happens within
+`IyuLowlineOptions.RecoveryInterval` of the delete, so lower the interval if that matters (each pass lists the ids a scope holds and the keys its hook returns).
+And there is no table of settle requests that never arrived: a record that was saved but never settled is simply not learned,
+rather than learned later as a record with no source.
 
 **Platforms.** The engine is a native library; its package carries it for Windows, Linux (glibc) and macOS, on x64 and
 arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as

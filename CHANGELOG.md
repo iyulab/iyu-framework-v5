@@ -47,7 +47,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   source is gone (the hook's optional `ListSourceKeysAsync`; `IyuLowlineOptions.RecoveryInterval`, hourly by default),
   guarded against forgetting most of a scope on a short listing. With `IyuLowlineOptions.Settler.Salt` set, each settled
   record carries an opaque settler id (an HMAC of the caller's account id under a key derived from the salt) and a machine
-  caller (a service client) is refused with 403. More of the package follows in later releases.
+  caller (a service client) is refused with 403. The README carries a whole minimal host for the package — compiled by the
+  test suite — and a note for moving a hand-built host over. More of the package follows in later releases.
 
 - **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
   delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`
