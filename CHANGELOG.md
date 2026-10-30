@@ -29,6 +29,20 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.Lowline`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.GraphQL`
+
+### Changed
+
+- **Dependencies move to the latest patch and minor lines: `Microsoft.*` 10.0.13 → 10.0.14, `HotChocolate.*` 16.6.8 → 16.7.3.**
+  The `Microsoft.*` packages (EF Core, the ASP.NET Core authentication handlers, the `Microsoft.Extensions.*` abstractions,
+  and the `System.Security.Cryptography.Pkcs` floor `Iyu.Data.SqlServer` carries) are the packages' declared minimum now; an
+  application that restores an older patch line gets this one. `Iyu.Server.GraphQL` moves to HotChocolate 16.7.3, whose notes
+  add limits on the selections, the selection-set depth and the fragment visits of one operation, and apply authorization to
+  batch resolver fields, the `node`/`nodes` fields and union member types. 🔇 A GraphQL operation over the new limits is
+  refused where 16.6 answered it, and a field the authorization rules now reach can answer an unauthorized caller with an
+  error where it answered before. The package's own paging resolver moved off the include-flags member HotChocolate marks
+  obsolete (it cannot represent an operation with more than 64 conditions) with no change in what it returns.
+
 ## [0.46.1] - 2026-10-30
 
 **Packages affected:** `Iyu.Lowline`

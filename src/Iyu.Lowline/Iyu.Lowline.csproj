@@ -13,7 +13,7 @@
     <!-- The engine is a native library: the package carries it for Windows, Linux (glibc) and macOS, x64 and arm64.
          No linux-musl build exists, so an Alpine image cannot load it (README, "Iyu.Lowline"). -->
     <PackageReference Include="Lowline" Version="0.10.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup>

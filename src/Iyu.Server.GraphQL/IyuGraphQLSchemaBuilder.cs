@@ -340,7 +340,7 @@ public sealed class IyuGraphQLSchemaBuilder
             ctx.ArgumentValue<string?>("after"),
             last,
             ctx.ArgumentValue<string?>("before"));
-        var selection = new QueryContext<T>(ctx.Selection.AsSelector<T>(ctx.IncludeFlags));
+        var selection = new QueryContext<T>(ctx.Selection.AsSelector<T>(ctx.IncludeConditionFlags));
 
         var fk = foreignKey.Properties[0];
         var loader = ctx.RequestServices.GetRequiredService<IDataLoaderScope>().GetDataLoader(
