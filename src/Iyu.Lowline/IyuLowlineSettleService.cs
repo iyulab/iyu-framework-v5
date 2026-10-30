@@ -28,7 +28,11 @@ public enum IyuLowlineSettleStatus
 /// <param name="Status">How the request ended.</param>
 /// <param name="Detail">For <see cref="IyuLowlineSettleStatus.Refused"/>: why, in the engine's or this service's words.
 /// For the host's log — it can quote stored values, so it is not for the response body.</param>
-public sealed record IyuLowlineSettleOutcome(IyuLowlineSettleStatus Status, string? Detail = null)
+/// <param name="SettledAt">For <see cref="IyuLowlineSettleStatus.Settled"/>: when the engine stamped the record.</param>
+public sealed record IyuLowlineSettleOutcome(
+    IyuLowlineSettleStatus Status,
+    string? Detail = null,
+    DateTimeOffset? SettledAt = null)
 {
     /// <summary>Whether the record was settled.</summary>
     public bool Settled => Status == IyuLowlineSettleStatus.Settled;
@@ -93,9 +97,10 @@ public sealed class IyuLowlineSettleService(
         if (saved is null)
             return new(IyuLowlineSettleStatus.RecordNotFound);
 
+        SettledRecord settled;
         try
         {
-            await forms.SettleAsync(
+            settled = await forms.SettleAsync(
                 new LowlineScope(form, saved.Space),
                 recordId,
                 saved.Values,
@@ -112,6 +117,6 @@ public sealed class IyuLowlineSettleService(
             return new(IyuLowlineSettleStatus.Refused, refusal.Message);
         }
 
-        return new(IyuLowlineSettleStatus.Settled);
+        return new(IyuLowlineSettleStatus.Settled, SettledAt: settled.SettledAt);
     }
 }

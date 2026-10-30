@@ -17,12 +17,28 @@ public interface ILowlineFormHook
     string Form { get; }
 
     /// <summary>
+    /// Says where a record being written belongs and what its caller may pick, so the engine can propose for it — or
+    /// <c>null</c> when <paramref name="recordId"/> names a record <paramref name="user"/> may not work on. The record may
+    /// not be saved yet: <paramref name="recordId"/> is whatever id the form element uses for it.
+    /// </summary>
+    Task<LowlineFormContext?> OpenAsync(string recordId, ClaimsPrincipal user, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Reads the saved record <paramref name="recordId"/> as the application stored it, or <c>null</c> when there is no
     /// such record <em>that <paramref name="user"/> may settle</em>. Answering <c>null</c> for a record the caller may not
     /// see is how the hook keeps one person from settling another's record; the caller cannot tell the two apart.
     /// </summary>
     Task<LowlineSavedRecord?> ReadSavedAsync(string recordId, ClaimsPrincipal user, CancellationToken cancellationToken);
 }
+
+/// <summary>Where a record being written belongs and what its caller may pick, decided by the application.</summary>
+/// <param name="Space">Which records answer this request and learn from its saves — a workplace, a team. Decided from the
+/// signed-in caller, never from anything the request says of itself.</param>
+/// <param name="Allowed">The choices the caller may pick now, by field — their permissions and active filters; a value
+/// outside them is never suggested. <c>null</c>, or a field left out, allows any value.</param>
+public sealed record LowlineFormContext(
+    string Space,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Allowed = null);
 
 /// <summary>A saved record, as the engine needs it: the memory space it belongs to and its decided fields' values.</summary>
 /// <param name="Space">Which records learn together — a workplace, a team, whatever the host keeps apart. Decided by the

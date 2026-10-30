@@ -198,28 +198,4 @@ public sealed class IyuLowlineSettleServiceTests : IAsyncLifetime
         var record = Assert.Single(await Stored());
         Assert.Equal("blue", Parse(record).GetProperty("values").GetProperty("colour").GetString());
     }
-
-    /// <summary>An application's one form hook: rows by id, each owned by a person and kept in a space.</summary>
-    private sealed class OrderHook : ILowlineFormHook
-    {
-        private readonly Dictionary<string, (string Owner, LowlineSavedRecord Row)> _rows = [];
-
-        public int Reads { get; private set; }
-
-        public string Form => "order";
-
-        public void Save(string id, string owner, string space, string customer, string colour) =>
-            _rows[id] = (owner, new LowlineSavedRecord(space, new Dictionary<string, FieldValue>
-            {
-                ["customer"] = customer,
-                ["colour"] = colour,
-            }));
-
-        public Task<LowlineSavedRecord?> ReadSavedAsync(string recordId, ClaimsPrincipal user, CancellationToken cancellationToken)
-        {
-            Reads++;
-            return Task.FromResult(
-                _rows.TryGetValue(recordId, out var row) && row.Owner == user.Identity?.Name ? row.Row : null);
-        }
-    }
 }

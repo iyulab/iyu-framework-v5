@@ -22,6 +22,15 @@ public sealed class IyuLowlineOptions
     /// in characters. A longer one is refused before anything is read. Defaults to 65,536.
     /// </summary>
     public int MaxDraftLength { get; set; } = 64 * 1024;
+
+    /// <summary>
+    /// The authorization policy the endpoints require. <c>null</c> (the default) requires a signed-in caller, which is
+    /// the least that is accepted: the endpoints have no anonymous mode.
+    /// </summary>
+    public string? Policy { get; set; }
+
+    /// <summary>The largest request body an endpoint reads, in bytes. A larger one is refused with 413. Defaults to 256 KiB.</summary>
+    public int MaxRequestBytes { get; set; } = 256 * 1024;
 }
 
 /// <summary>

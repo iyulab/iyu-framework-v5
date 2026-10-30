@@ -41,7 +41,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   **Not for Alpine images** — the engine package has no `linux-musl` native library.
   `IyuLowlineSettleService` settles a record the application has already saved: the engine learns the values the form's
   `ILowlineFormHook` reads from the stored row, in the space the hook names, and never a value, settler, batch or check
-  the request carries. More of the package follows in later releases.
+  the request carries. `MapIyuLowline()` maps `POST /lowline/{form}/propose` and `/settle` with the same bodies as the
+  engine's own web host; the routes require a signed-in caller (or a policy), JSON, a bounded body and a same-origin
+  request, and the package references the ASP.NET Core shared framework. More of the package follows in later releases.
 
 - **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
   delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`

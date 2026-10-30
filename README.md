@@ -1807,6 +1807,18 @@ tables for a caller, or answers `null` for one that does not exist *or that call
 - the outcome is a status (`Settled`, `Unauthenticated`, `FormUnknown`, `RecordNotFound`, `Refused`); a refusal's
   `Detail` is for your log and can quote a stored value, so it does not belong in a response.
 
+**The two routes.** `app.MapIyuLowline()` (`"/lowline"` by default) maps `POST /{form}/propose` and
+`POST /{form}/settle` with the same request and response bodies as the engine's own web host, so its form element talks
+to either: `propose` takes `{ "id", "values" }` and answers what to show for each open decided field; `settle` takes
+`{ "id", "draft" }` and answers `{ "id", "settledAt" }`. The hook's `OpenAsync` says which memory space a caller's
+records belong to and which choices they may pick; a request cannot name its own space, and `settle` takes no values
+from the request at all. The routes require a signed-in caller (or `IyuLowlineOptions.Policy`) — there is no anonymous
+mode — and a request must be JSON within `IyuLowlineOptions.MaxRequestBytes` (256 KiB by default) and same-origin: a
+`Sec-Fetch-Site` other than `same-origin`, or an `Origin` that is not this host, is 403, so a page on another site
+cannot act with the caller's cookie. A form that is not defined, a form with no hook, and a record the hook does not
+return for the caller are all 404; a refused settle is 400 without the engine's words, which can quote a stored value.
+The package now references the ASP.NET Core shared framework.
+
 **Platforms.** The engine is a native library; its package carries it for Windows, Linux (glibc) and macOS, on x64 and
 arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as
 `mcr.microsoft.com/dotnet/aspnet`.
