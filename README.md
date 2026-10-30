@@ -1990,6 +1990,37 @@ rather than learned later as a record with no source.
 arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as
 `mcr.microsoft.com/dotnet/aspnet`.
 
+## Previewing a model change
+
+Rebuilding after a model change overwrites the generated files, and applying them changes the
+database. To see what a change would do to the data *before* either happens, build the new model
+in a copy of the project and compare — nothing is applied. With
+[mdd-booster](https://github.com/iyulab/mdd-booster) and
+[Schemorph](https://github.com/iyulab/Schemorph):
+
+```bash
+cp -r my-app/schema my-app/schema-preview            # 1. the whole folder: model/, db/ and pre/ (rename scripts)
+cp new-tables.m3l.md my-app/schema-preview/model/tables.m3l.md   # 2. only the copy gets the new model
+mdd build my-app/schema-preview/model                 # 3. generate into the copy — the original files stay as they are
+git diff --no-index my-app/schema my-app/schema-preview          # 4a. what the generated files would become
+schemorph diff --schema my-app/schema-preview/db \
+               --pre my-app/schema-preview/pre         # 4b. what that would do to the database (--pre only if pre/ exists)
+```
+
+`schemorph diff` reads the database from `--url` or `SCHEMORPH_URL` and applies nothing. Three things
+to know before trusting the plan it prints:
+
+- **The exit code alone does not say a change is safe.** A change that would delete data — a dropped
+  column, a dropped table — is left out of the plan unless `--allow-destructive` is given, and then
+  `diff` exits `0` ("nothing to apply") with the change listed under `excluded` and a
+  `SCHEMORPH001` warning. Run it twice: with `--allow-destructive` to see which changes are
+  destructive (`risk: destructive`), and without to see what applying would actually do.
+- **Diff the folder, not only `db/`.** A renamed entity shows in `db/` as one table file removed and
+  another added; the rename scripts in `pre/` are what say it is a rename and keeps its rows.
+- **SQL Server cannot plan past pending rename scripts.** The plan then reports
+  `atomicity: partial` and `SCHEMORPH014` and lists only the scripts; apply them, then diff again to
+  see the rest. PostgreSQL plans the whole change in one pass.
+
 ## Upgrading
 
 Per-release changes — including every breaking change and the packages each release
