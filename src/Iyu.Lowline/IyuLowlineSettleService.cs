@@ -1,7 +1,6 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using Lowline;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -67,6 +66,7 @@ public sealed class IyuLowlineSettleService(
     LowlineForms forms,
     IEnumerable<ILowlineFormHook> hooks,
     IOptions<IyuLowlineOptions> options,
+    IServiceProvider services,
     ILogger<IyuLowlineSettleService> logger)
 {
     /// <summary>Settles the saved record <paramref name="recordId"/> of form <paramref name="form"/>.</summary>
@@ -92,14 +92,9 @@ public sealed class IyuLowlineSettleService(
         if (settings.Settler.IsServiceAccount(user))
             return new(IyuLowlineSettleStatus.Forbidden);
 
-        string? settler = null;
-        if (settings.Settler.Salt is { } salt)
-        {
-            var account = user.FindFirst(settings.Settler.AccountClaimType)?.Value;
-            if (string.IsNullOrEmpty(account))
-                return new(IyuLowlineSettleStatus.Refused, "the signed-in caller carries no account id claim to name the settler by");
-            settler = Pseudonym(salt, account);
-        }
+        var settler = IyuLowlineSettlerIdentity.Resolve(settings.Settler, user, out var accountMissing);
+        if (accountMissing)
+            return new(IyuLowlineSettleStatus.Refused, "the signed-in caller carries no account id claim to name the settler by");
 
         if (string.IsNullOrEmpty(form) || !settings.Engine.Forms.ContainsKey(form))
             return new(IyuLowlineSettleStatus.FormUnknown);
@@ -116,17 +111,30 @@ public sealed class IyuLowlineSettleService(
         if (saved is null)
             return new(IyuLowlineSettleStatus.RecordNotFound);
 
+        var scope = new LowlineScope(form, saved.Space);
+        var attestation = new Attestation { Settler = settler };
         SettledRecord settled;
         try
         {
+            // The checks drawn when this record was proposed for are the server's word on which fields were held back; the
+            // draft's own word on them is replaced.
+            var recheck = services.GetRequiredService<IyuLowlineRecheck>();
+            if (settler is not null
+                && await recheck.PeekAsync(scope, recordId, settler, cancellationToken) is { } pending)
+            {
+                draft = IyuLowlineRecheck.MergeDraft(draft, pending, saved.Values);
+                attestation = new Attestation
+                {
+                    Settler = settler,
+                    Held = pending.Held.ToDictionary(h => h.Key, h => h.Value.Probability),
+                };
+            }
+
             settled = await forms.SettleAsync(
-                new LowlineScope(form, saved.Space),
-                recordId,
-                saved.Values,
-                draft,
-                SettledBy.Person,
-                new Attestation { Settler = settler },
-                cancellationToken);
+                scope, recordId, saved.Values, draft, SettledBy.Person, attestation, cancellationToken);
+
+            // Used up only now that the record is settled: a settle that failed leaves the draw for the retry.
+            if (settler is not null) await recheck.ClearAsync(scope, recordId, settler, cancellationToken);
         }
         catch (ArgumentException refusal)
         {
@@ -139,15 +147,4 @@ public sealed class IyuLowlineSettleService(
         return new(IyuLowlineSettleStatus.Settled, SettledAt: settled.SettledAt);
     }
 
-    /// <summary>
-    /// The opaque id the engine keeps for <paramref name="accountId"/>: <c>HMAC-SHA256</c> under a key derived from the salt
-    /// (HKDF-SHA256, purpose <c>iyu-lowline/settler</c>), lower-case hex. The recheck draw uses a key derived from the same
-    /// salt under another purpose. This is stored in every record, so changing it re-attributes history: the algorithm is
-    /// pinned by a test.
-    /// </summary>
-    internal static string Pseudonym(string salt, string accountId)
-    {
-        var key = HKDF.DeriveKey(HashAlgorithmName.SHA256, Encoding.UTF8.GetBytes(salt), 32, info: "iyu-lowline/settler"u8.ToArray());
-        return Convert.ToHexStringLower(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(accountId)));
-    }
 }

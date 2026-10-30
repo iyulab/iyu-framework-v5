@@ -74,6 +74,7 @@ public static class IyuLowlineEndpoints
         HttpContext http,
         LowlineForms forms,
         IEnumerable<ILowlineFormHook> hooks,
+        IyuLowlineRecheck recheck,
         IOptions<IyuLowlineOptions> options)
     {
         var settings = options.Value;
@@ -89,8 +90,15 @@ public static class IyuLowlineEndpoints
 
         try
         {
-            var shown = await forms.ProposeAsync(
-                new LowlineScope(form, context.Space), request.Id, request.Values, context.Allowed, http.RequestAborted);
+            var scope = new LowlineScope(form, context.Space);
+            var shown = await forms.ProposeAsync(scope, request.Id, request.Values, context.Allowed, http.RequestAborted);
+
+            // With a settler id (a salt) the server holds some answers back to check the values people then settle; a machine
+            // is not checked, and a caller with no account id has no settler to keep the draw under.
+            if (!settings.Settler.IsServiceAccount(http.User)
+                && IyuLowlineSettlerIdentity.Resolve(settings.Settler, http.User, out _) is { } settler)
+                shown = await recheck.ApplyAsync(scope, request.Id, settler, request.Values, shown, http.RequestAborted);
+
             // The engine's types carry their own wire names and enum spellings, so the default serializer writes them as
             // the engine's own host does.
             return Results.Json(shown, Web);

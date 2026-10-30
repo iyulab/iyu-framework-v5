@@ -32,7 +32,7 @@ internal sealed class LowlineTestAuthHandler(
         if (!Request.Headers.TryGetValue("X-Test-User", out var user))
             return Task.FromResult(AuthenticateResult.NoResult());
 
-        var claims = new List<Claim> { new(ClaimTypes.Name, user.ToString()) };
+        var claims = new List<Claim> { new(ClaimTypes.Name, user.ToString()), new(ClaimTypes.NameIdentifier, "account-" + user) };
         claims.AddRange(Request.Headers["X-Test-Perm"].Select(p => new Claim("perm", p!)));
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, "Test")), "Test");
         return Task.FromResult(AuthenticateResult.Success(ticket));

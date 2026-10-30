@@ -103,7 +103,7 @@ public sealed class IyuLowlineSettlerIdentityTests : IAsyncLifetime
         Assert.DoesNotContain("user-42", Expected(Salt, "user-42"));
         Assert.NotEqual(Expected(Salt, "user-42"), Expected(Salt, "user-43"));
         Assert.NotEqual(Expected(Salt, "user-42"), Expected(Salt + "x", "user-42"));
-        Assert.Equal(Expected(Salt, "user-42"), IyuLowlineSettleService.Pseudonym(Salt, "user-42"));
+        Assert.Equal(Expected(Salt, "user-42"), IyuLowlineSettlerIdentity.Pseudonym(Salt, "user-42"));
         await Task.CompletedTask;
     }
 

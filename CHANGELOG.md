@@ -48,7 +48,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   guarded against forgetting most of a scope on a short listing. With `IyuLowlineOptions.Settler.Salt` set, each settled
   record carries an opaque settler id (an HMAC of the caller's account id under a key derived from the salt) and a machine
   caller (a service client) is refused with 403. The README carries a whole minimal host for the package — compiled by the
-  test suite — and a note for moving a hand-built host over. More of the package follows in later releases.
+  test suite — and a note for moving a hand-built host over. With a settler salt the server also holds some answers back
+  (`IyuLowlineOptions.CheckRate`, one in twenty) so the values people settle can be checked against them: the draw is the
+  server's, kept in the `IDistributedCache` until the record is settled — register a shared cache when there is more than
+  one node.
 
 - **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
   delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`

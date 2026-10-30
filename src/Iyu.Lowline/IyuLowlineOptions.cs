@@ -46,6 +46,19 @@ public sealed class IyuLowlineOptions
     /// </summary>
     public double MaxForgetFraction { get; set; } = 0.5;
 
+    /// <summary>
+    /// How long a proposal's held-back answers are kept for the record to be settled. A record settled after that is settled
+    /// with no check. Defaults to six hours.
+    /// </summary>
+    public TimeSpan CheckLifetime { get; set; } = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// How often a field whose answer would be shown is held back instead, so the value the person settles can be checked
+    /// against it (above 0, at most 1). Needs <see cref="IyuLowlineSettlerOptions.Salt"/>: without a settler id nothing is held
+    /// back. Defaults to 0.05 — one answer in twenty, the engine's own default.
+    /// </summary>
+    public double CheckRate { get; set; } = 0.05;
+
     /// <summary>Who settled a record, as the engine is told: an opaque id, never an account id.</summary>
     public IyuLowlineSettlerOptions Settler { get; } = new();
 }
@@ -109,6 +122,11 @@ internal sealed class IyuLowlineOptionsValidator : IValidateOptions<IyuLowlineOp
             return ValidateOptionsResult.Fail(
                 $"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.Settler)}.{nameof(IyuLowlineSettlerOptions.AccountClaimType)} must not be empty.");
         }
+
+        if (!(options.CheckRate > 0 && options.CheckRate <= 1))
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.CheckRate)} must be above 0 and at most 1.");
+        if (options.CheckLifetime <= TimeSpan.Zero)
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.CheckLifetime)} must be positive.");
 
         if (options.RecoveryInterval < TimeSpan.Zero)
             return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.RecoveryInterval)} must not be negative.");

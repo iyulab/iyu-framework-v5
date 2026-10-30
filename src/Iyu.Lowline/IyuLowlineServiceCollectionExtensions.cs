@@ -36,6 +36,9 @@ public static class IyuLowlineServiceCollectionExtensions
         services.AddOptions<IyuLowlineOptions>().ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
+        services.AddDistributedMemoryCache();
+        services.TryAddSingleton<ILowlineRoll, HmacLowlineRoll>();
+        services.AddSingleton<IyuLowlineRecheck>();
         services.AddSingleton<EfLowlineStore<TContext, TRecord, TTuning>>();
         services.AddSingleton<ILowlineStore>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
         services.AddSingleton<ILowlineRecordIndex>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());

@@ -1925,6 +1925,26 @@ but too short stops the host from starting. A caller who carries the service-cli
 machine: only a person settles a record, and the route answers 403. With a salt, a signed-in caller who has no account id
 claim cannot settle.
 
+**Checking the suggestions.** A field that is suggested well ends up settled mostly by taking the suggestion, and the
+values the engine counts its precision on — those settled with nothing in view — run out. So with a settler salt the
+server holds the answer back for about one proposed field in twenty (`IyuLowlineOptions.CheckRate`) and the value the
+person then settles is counted as a check. Which fields are drawn is the server's: the draw comes from a roll derived from
+the salt, the held answer is left out of the `propose` response, and the draw is kept in the `IDistributedCache` under
+the record and the caller's settler id for `IyuLowlineOptions.CheckLifetime` (six hours). The `settle` route reads it back
+and tells the engine — so a caller can neither claim a check it was not given nor avoid one it was, and what the draft
+says it was shown for a held field is replaced by what was held back. A draw is sticky — asking again with other values
+adds to it and never clears it. The held answer is written into the record only if the saved record agrees with the values
+it rested on; if it does not, the field is still a check but no answer is written, so a proposal cannot plant an answer and
+cannot escape the check by disagreeing with it. A settle that fails leaves the draw for the retry. **One limit:** the draw is
+a function of the record id, so a caller who chooses the id of a new record could try ids until one is not drawn, or ask
+again under another id and read the answer that was held back. The checks guard the measurement against honest use and
+against forged claims, not against a settler set on skewing their own space's numbers — closing that would hide the same
+answer for the same values from that person for good. `AddIyuLowline` adds an in-memory
+`IDistributedCache` if you registered none; **with more than one node register a shared cache**, because a draw made on
+one node is invisible to another. A settle that finds no draw (it expired, or another node answered) is simply a record
+settled with no check — the engine counts it as a value settled with nothing in view, so the effect is fewer checks, never
+a wrong count. Without a salt nothing is held back.
+
 **Deleting a source forgets its record.** The hook's optional `ListSourceKeysAsync(space)` lists the keys of every record
 that still exists in a memory space. A background pass (`IyuLowlineOptions.RecoveryInterval`, hourly by default; zero
 turns it off) compares them with the ids the store holds and has the store and the running engine forget the records
