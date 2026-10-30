@@ -45,18 +45,24 @@ public sealed class IyuWriteRuleInterceptor(IEnumerable<IEntityWriteRule> rules)
         // see entries created by rules — one pass, so a rule cannot depend on another having
         // already run, which is what keeps their order from becoming a hidden contract.
         var entries = context.ChangeTracker.Entries()
-            .Where(e => e.State is EntityState.Added or EntityState.Modified)
+            .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
             .ToList();
 
         foreach (EntityEntry entry in entries)
         {
             var entityType = entry.Entity.GetType();
+            var deleted = entry.State == EntityState.Deleted;
             foreach (var rule in _rules)
             {
                 // IsAssignableFrom, not ==, so a rule on a base type covers its derived entities
                 // the same way a rule written against the concrete type does.
-                if (rule.EntityType.IsAssignableFrom(entityType))
-                    rule.Apply(entry, context);
+                if (!rule.EntityType.IsAssignableFrom(entityType)) continue;
+
+                // A deleted entry goes to the delete half only. A value rule never sees one — it has
+                // nothing to say about a row on its way out — and a delete rule never sees an
+                // insert or an update.
+                if (deleted) rule.ApplyDelete(entry, context);
+                else rule.Apply(entry, context);
             }
         }
     }

@@ -2,8 +2,8 @@ namespace Iyu.Data.WriteRules;
 
 /// <summary>
 /// A write rule's refusal, written for the caller: <see cref="Code"/> tells one rule from another without parsing
-/// text, and the message says why in words a person can act on. Thrown from <see cref="EntityWriteRule{T}"/>, the
-/// main server answers it <c>422</c> with that code and message — an application that throws its own exception type
+/// text, and the message says why in words a person can act on. Thrown from <see cref="EntityWriteRule{T}"/> or
+/// <see cref="EntityDeleteRule{TEntity}"/>, the main server answers it <c>422</c> with that code and message — an application that throws its own exception type
 /// instead keeps mapping it itself.
 /// </summary>
 public sealed class WriteRuleViolationException : Exception

@@ -1056,13 +1056,15 @@ of their own (a change log added there is saved by the same `SaveChanges`).
 | Conditional lock / permission | check `IsUpdated` + `IsModified`, then **throw** — the exception propagates unchanged. Throw `WriteRuleViolationException(code, message)` and the main server answers `422` with that code and message; throw your own exception type and its response mapping stays yours |
 | Default, derivation, normalization | check `IsAdded` (or both) and assign to `ctx.Entity` |
 | Change log | read `Original<T>` / `Current<T>`, `ctx.Db.Add(...)` the record |
+| React to a delete (follow a derived record, refuse the delete) | derive from `EntityDeleteRule<T>` and override `OnDeleting` — see [Rules on deletes](#rules-on-deletes) |
 
 Notes that matter in practice:
 
 - **`IsModified` is always `true` on an insert** — every property of a new row is being written.
   A lock that should only guard edits must test `IsUpdated` first.
-- **Deletes are not dispatched.** A rule about a field's value has nothing to say about a row on
-  its way out.
+- **A value rule is not dispatched for a delete.** A rule about a field's value has nothing to say
+  about a row on its way out. A rule that must act when a row is deleted derives from
+  `EntityDeleteRule<T>` instead — see [Rules on deletes](#rules-on-deletes).
 - **Rules run in one pass and do not see entries created by other rules** — a log row one rule adds
   is not dispatched to the others. ⚠ That guarantee covers *entries*, not *values*: a field another
   rule **assigned** is read from the live entry, so a rule that runs later does see it as modified.
@@ -1073,6 +1075,37 @@ Notes that matter in practice:
 - **Scanning is the point, not a convenience.** A hand-written registration line per rule fails by
   omission, and an omitted rule is indistinguishable at runtime from one whose condition never
   fired: nothing throws, nothing logs, the invariant is simply not enforced.
+
+#### Rules on deletes
+
+A delete is the one write a value rule never sees, and it is the one a derived record has to
+follow — a summary, an index entry, a tombstone, a row in another store that was computed from this
+one. Left to each entry point, it is bypassed by the next one, so it gets the same place as the other
+rules: save time. Derive from `EntityDeleteRule<T>`; the scan registers it with the rest.
+
+```csharp
+public sealed class RecordOrderRemoval : EntityDeleteRule<Order>
+{
+    protected override void OnDeleting(WriteRuleContext<Order> ctx)
+        => ctx.Db.Add(new OrderRemoval { OrderId = ctx.Entity.Id });
+}
+```
+
+It runs before the save, in the same pass as the other rules. Rows it adds or removes through `ctx.Db`
+are saved by the same `SaveChanges` — atomically with the delete on a relational provider — and
+throwing refuses the delete, the exception propagating unchanged as it does for an insert or an
+update. `ctx.IsDeleted` is `true`, and the entity still holds the values it had when it was loaded.
+
+What it is told about, and what it is not:
+
+- **Entries the context tracks as deleted** — including dependents a cascade marked deleted because
+  they were tracked when their principal was removed.
+- **Not rows the database removes on its own** (an `ON DELETE CASCADE` beneath a row the context never
+  loaded), and **not `ExecuteDelete`**, which bypasses the change tracker. If a derived record must
+  follow those, key it to the principal and let the principal's own deletion carry it.
+- **Not an effect outside the database.** The rule runs before the save is known to succeed, so a side
+  effect on another system would happen even if the delete is rolled back. Write the intent as a row
+  through `ctx.Db` (an outbox) and act on it after the commit.
 
 #### What belongs here, and what does not
 

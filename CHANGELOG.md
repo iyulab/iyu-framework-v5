@@ -29,6 +29,22 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.Data`
+
+### Added
+
+- **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
+  delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`
+  interceptor each app wrote itself, and one that missed an entry point (an OData `DELETE`, a GraphQL mutation, a
+  background job) was bypassed by it. A rule that derives from `EntityDeleteRule<TEntity>` and overrides `OnDeleting` is
+  registered by the same `AddIyuWriteRules` scan and runs in the same pass, before the save: rows it adds or removes
+  through `ctx.Db` are saved by the same `SaveChanges` (atomically with the delete on a relational provider), throwing
+  refuses the delete, and a rule on a base type covers a derived entity. `WriteRuleContext<TEntity>` gains `IsDeleted`.
+  Existing rules are unchanged: a value rule is still not dispatched for a delete, and `IEntityWriteRule` gains a
+  default-implemented `ApplyDelete`, so a rule written directly against the interface keeps compiling. It is told about
+  entries the context tracks as deleted — not rows the database removes on its own beneath an unloaded row, not
+  `ExecuteDelete`, and not an effect on another system (write an outbox row and act after the commit).
+
 ## [0.45.0] - 2026-10-27
 
 **Packages affected:** `Iyu.VaultAi`, `Iyu.Server.GraphQL`

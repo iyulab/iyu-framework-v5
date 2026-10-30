@@ -16,8 +16,19 @@ public interface IEntityWriteRule
     /// <summary>The entity type this rule applies to.</summary>
     Type EntityType { get; }
 
-    /// <summary>Runs the rule against one tracked entry. Called only for <see cref="EntityType"/>.</summary>
+    /// <summary>
+    /// Runs the rule against one tracked entry being inserted or updated. Called only for
+    /// <see cref="EntityType"/>.
+    /// </summary>
     void Apply(EntityEntry entry, DbContext context);
+
+    /// <summary>
+    /// Runs the rule against one tracked entry being deleted. Called only for <see cref="EntityType"/>.
+    /// The default does nothing, so a rule that only guards inserts and updates — including one
+    /// written directly against this interface — is unaffected. <see cref="EntityDeleteRule{TEntity}"/>
+    /// is the base type for a rule that acts on deletes.
+    /// </summary>
+    void ApplyDelete(EntityEntry entry, DbContext context) { }
 }
 
 /// <summary>
@@ -68,8 +79,9 @@ public abstract class EntityWriteRule<TEntity> : IEntityWriteRule
         => Apply(new WriteRuleContext<TEntity>(context.Entry((TEntity)entry.Entity), context));
 
     /// <summary>
-    /// Runs against one entry being inserted or updated. Deletes are not dispatched — a rule about
-    /// a field's value has nothing to say about a row on its way out.
+    /// Runs against one entry being inserted or updated. Deletes are not dispatched here — a rule
+    /// about a field's value has nothing to say about a row on its way out. A rule that must act
+    /// when a row is deleted derives from <see cref="EntityDeleteRule{TEntity}"/>.
     /// </summary>
     protected abstract void Apply(WriteRuleContext<TEntity> context);
 }
@@ -94,6 +106,13 @@ public readonly record struct WriteRuleContext<TEntity>(EntityEntry<TEntity> Ent
 
     /// <summary>This is an existing row being updated.</summary>
     public bool IsUpdated => Entry.State == EntityState.Modified;
+
+    /// <summary>
+    /// This is an existing row being deleted. Only ever <see langword="true"/> for an
+    /// <see cref="EntityDeleteRule{TEntity}"/>; the entity still carries the values it had when it
+    /// was loaded, and <see cref="Original{TValue}"/> returns them.
+    /// </summary>
+    public bool IsDeleted => Entry.State == EntityState.Deleted;
 
     /// <summary>
     /// Whether <paramref name="propertyName"/> is being written by this save.
