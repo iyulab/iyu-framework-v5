@@ -1791,6 +1791,22 @@ call, because the engine chooses its thresholds again on a background worker aft
 id replaces the first. The package does not map the entities: the key, the column types and the names stay with the
 schema you already run.
 
+**Settling a saved record.** Register one `ILowlineFormHook` per form (scoped): it reads a saved record back from your
+tables for a caller, or answers `null` for one that does not exist *or that caller may not settle*. Then
+`IyuLowlineSettleService.SettleAsync(form, recordId, draft, user)` (scoped) settles it:
+
+- the engine learns the **stored** row's values — the request carries only a record id and a draft, so a value the caller
+  claims never becomes one;
+- the memory space comes from the hook, not from the caller;
+- who settled the record, its batch and the fields drawn for a check are never taken from the draft: an empty
+  `Attestation` is always given, because the engine lets a draft sign a record, name a batch and claim a check unless the
+  host says otherwise;
+- the draft is the caller's own, unverified account of what was *shown* and what was done with it. It decides how a
+  record is counted (a suggestion taken versus a value typed), never which values are learned. It is refused above
+  `IyuLowlineOptions.MaxDraftLength` (64 KiB by default) before anything is read;
+- the outcome is a status (`Settled`, `Unauthenticated`, `FormUnknown`, `RecordNotFound`, `Refused`); a refusal's
+  `Detail` is for your log and can quote a stored value, so it does not belong in a response.
+
 **Platforms.** The engine is a native library; its package carries it for Windows, Linux (glibc) and macOS, on x64 and
 arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as
 `mcr.microsoft.com/dotnet/aspnet`.

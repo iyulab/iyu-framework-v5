@@ -16,6 +16,12 @@ public sealed class IyuLowlineOptions
     /// tables (<c>AddIyuLowline</c>'s type arguments); <see cref="LowlineOptions.UseStore"/> is not for the caller.
     /// </summary>
     public LowlineOptions Engine { get; } = new();
+
+    /// <summary>
+    /// The longest draft (the caller's account of what was shown while a record was written) a settle request may carry,
+    /// in characters. A longer one is refused before anything is read. Defaults to 65,536.
+    /// </summary>
+    public int MaxDraftLength { get; set; } = 64 * 1024;
 }
 
 /// <summary>

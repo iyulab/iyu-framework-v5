@@ -35,6 +35,7 @@ public static class IyuLowlineServiceCollectionExtensions
         services.AddOptions<IyuLowlineOptions>().ValidateOnStart();
 
         services.AddSingleton<ILowlineStore, EfLowlineStore<TContext, TRecord, TTuning>>();
+        services.AddScoped<IyuLowlineSettleService>();
         services.AddSingleton(provider =>
         {
             var engine = provider.GetRequiredService<IOptions<IyuLowlineOptions>>().Value.Engine;

@@ -38,7 +38,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   and an `ILowlineStore` that keeps the settled records and the chosen thresholds in two tables the application declares
   (entities implementing `ILowlineRecordRow` and `ILowlineTuningRow`; the package maps and creates nothing). A host that
   calls it without defining a form does not start, and neither does one whose form definition the engine refuses.
-  **Not for Alpine images** — the engine package has no `linux-musl` native library. More of the package follows in later releases.
+  **Not for Alpine images** — the engine package has no `linux-musl` native library.
+  `IyuLowlineSettleService` settles a record the application has already saved: the engine learns the values the form's
+  `ILowlineFormHook` reads from the stored row, in the space the hook names, and never a value, settler, batch or check
+  the request carries. More of the package follows in later releases.
 
 - **`Iyu.Data`: a rule on deletes — `EntityDeleteRule<TEntity>`.** The write rules (`EntityWriteRule<TEntity>`) never saw a
   delete, so anything that had to follow one — a derived record, an index entry, a tombstone — was a `SaveChanges`
