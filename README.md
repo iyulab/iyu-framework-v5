@@ -7,7 +7,7 @@ generator-produced entities, plus optional modules for identity, attachments,
 chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
-Targets .NET 10. All thirteen projects share one version and ship as separate
+Targets .NET 10. All projects share one version and ship as separate
 NuGet packages.
 
 ## Role in the stack
@@ -1027,8 +1027,8 @@ sit in `Unprotected` forever and make the empty-list assertion unusable:
 
 ### Rules on the generic write path
 
-`AddEntityPair` opens generic writes (OData `PATCH`, GraphQL) over an entity. Guarding a field on
-one of those entry points does not guard the others, and does not guard the next one added — so a
+`AddEntityPair` opens generic writes (OData `PATCH`) over an entity; the GraphQL surface emits reads only.
+Guarding a field on one write entry point does not guard the others, and does not guard the next one added — so a
 rule like *"this field cannot change once the order is billed"* has to sit where every entry point
 converges, at save time.
 
@@ -2055,7 +2055,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All thirteen `Iyu.*` packages share one version, so a new number does not by itself mean the
+All `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
