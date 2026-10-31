@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline`
+**Packages affected:** `Iyu.Lowline`, `Iyu.Uncad`
 
 ### Added
 
@@ -42,6 +42,28 @@ onward; earlier entries state the same consequence in prose where it applies.
   application can make, which is why the host asks for the records instead of guessing which ones qualify. A record the engine
   refuses is counted and logged and does not stop the batch. `IyuLowlineHistoryService.RunOnceAsync` runs one pass. No change
   for a form without a source.
+
+- **`Iyu.Uncad` (new package): reading a drawing's summary through the `uncad` command-line program.**
+  `AddIyuUncad(o => o.ExePath = …)` is an explicit opt-in: calling it is what turns the module on, and nothing is registered
+  before. `DrawingProbeService.ProbeAsync(path, includeMarks)` runs `uncad summarize` on a `.dwg` or `.dxf` file as a child
+  process and returns a `DrawingProbe` — the units, the entity and layer counts, the dimension entries (the measured value, any
+  text typed in its place, the tolerance the drawing states itself and, with `includeMarks`, the layer and effective color of
+  each) and the values beside labels that look like a drawing number. A value the program did not report is `null`, and the
+  entries it reports as tolerance overrides are formatting settings, never returned as tolerances. A failure — no executable, a
+  bad input file, a time-out, too much output, a non-zero exit, output that is not the JSON expected — is a
+  `DrawingProbeResult` carrying an `UncadFailure`, not an exception; only cancelling the caller's token throws.
+  `IUncadRunner` / `UncadRunner` are the process boundary on their own: a run is limited in time (`IyuUncadOptions.Timeout`,
+  30 seconds by default) and in output size (`MaxOutputBytes`, 64 MiB), exceeding either ends the process and its
+  descendants, standard error is read alongside standard output, and arguments are passed one by one with no shell (`ExePath` has to name the program itself — on Windows a `.cmd` or `.bat`
+  wrapper is run through `cmd.exe`, which parses its arguments again). A host that
+  calls `AddIyuUncad` without an `ExePath`, or with a limit that is not positive, does not start (the message names the setting,
+  never a value); whether the executable exists is checked when a drawing is read, so it can be installed after the host has
+  started. **`uncad` is a separate program under the GPL-3.0-or-later: this package only runs it as a child process — it does
+  not link to it and does not ship it — and the host installs it.** The package depends on
+  `Microsoft.Extensions.DependencyInjection.Abstractions` and `Microsoft.Extensions.Options`, not on `Iyu.Core`.
+  **Known limitation:** the child process has no memory cap (an OS job object would be needed), and a descendant that has
+  outlived its parent is out of reach of the tree kill. The README documents the module,
+  with an example the test suite compiles.
 
 ## [0.47.0] - 2026-10-31
 

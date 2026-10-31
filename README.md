@@ -4,10 +4,10 @@ Runtime library for the Iyu stack. Consumed by apps generated from M3L models
 via [mdd-booster](https://github.com/iyulab/mdd-booster). Provides a single
 `AddIyuMainServer` entry point that wires EF Core, OData, and GraphQL on top of
 generator-produced entities, plus optional modules for identity, attachments,
-chat, scheduled reports, office-document template rendering, and document-to-PDF
-conversion.
+chat, scheduled reports, office-document template rendering, document-to-PDF
+conversion, and reading DWG/DXF drawing summaries through an external program.
 
-Targets .NET 10. All thirteen projects share one version and ship as separate
+Targets .NET 10. All fifteen projects share one version and ship as separate
 NuGet packages.
 
 ## Role in the stack
@@ -38,6 +38,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
 | `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host and keeps its records in the application's own tables (not on Alpine: the engine has no musl build) |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
+| `Iyu.Uncad` | `AddIyuUncad` — `DrawingProbeService.ProbeAsync` reads a DWG or DXF drawing by running the [uncad](https://github.com/iyulab/uncad) command-line program as a child process (a separate GPL-3.0-or-later program the host installs; never linked, never shipped) |
 
 ## Namespaces a consumer needs
 
@@ -2017,6 +2018,99 @@ rather than learned later as a record with no source.
 arm64. **There is no `linux-musl` build, so an Alpine-based image cannot run it** — use a Debian-based image such as
 `mcr.microsoft.com/dotnet/aspnet`.
 
+## Reading drawing summaries (`Iyu.Uncad`)
+
+`DrawingProbeService.ProbeAsync(drawingPath)` reads one DWG or DXF drawing and returns what is in it: the units, the entity and layer
+counts, the dimension entries (the measured value, any text typed in its place, any tolerance the drawing states itself and, on
+request, the layer and effective color of each), and the values that sit beside a label such as `DWG. NO.`. It does this by running
+`uncad summarize`, the command-line program from [uncad](https://github.com/iyulab/uncad), as a child process and reading its JSON.
+What comes back is what the program read, not an interpretation of it: a value it did not report is `null`, a number-like label with a
+value beside it is a *candidate*, and what to make of either is the caller's.
+
+<!-- uncad-sample -->
+```csharp
+using Iyu.Uncad;
+using Microsoft.Extensions.DependencyInjection;
+
+public static class DrawingSupport
+{
+    // The host installs the uncad program; this only starts it.
+    public static IServiceCollection AddDrawingSupport(this IServiceCollection services)
+        => services
+            .AddIyuUncad(o =>
+            {
+                o.ExePath = "/opt/uncad/uncad";               // the full path; required
+                o.Timeout = TimeSpan.FromSeconds(60);          // default 30 seconds
+                o.MaxOutputBytes = 128L * 1024 * 1024;         // default 64 MiB
+            })
+            .AddSingleton<DrawingReader>();
+}
+
+public sealed class DrawingReader(DrawingProbeService probe)
+{
+    public async Task<IReadOnlyList<double>> MeasurementsAsync(string drawingPath, CancellationToken cancellationToken)
+    {
+        var result = await probe.ProbeAsync(drawingPath, includeMarks: false, cancellationToken);
+        if (!result.Ok)
+            throw new InvalidOperationException($"The drawing could not be read ({result.Failure}): {result.Message}");
+
+        return [.. result.Probe!.Dimensions.Where(d => d.Measurement is not null).Select(d => d.Measurement!.Value)];
+    }
+}
+```
+
+Nothing is registered until `AddIyuUncad` is called — calling it is what turns the module on. It registers `IUncadRunner` (the
+process boundary, implemented by `UncadRunner`) and `DrawingProbeService`, both as singletons. A host that wants a different runner,
+a fake in a test for one, registers its own `IUncadRunner` after the call.
+
+**Settings.** `ExePath` is the full path of the executable; it has no default, and a bare command name is not looked up on `PATH`.
+`Timeout` is the longest one run may take (default 30 seconds) and `MaxOutputBytes` the most output it may produce (default 64 MiB).
+A host that calls `AddIyuUncad` without an `ExePath`, or with a limit that is not positive, does not start; the message names the
+setting, never a value. A value out of range is refused rather than replaced by a default, because a limit that loosens itself when a
+setting is mistyped is the failure the limits exist to prevent. Whether the file exists is checked when a drawing is read, not at
+startup, so the program can be installed after the host has started; until it is, a read ends with `UncadFailure.NotConfigured`.
+
+**A failure is a result, not an exception.** When a drawing cannot be read, `DrawingProbeResult.Ok` is `false` and `Failure` says why:
+
+| `UncadFailure` | It means |
+|---|---|
+| `NotConfigured` | there is no executable at `ExePath` — nothing was started |
+| `InvalidInput` | the file does not exist or is not a `.dwg` or `.dxf` file — nothing was started |
+| `Timeout` | the run exceeded `Timeout`; the process and its descendants were ended |
+| `OutputTooLarge` | the run exceeded `MaxOutputBytes`; the process and its descendants were ended |
+| `NonZeroExit` | the program exited with a code other than zero (its parser crashed, for one) |
+| `StartFailed` | the process could not be started (the file is not executable, for one) |
+| `InvalidOutput` | the program exited with code zero but its output is not the JSON expected |
+
+Only cancelling your own `CancellationToken` throws (`OperationCanceledException`). The lines the program writes to standard error
+that begin with `warning:` are returned in `Warnings` even when the run succeeded: an entity it could not decode is then missing from
+the result. `includeMarks: true` runs the program a second time to add each dimension's layer and effective color; if that second run
+fails, the dimension entries are still returned and `MarksFailed` is `true`. A drawing's own tolerance text is reported as the
+drawing's statement (`StatedTolerance`); the tolerance-override entries the program also reports are formatting settings, not
+tolerances, and are never returned as one.
+
+**Where the damage stops.** A drawing is untrusted input, so a crash or a runaway in the program's parser is kept in a child process.
+A run is limited in time and in the size of its output; exceeding either ends the process and its descendants. Standard error
+is read while standard output is, since reading only one can fill the other's pipe and stop the program. No shell is involved:
+arguments are passed one by one, so a file name is never read as a command, and the drawing is passed as a full path. That holds
+when `ExePath` is the program itself: on Windows a batch file (`.cmd`, `.bat`) is run through `cmd.exe`, which parses its arguments
+again, so do not point `ExePath` at such a wrapper.
+
+**The license boundary.** `uncad` is licensed GPL-3.0-or-later; this package is MIT. They stay apart: this package starts `uncad` as a
+separate program and reads what it writes to standard output. It does not link to it, load it or contain any of its code, and it does
+not ship the executable — the host installs it. A host that distributes the executable with its own application takes on that
+program's license terms for that file.
+
+**Independence.** `Iyu.Uncad` references neither `Iyu.Core` nor the ASP.NET Core shared framework — only
+`Microsoft.Extensions.DependencyInjection.Abstractions` and `Microsoft.Extensions.Options` — so a host can take it whether or not
+it uses the rest of this framework, the same independence as `Iyu.Report` and `Iyu.DocConvert`.
+
+**Limits.** **Known limitation: no memory cap on the child process (an OS job object would be needed).** A drawing that makes the
+program allocate without bound is stopped only by the time limit. For the same reason a descendant that has outlived its parent is out
+of reach of the tree kill: the tree is found through the parent, so a process the program started and left running after it exited
+is not ended. The module reads `.dwg` and `.dxf` files and takes the program's
+word for what is in them; it does not check them itself.
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the
@@ -2055,7 +2149,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All thirteen `Iyu.*` packages share one version, so a new number does not by itself mean the
+All fifteen `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
@@ -2085,6 +2179,9 @@ Known gaps, in rough priority order:
 - `Iyu.DocConvert` is new. `GotenbergDocumentConverter` is covered by unit tests against a
   stubbed HTTP handler (request shape, content-type mapping, error surfacing); it has not yet
   been round-tripped against a live Gotenberg instance in this repo's own test suite.
+- `Iyu.Uncad` is new. Its process boundary is covered by tests that run a stand-in executable (a batch file on Windows, a shell
+  script elsewhere) and its reading rules by synthetic documents; it has not been run against the real `uncad` program in this
+  repo's own test suite. The child process has no memory cap (an OS job object would be needed).
 - The Azure Blob storage backend has no automated coverage — the test suite uses
   a fake and the local filesystem backend. Backend-specific failure modes are
   therefore not caught here.
