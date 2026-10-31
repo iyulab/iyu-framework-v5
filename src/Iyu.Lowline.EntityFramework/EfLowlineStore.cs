@@ -3,7 +3,7 @@ using Lowline;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Iyu.Lowline;
+namespace Iyu.Lowline.EntityFramework;
 
 /// <summary>
 /// The engine's <see cref="ILowlineStore"/> over the application's own two tables (<typeparamref name="TRecord"/>

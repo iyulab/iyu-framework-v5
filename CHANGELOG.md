@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline`
+**Packages affected:** `Iyu.Lowline`, `Iyu.Lowline.EntityFramework`
 
 ### Added
 
@@ -42,6 +42,21 @@ onward; earlier entries state the same consequence in prose where it applies.
   application can make, which is why the host asks for the records instead of guessing which ones qualify. A record the engine
   refuses is counted and logged and does not stop the batch. `IyuLowlineHistoryService.RunOnceAsync` runs one pass. No change
   for a form without a source.
+
+### Changed
+
+- **Breaking — `Iyu.Lowline`: the host layer no longer assumes Entity Framework; the EF store moves to the new `Iyu.Lowline.EntityFramework`.**
+  Two files in `Iyu.Lowline` used EF Core and `Iyu.Core` — the store and the registration — yet every host that referenced
+  the package carried both, and the only way to turn Lowline on named an EF `DbContext`. `Iyu.Lowline` now registers over two
+  ports the host provides, the engine's `ILowlineStore` and `ILowlineRecordIndex`: `AddIyuLowline(o => …)` takes no type
+  arguments and the package references neither EF Core nor `Iyu.Core`. A host that registered neither port, or only one, does
+  not start, and the message names which. The EF store (`EfLowlineStore<TContext, TRecord, TTuning>`) and the
+  `AddIyuLowline<TContext, TRecord, TTuning>` overload are in the new package `Iyu.Lowline.EntityFramework`, namespace
+  `Iyu.Lowline.EntityFramework`; the overload registers both ports and then calls the one above. **To upgrade:** a host that
+  keeps its records in its own tables adds a reference to `Iyu.Lowline.EntityFramework` and `using Iyu.Lowline.EntityFramework;`
+  — the call and its type arguments stay as they are; any other host registers its own two ports. There is no forwarding
+  alias — `EfLowlineStore` and the type-argument overload no longer exist in `Iyu.Lowline`. This is the first publication of
+  `Iyu.Lowline.EntityFramework`.
 
 ## [0.47.0] - 2026-10-31
 

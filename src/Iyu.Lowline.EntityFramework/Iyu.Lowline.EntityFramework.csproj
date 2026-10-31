@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Iyu.Lowline.EntityFramework</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The store reads and writes through the application's own DbContext, so the application already references
+         Entity Framework Core; this package states the floor it was built against. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Iyu.Lowline\Iyu.Lowline.csproj" />
+    <!-- The two row contracts the application's entities implement live here, not in the host package. -->
+    <ProjectReference Include="..\Iyu.Core\Iyu.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
+</Project>
