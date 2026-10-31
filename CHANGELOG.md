@@ -29,7 +29,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline`, `Iyu.Uncad`
+**Packages affected:** `Iyu.Lowline`, `Iyu.Uncad`, `Iyu.UVision`
 
 ### Added
 
@@ -64,6 +64,28 @@ onward; earlier entries state the same consequence in prose where it applies.
   **Known limitation:** the child process has no memory cap (an OS job object would be needed), and a descendant that has
   outlived its parent is out of reach of the tree kill. The README documents the module,
   with an example the test suite compiles.
+
+- **`Iyu.UVision` (new package): asking a vision engine for an OK/NG verdict on an image.**
+  `AddIyuUVision(o => o.BaseUrl = …)` is an explicit opt-in: calling it is what turns the module on, and nothing is registered
+  before. `IVisionEngine.InspectAsync(scenarioId, image, fileName, deviceLabel)` posts the image to the judging route of a
+  [U-Vision](https://github.com/iyulab/U-Vision) engine (`{BaseUrl}/inspect`, a multipart form) and returns a `VisionEngineResult`
+  — the engine's verdict (`OK` or `NG`, exactly as it wrote it), its confidence, the `image_id` it keeps the image under, whether
+  it recommends a review (advice that never changes the verdict) and its findings. This package does not correct a verdict and
+  does not make one up: a call that gets none returns a `VisionEngineFailure`, not an exception — `Unavailable` (could not be
+  reached, no answer within `IyuUVisionOptions.Timeout`, `503` — the engine's refusal to judge, whose reason is in the message and
+  whose attached hint is never read as a verdict — `408`, `429` or `5xx`), `Rejected` (an image over
+  `IyuUVisionOptions.MaxImageBytes` is not sent at all; any other `4xx`, an unknown scenario or a wrong base path among them) or
+  `InvalidResponse` (the answer is not what the contract promises); only cancelling the caller's token throws. `BaseUrl` is
+  the engine's address **including its base path** (`/api/u-vision` unless the engine was mounted elsewhere). It is required and
+  must be an absolute `http` or `https` URL; `Timeout` (30 seconds by default) and `MaxImageBytes` (12 MiB) must be positive. A
+  host that gets one wrong does not start (the message names the setting, never a value). An image is sent under the content
+  type of its file name's extension (`application/octet-stream` for an unknown one) and the engine decides what it takes.
+  **U-Vision is a separate service under its own license: this package only calls its HTTP interface — it does not link to it
+  and does not ship it — and the host runs it.** The package depends on `Microsoft.Extensions.Http`,
+  `Microsoft.Extensions.DependencyInjection.Abstractions` and `Microsoft.Extensions.Options`, not on `Iyu.Core`.
+  **Known limitation:** it has not been round-tripped against a live engine in this repository's test suite (the contract was read
+  from the engine's published description and source), it does not retry or send an `Idempotency-Key`, and it reads the whole answer
+  into memory. The README documents the module, with an example the test suite compiles.
 
 ## [0.47.0] - 2026-10-31
 

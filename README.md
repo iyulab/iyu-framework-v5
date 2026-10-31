@@ -5,9 +5,10 @@ via [mdd-booster](https://github.com/iyulab/mdd-booster). Provides a single
 `AddIyuMainServer` entry point that wires EF Core, OData, and GraphQL on top of
 generator-produced entities, plus optional modules for identity, attachments,
 chat, scheduled reports, office-document template rendering, document-to-PDF
-conversion, and reading DWG/DXF drawing summaries through an external program.
+conversion, reading DWG/DXF drawing summaries through an external program, and
+asking a vision engine for an OK/NG verdict on an image.
 
-Targets .NET 10. All fifteen projects share one version and ship as separate
+Targets .NET 10. All sixteen projects share one version and ship as separate
 NuGet packages.
 
 ## Role in the stack
@@ -39,6 +40,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host and keeps its records in the application's own tables (not on Alpine: the engine has no musl build) |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 | `Iyu.Uncad` | `AddIyuUncad` — `DrawingProbeService.ProbeAsync` reads a DWG or DXF drawing by running the [uncad](https://github.com/iyulab/uncad) command-line program as a child process (a separate GPL-3.0-or-later program the host installs; never linked, never shipped) |
+| `Iyu.UVision` | `AddIyuUVision` — `IVisionEngine.InspectAsync` sends an image to a [U-Vision](https://github.com/iyulab/U-Vision) engine over HTTP and returns the engine's OK/NG verdict, or the reason there is none (a separate service the host runs; only its HTTP interface is used) |
 
 ## Namespaces a consumer needs
 
@@ -2111,6 +2113,103 @@ of reach of the tree kill: the tree is found through the parent, so a process th
 is not ended. The module reads `.dwg` and `.dxf` files and takes the program's
 word for what is in them; it does not check them itself.
 
+## Judging images (`Iyu.UVision`)
+
+`IVisionEngine.InspectAsync(scenarioId, image, fileName, deviceLabel)` sends one image to a vision judgment engine and returns the
+verdict the engine gave: `OK` or `NG`, with the engine's confidence, the id it keeps the image under, whether it recommends that a
+person look at the image, and its findings. The engine is [U-Vision](https://github.com/iyulab/U-Vision), a self-hosted service the
+host runs; this package calls its HTTP interface (`POST {BaseUrl}/inspect`, a multipart form, answered with JSON). What comes back is
+the engine's word: this package does not correct a verdict, does not make one up when the engine could not give one, and does not act
+on the engine's review advice.
+
+<!-- uvision-sample -->
+```csharp
+using Iyu.UVision;
+using Microsoft.Extensions.DependencyInjection;
+
+public static class ImageJudgingSupport
+{
+    // The host runs the engine; this only calls it.
+    public static IServiceCollection AddImageJudging(this IServiceCollection services)
+        => services
+            .AddIyuUVision(o =>
+            {
+                o.BaseUrl = "https://vision.example/api/u-vision";   // the engine's address and its base path; required
+                o.Timeout = TimeSpan.FromSeconds(20);                 // default 30 seconds
+                o.MaxImageBytes = 8L * 1024 * 1024;                   // default 12 MiB
+            })
+            .AddSingleton<ImageJudge>();
+}
+
+public sealed class ImageJudge(IVisionEngine engine)
+{
+    public async Task<bool> PassesAsync(string scenarioId, byte[] image, string fileName, CancellationToken cancellationToken)
+    {
+        var result = await engine.InspectAsync(scenarioId, image, fileName, deviceLabel: null, cancellationToken);
+        if (!result.Ok)
+            throw new InvalidOperationException($"The image was not judged ({result.Failure}): {result.Message}");
+
+        // An image that was not judged is not an OK; a verdict of OK with a review recommendation is the caller's to weigh.
+        return result.Verdict!.Verdict == "OK" && !result.Verdict.RequiresReview;
+    }
+}
+```
+
+Nothing is registered until `AddIyuUVision` is called — calling it is what turns the module on. It registers `IVisionEngine` as a typed
+client of `IHttpClientFactory`, so the host manages no `HttpClient` lifetime. A host that wants a different engine, a fake in a test
+for one, registers its own `IVisionEngine` after the call.
+
+**Settings.** `BaseUrl` is the address of the engine's API **including the base path the engine is mounted at** — the engine's default
+is `/api/u-vision`, so an engine on its default path is `http://host:8000/api/u-vision`, not `http://host:8000`. It is required, has
+no default, and must be an absolute `http` or `https` URL without a query or fragment; a trailing `/` is optional. **A base path that
+is missing or wrong comes back from the engine as a "not found", which is reported as `Rejected` — the same as an unknown scenario.**
+`Timeout` is the longest one call may take, from the request to the whole answer read (default 30 seconds; positive, and no longer
+than the 24 days `HttpClient` allows). `MaxImageBytes` is the largest image this package sends (default 12 MiB): a larger image is not
+sent and the call ends `Rejected`. The engine has an upload limit of its own — 10 MiB unless its host changed it — so an image
+between the two limits is sent and refused by the engine, which is `Rejected` too; set `MaxImageBytes` to the engine's limit or below
+to refuse it here without sending it. A host that calls `AddIyuUVision` without a usable `BaseUrl`, or with a limit that is not
+usable, does not start; the message names the setting, never a value. A value out of range is refused rather than replaced by a
+default, because a limit that loosens itself when a setting is mistyped is the failure the limits exist to prevent.
+
+**A failure is a result, not an exception.** When there is no verdict, `VisionEngineResult.Ok` is `false`, `Verdict` is `null` and
+`Failure` says why:
+
+| `VisionEngineFailure` | It means |
+|---|---|
+| `Unavailable` | the engine could not give a verdict now: it could not be reached, did not answer within `Timeout`, answered `503` (its way of refusing to judge rather than guess — the `reason` it gives is in `Message`), `408`, `429` or `5xx`, or the connection was lost before the answer was read. Retrying may help |
+| `Rejected` | the request will be refused again: the image is over `MaxImageBytes` (nothing was sent), or the engine answered another `4xx` — an unknown scenario, an image it does not take (`415`), an empty image, an image over its own limit (`413`), or a wrong base path |
+| `InvalidResponse` | the engine answered success but not with what its contract promises: the body is not a JSON object, `verdict` is not exactly `OK` or `NG`, `image_id` is missing, or `confidence` or `requires_review` is present with a value of the wrong type |
+
+Only cancelling your own `CancellationToken` throws (`OperationCanceledException`); this package's own time limit is `Unavailable`,
+not a cancellation. A blank `scenarioId` or `fileName` is a caller error and throws `ArgumentException` before anything is sent.
+**Treat every failure as "not judged", never as an OK**: the engine answers `503` precisely so that an image it could not judge is
+not passed. A hint the engine attaches to such an answer (a second opinion's label) is not a verdict, and is not read as one.
+
+**What is sent.** The image as the `image` part, the scenario as `scenario_id` and, when it is not blank, `deviceLabel` as
+`device_label`. The image's content type follows the extension of `fileName` — `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, `.bmp`, and
+`application/octet-stream` for anything else, so an unknown extension is never passed off as a JPEG. What the engine accepts is the
+engine's to say (its source lists only JPEG and PNG, and it answers any other type with `415`), so that list is not copied into this
+package. Only the file name, not the directory it came from, is sent. A call that ended `Unavailable` after the request was sent — a
+time-out, say — may still have been judged and recorded by the engine: this package sends no `Idempotency-Key` and does not retry, so
+a caller that retries decides whether a second record matters.
+
+**What is read.** `verdict` (case matters), `confidence` (`null` when the engine reported none), `image_id`, `requires_review`
+(`false` when absent: it is advice and never changes the verdict) and `findings` (text, or a list joined with `"; "`; `null` when
+empty). Other fields the engine sends — its timestamp, its second opinion, its posture — are not surfaced.
+
+**The boundary.** U-Vision is a separate program under its own license (AGPL-3.0-or-later at the time of writing; its README says an
+application that calls it over the network is not covered). This package only calls its HTTP interface: it does not link to it,
+load it or contain any of its code, and does not ship it — the host runs the engine. U-Vision also publishes a typed client
+(`UVision.Client`); this package does not use it, so that taking `Iyu.UVision` adds nothing beyond three `Microsoft.Extensions.*`
+packages and follows the engine's HTTP contract rather than a version of a generated client. `Iyu.UVision` references neither
+`Iyu.Core` nor the ASP.NET Core shared framework — only `Microsoft.Extensions.Http`,
+`Microsoft.Extensions.DependencyInjection.Abstractions` and `Microsoft.Extensions.Options` — the same independence as `Iyu.Report`,
+`Iyu.DocConvert` and `Iyu.Uncad`.
+
+**Limits.** The module calls the engine's judging route and nothing else: not the scenario, results or label routes, not the richer
+`v2` route, and it sends no `device_id` or `captured_at`. It has no retry and keeps no record of its own. The whole answer is read
+into memory with no cap of its own on its size. It takes the engine's word for the verdict and does not check the image.
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the
@@ -2149,7 +2248,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All fifteen `Iyu.*` packages share one version, so a new number does not by itself mean the
+All sixteen `Iyu.*` packages share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
@@ -2182,6 +2281,9 @@ Known gaps, in rough priority order:
 - `Iyu.Uncad` is new. Its process boundary is covered by tests that run a stand-in executable (a batch file on Windows, a shell
   script elsewhere) and its reading rules by synthetic documents; it has not been run against the real `uncad` program in this
   repo's own test suite. The child process has no memory cap (an OS job object would be needed).
+- `Iyu.UVision` is new. The request it sends and the way it reads each kind of answer are covered by tests against a stubbed HTTP
+  handler, and the contract it follows was read from the engine's published description and source; it has not been round-tripped
+  against a live engine in this repo's own test suite.
 - The Azure Blob storage backend has no automated coverage — the test suite uses
   a fake and the local filesystem backend. Backend-specific failure modes are
   therefore not caught here.
