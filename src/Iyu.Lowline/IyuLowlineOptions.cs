@@ -47,6 +47,17 @@ public sealed class IyuLowlineOptions
     public double MaxForgetFraction { get; set; } = 0.5;
 
     /// <summary>
+    /// How often the history pass runs, learning the records an <see cref="ILowlineHistorySource"/> declares. It does
+    /// nothing for a form with no source. <see cref="TimeSpan.Zero"/> turns it off. Defaults to five minutes.
+    /// </summary>
+    public TimeSpan HistoryInterval { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The most records one history pass learns per scope, so a large history arrives over several passes. Defaults to 500.
+    /// </summary>
+    public int HistoryBatchSize { get; set; } = 500;
+
+    /// <summary>
     /// How long a proposal's held-back answers are kept for the record to be settled. A record settled after that is settled
     /// with no check. Defaults to six hours.
     /// </summary>
@@ -142,6 +153,10 @@ internal sealed class IyuLowlineOptionsValidator : IValidateOptions<IyuLowlineOp
 
         if (options.RecoveryInterval < TimeSpan.Zero)
             return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.RecoveryInterval)} must not be negative.");
+        if (options.HistoryInterval < TimeSpan.Zero)
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.HistoryInterval)} must not be negative.");
+        if (options.HistoryBatchSize < 1)
+            return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.HistoryBatchSize)} must be at least 1.");
         if (!(options.MaxForgetFraction > 0 && options.MaxForgetFraction <= 1))
             return ValidateOptionsResult.Fail($"{nameof(IyuLowlineOptions)}.{nameof(IyuLowlineOptions.MaxForgetFraction)} must be above 0 and at most 1.");
 

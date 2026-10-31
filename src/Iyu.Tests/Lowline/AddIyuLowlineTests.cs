@@ -65,6 +65,25 @@ public sealed class AddIyuLowlineTests : IDisposable
         Assert.Contains("Engine.Form", message);
     }
 
+    [Theory]
+    [InlineData(nameof(IyuLowlineOptions.HistoryBatchSize))]
+    [InlineData(nameof(IyuLowlineOptions.HistoryInterval))]
+    public async Task A_history_setting_out_of_range_does_not_start_the_host(string setting)
+    {
+        var builder = Host();
+        builder.Services.AddIyuLowline<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>(o =>
+        {
+            o.Engine.Form("order", """{"form":{"fields":[{"name":"customer","kind":"choice","choices":["acme","globex"]},{"name":"colour","kind":"choice","choices":["red","blue"]}]}}""");
+            if (setting == nameof(IyuLowlineOptions.HistoryBatchSize)) o.HistoryBatchSize = 0;
+            else o.HistoryInterval = TimeSpan.FromMinutes(-1);
+        });
+        await using var app = builder.Build();
+
+        var refusal = await Assert.ThrowsAsync<OptionsValidationException>(() => app.StartAsync());
+
+        Assert.Contains(refusal.Failures, failure => failure.Contains(setting));
+    }
+
     [Fact]
     public async Task A_form_the_engine_refuses_stops_the_host_as_it_starts()
     {

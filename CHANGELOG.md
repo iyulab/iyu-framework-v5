@@ -29,6 +29,20 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.Lowline`
+
+### Added
+
+- **`Iyu.Lowline`: `ILowlineHistorySource` — start from the records the application already holds.** A new installation's
+  engine has learned nothing, so it suggests nothing until people have settled enough new records, and the host had no way to
+  bring the application's older records to it (handing them over as the application's own doing is stored but never counted,
+  so it cannot produce a suggestion). Implement the interface for a form (opt-in; scoped, next to its hook) and a background
+  pass — `IyuLowlineOptions.HistoryInterval` (five minutes; zero turns it off), `HistoryBatchSize` (500 per space per pass) —
+  learns the records the store does not hold yet as typed by a person with no suggestion shown. That is a declaration only the
+  application can make, which is why the host asks for the records instead of guessing which ones qualify. A record the engine
+  refuses is counted and logged and does not stop the batch. `IyuLowlineHistoryService.RunOnceAsync` runs one pass. No change
+  for a form without a source.
+
 ## [0.47.0] - 2026-10-31
 
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.Lowline`, `Iyu.MainServer`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.GraphQL`

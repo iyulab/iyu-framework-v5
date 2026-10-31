@@ -1983,6 +1983,22 @@ settled in between is never mistaken for a deleted one, and a pass that would fo
 forgetting cannot be undone, and so many missing sources more likely mean a listing that came back short. A hook that does
 not implement the method is skipped. `IyuLowlineRecoveryService.RunOnceAsync` runs one pass on demand.
 
+**Starting with records you already hold.** On the first day the engine has learned nothing, so it suggests nothing until
+people have settled enough new records. To start from the records the application held before, implement
+`ILowlineHistorySource` for the form (scoped, next to its hook): it lists the memory spaces that have history
+(`ListHistorySpacesAsync`), the ids of a space's history records (`ListHistoryKeysAsync`) and reads the ones asked for
+(`ReadHistoryAsync`). A background pass (`IyuLowlineOptions.HistoryInterval`, five minutes by default; zero turns it off)
+learns, per space, the records the store does not hold yet, at most `HistoryBatchSize` (500) at a time. A record the engine
+refuses is counted and logged and the rest go on. `IyuLowlineHistoryService.RunOnceAsync` runs one pass on demand.
+
+*Implementing it is a declaration:* the records it returns are learned as typed by a person with no suggestion shown, which
+is the only footing on which the engine counts a record as evidence — a record handed over as the application's own doing is
+stored but neither counted nor allowed to lower the threshold, so history handed over that way would never produce a
+suggestion. Only the application knows which rows were typed by a person (an import, a bulk fill or a value a rule wrote is
+not), so return just those — typically the rows from before the installation. The ids must also be among
+`ListSourceKeysAsync`, or the recovery pass forgets them. A person who later settles one of these records replaces what the
+pass learned. A form with no source learns from settled records only.
+
 **Changing a form while the host runs.** `AddIyuLowline` defines the forms once, at startup. A form whose definition is edited
 while the application runs is redefined on the engine's `LowlineForms` (inject it): `forms.Define(name, definition)`
 starts that form's engines again on their next use.

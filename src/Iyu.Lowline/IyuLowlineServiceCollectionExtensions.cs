@@ -47,6 +47,8 @@ public static class IyuLowlineServiceCollectionExtensions
         services.AddScoped<IyuLowlineProposeService>();
         services.AddSingleton<IyuLowlineRecoveryService>();
         services.AddHostedService<IyuLowlineRecoveryWorker>();
+        services.AddSingleton<IyuLowlineHistoryService>();
+        services.AddHostedService<IyuLowlineHistoryWorker>();
         services.AddSingleton(provider =>
         {
             var engine = provider.GetRequiredService<IOptions<IyuLowlineOptions>>().Value.Engine;
