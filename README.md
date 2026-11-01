@@ -20,6 +20,63 @@ matter what the model looks like (extension points, cross-cutting mechanisms, wi
 consumer app doesn't reimplement them per project; mdd-booster owns the parts that depend on
 the model itself. Neither side assumes anything about which app is consuming it.
 
+## From a model to a database
+
+Three tools, each reading the previous one's output as plain files:
+
+```
+tables.m3l.md ── mdd build ──▶ SQL files ── schemorph apply ──▶ database
+                    └───────▶ C# entities and registrations that run on this framework
+```
+
+- [M3L](https://github.com/iyulab/m3l) is the model language: a Markdown file describing the data.
+- [mdd-booster](https://github.com/iyulab/mdd-booster) (`mdd build`) reads the model and writes the SQL for
+  its tables and views, plus the C# this framework runs.
+- [Schemorph](https://github.com/iyulab/Schemorph) reads a folder of SQL files describing the schema you
+  want, compares it with a live database, and applies the difference. It takes ordinary SQL: it does not
+  know mdd exists, and mdd does not know Schemorph — which is why this page, and not either README, is
+  where the two are connected.
+
+The SQL half, from an empty folder (the same layout «Previewing a model change» below builds on):
+
+```bash
+dotnet tool install -g mdd
+dotnet tool install -g Schemorph
+
+mkdir -p my-app/schema/model && cd my-app/schema/model
+# put tables.m3l.md (the model) and mdd.json (below) in this folder
+
+mdd build .                                   # writes ../db/dbo/Tables_gen/*.sql
+schemorph diff  --url "$CONN" --schema ../db  # prints the plan; changes nothing
+schemorph apply --url "$CONN" --schema ../db  # runs it
+```
+
+```json
+{
+  "sources": ["./tables.m3l.md"],
+  "targets": [
+    { "type": "Sql", "projectPath": "../db", "schema": "dbo", "emitSqlProj": false, "emitRefreshScript": false }
+  ]
+}
+```
+
+`emitSqlProj` and `emitRefreshScript` switch off the files only an SSDT project uses; the
+[mdd-booster README](https://github.com/iyulab/mdd-booster#readme) says why a post-deployment script does not
+belong in the folder you give Schemorph. For PostgreSQL, set `"dialect": "postgres"` on the Sql target (the files
+land in `tables_gen/`) and give Schemorph a PostgreSQL connection string. Keep the connection string in the
+`SCHEMORPH_URL` environment variable rather than on the command line — Schemorph reads it when `--url` is absent.
+
+Two things about the commands:
+
+- `schemorph diff` exits `2` when changes are pending — that is not an error, and `0` is "nothing to do". It
+  prints a plan fingerprint (`planHash`); `schemorph apply --expect-plan <hash>` applies only if the plan is
+  still the one you reviewed.
+- Changes that would delete data are left out of the plan unless `--allow-destructive` is given (see
+  «Previewing a model change» for how to read that safely).
+
+The C# half is what the rest of this page is about: «Minimum consumer» below wires the generated entities to
+`AddIyuMainServer`.
+
 ## Layers
 
 | Project | Role |

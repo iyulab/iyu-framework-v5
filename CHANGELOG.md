@@ -55,6 +55,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **README: «From a model to a database» connects the three tools.** The README now opens with how a model becomes tables
+  — `mdd build` writes SQL files, `schemorph diff` / `apply` reads a folder of them — with the smallest working layout, the
+  `mdd.json` that produces it, the PostgreSQL variant, and what `diff`'s exit code and plan fingerprint mean. The two tools
+  deliberately do not know each other, so neither of their READMEs could say this; the section sits where the stack is
+  already described. Documentation only; no package changes.
+
 - **Breaking — `Iyu.Lowline`: the host layer no longer assumes Entity Framework; the EF store moves to the new `Iyu.Lowline.EntityFrameworkCore`.**
   Two files in `Iyu.Lowline` used EF Core and `Iyu.Core` — the store and the registration — yet every host that referenced
   the package carried both, and the only way to turn Lowline on named an EF `DbContext`. `Iyu.Lowline` now registers over two
