@@ -1657,6 +1657,36 @@ session means a cookie-based scheme. `VaultAi:AllowAnonymous` = `true` turns the
 authenticating reverse proxy already decides who reaches it, because anonymous callers can then start generations and read
 the report folders, which hold prompts and run logs.
 
+**Embedding the chat widget in your own pages.** `app.MapVaultAiEmbed()` maps the server half of the chat service's browser
+widget: `GET /api/vault-ai-embed/config` returns `{ enabled, origin, channelId }` (where to load the widget from, and which
+channel), and `POST /api/vault-ai-embed/token` asks the chat service for a short-lived token with the key the host holds —
+the key never reaches the browser, only the short-lived token and its expiry do. Loading the widget and handing it the token
+stays in your page. Nothing changes for a host that does not call it; it is also off until `VaultAi:ChannelId` names a
+channel (`config` then answers `enabled: false` and `token` answers `503`), and like the rest of the module it maps nothing
+when `VaultAi:Url` is blank.
+
+```csharp
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapVaultAiEmbed();   // or app.MapVaultAiEmbed("/my/path")
+```
+
+```jsonc
+"VaultAi": {
+  "Url": "https://vault-ai.internal",   // the server-side address
+  "Token": "...",
+  "ChannelId": "...",                    // blank = the widget routes answer "not enabled"
+  "EmbedOrigin": null,                   // what the browser loads from; null = Url. Set it when Url is not reachable from a browser
+  "EmbedTokenTimeout": "00:00:10"        // default; a slower chat service is answered with 502
+}
+```
+
+Both routes are held to the same rule as the rest of the module: a signed-in user by default, `VaultAi:AuthorizationPolicy`
+when you name one (a name that is not registered fails when the routes are mapped), and only `VaultAi:AllowAnonymous` opens
+them to an unsigned caller. A browser request another site started is refused with `403` on the token route. The token route
+answers every failure — the chat service refusing, unreachable, slow, or answering without a token — with the same `502` and
+repeats nothing of what went wrong; the detail is in the host's log.
+
 **The server certificate is verified.** The client sends `Token` as a bearer credential, so it checks the
 server's certificate against the operating system trust store like any HTTPS client. A server that presents a
 self-signed certificate is refused — the preferred fix is to add that certificate's issuing authority to the trust

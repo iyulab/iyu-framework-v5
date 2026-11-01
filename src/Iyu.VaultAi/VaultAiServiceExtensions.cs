@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Iyu.VaultAi;
 
@@ -21,6 +22,14 @@ public static class VaultAiServiceExtensions
         services.AddAuthorization();
 
         services.AddSingleton<IVaultAiClient, VaultAiClient>();
+
+        // The widget's token call (MapVaultAiEmbed) — same certificate rule as the client, no state of its own. The
+        // deadline is the module's own (VaultAi:EmbedTokenTimeout); the client's default hundred seconds would otherwise
+        // cut in first whenever a longer one is configured.
+        services.AddHttpClient(VaultAiEmbedExtensions.HttpClientName)
+            .ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(provider =>
+                VaultAiClient.CreateHandler(provider.GetRequiredService<IOptions<VaultAiSettings>>().Value));
         services.AddHostedService<ReportSchedulerService>();
         services.AddDirectoryBrowser();   // {BasePath}-files 디렉터리 브라우징 지원
         return services;

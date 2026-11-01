@@ -29,9 +29,19 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline`, `Iyu.Lowline.EntityFrameworkCore`
+**Packages affected:** `Iyu.Lowline`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.VaultAi`
 
 ### Added
+
+- **`Iyu.VaultAi`: `MapVaultAiEmbed()` — the server half of embedding the chat widget in your own pages.** The widget needs
+  two things from the host: where to load it from and which channel, and a short-lived token that only the chat service can
+  issue to a holder of the host's key. Hosts had to write that pair of routes themselves, including the part that must not go
+  wrong — the key stays on the server. `app.MapVaultAiEmbed()` maps `GET /api/vault-ai-embed/config` and
+  `POST /api/vault-ai-embed/token`; it is held to the module's existing rule (a signed-in user, `VaultAi:AuthorizationPolicy`
+  when named, only `VaultAi:AllowAnonymous` opens it), refuses a token request another site started, and answers every failure
+  of the chat service with the same `502` without repeating what it said. New settings, all optional: `ChannelId` (blank keeps
+  the routes answering "not enabled"), `EmbedOrigin` (what the browser loads from, when `Url` is a server-side address) and
+  `EmbedTokenTimeout` (ten seconds). Opt-in; a host that does not call it is unchanged.
 
 - **`Iyu.Lowline`: `ILowlineHistorySource` — start from the records the application already holds.** A new installation's
   engine has learned nothing, so it suggests nothing until people have settled enough new records, and the host had no way to

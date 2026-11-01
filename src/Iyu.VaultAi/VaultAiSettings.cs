@@ -28,6 +28,25 @@ public class VaultAiSettings
     /// </summary>
     public bool AllowAnonymous { get; set; }
 
+    /// <summary>
+    /// The chat channel the browser widget embeds. Blank (the default) leaves <c>MapVaultAiEmbed()</c> answering
+    /// "not enabled": the server-side proxy for the widget's short-lived token is only active when a channel is named.
+    /// </summary>
+    public string? ChannelId { get; set; }
+
+    /// <summary>
+    /// The address the browser loads the widget from, returned by <c>GET {path}/config</c>. Blank (the default) means
+    /// <see cref="Url"/>. Set it when <see cref="Url"/> is an address only the server can reach — it is returned to
+    /// every caller the module's authorization admits.
+    /// </summary>
+    public string? EmbedOrigin { get; set; }
+
+    /// <summary>
+    /// How long the server waits for the chat service to issue the widget's token before answering <c>502</c>. Default
+    /// ten seconds: a slow chat service must not hold the page's widget request open for the client's default timeout.
+    /// </summary>
+    public TimeSpan EmbedTokenTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     public Guid ReportAgentId { get; set; }
     public string ReportPath { get; set; } = "reports";
 
