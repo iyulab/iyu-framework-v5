@@ -16,7 +16,7 @@ public static class IyuLowlineServiceCollectionExtensions
     /// <remarks>
     /// <para>
     /// This overload assumes no storage technology. A host that keeps its records in its own Entity Framework tables
-    /// references <c>Iyu.Lowline.EntityFramework</c> and calls its overload, which registers both ports and then this.
+    /// references <c>Iyu.Lowline.EntityFrameworkCore</c> and calls its overload, which registers both ports and then this.
     /// </para>
     /// <para>
     /// Nothing is registered until this is called, and a host that calls it without defining a form, or without
@@ -79,7 +79,7 @@ internal sealed class IyuLowlinePortsCheck : IHostedService
 
         throw new InvalidOperationException(
             $"AddIyuLowline needs the host to register {string.Join(" and ", missing)}. A host that keeps its records in " +
-            "its own Entity Framework tables references Iyu.Lowline.EntityFramework and calls its AddIyuLowline<TContext, TRecord, TTuning>; " +
+            "its own Entity Framework tables references Iyu.Lowline.EntityFrameworkCore and calls its AddIyuLowline<TContext, TRecord, TTuning>; " +
             "any other host registers its own implementation of each port.");
     }
 
@@ -92,7 +92,7 @@ internal sealed class IyuLowlinePortsCheck : IHostedService
 internal sealed class MissingLowlineRecordIndex : ILowlineRecordIndex
 {
     private static InvalidOperationException Missing() =>
-        new("No ILowlineRecordIndex is registered. Register one, or reference Iyu.Lowline.EntityFramework and call its AddIyuLowline<TContext, TRecord, TTuning>.");
+        new("No ILowlineRecordIndex is registered. Register one, or reference Iyu.Lowline.EntityFrameworkCore and call its AddIyuLowline<TContext, TRecord, TTuning>.");
 
     public Task<IReadOnlyList<LowlineScope>> ListScopesAsync(CancellationToken cancellationToken = default) => throw Missing();
 

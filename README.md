@@ -37,7 +37,7 @@ the model itself. Neither side assumes anything about which app is consuming it.
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
 | `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host over two ports the host registers for keeping its records; assumes no storage technology (not on Alpine: the engine has no musl build) |
-| `Iyu.Lowline.EntityFramework` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
+| `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
@@ -1784,8 +1784,8 @@ builder.Services.AddIyuLowline<AppDbContext, LowlineRecord, LowlineTuning>(o =>
 **Which package.** `Iyu.Lowline` is the host layer — the routes, the services, the background passes. It assumes no storage
 technology: it asks the host to register the engine's `ILowlineStore` and an `ILowlineRecordIndex` (the scopes a store holds
 records for, and the ids a scope holds), and `AddIyuLowline(o => …)` over those two ports references neither Entity Framework
-Core nor `Iyu.Core`. `Iyu.Lowline.EntityFramework` supplies both ports over your own tables — reference it and add
-`using Iyu.Lowline.EntityFramework;` for the call above. A host that keeps its records some other way implements the two ports
+Core nor `Iyu.Core`. `Iyu.Lowline.EntityFrameworkCore` supplies both ports over your own tables — reference it and add
+`using Iyu.Lowline.EntityFrameworkCore;` for the call above. A host that keeps its records some other way implements the two ports
 itself and calls the overload without type arguments; a host that registered neither, or only one, does not start (the message
 names which).
 
@@ -1801,7 +1801,7 @@ by the test suite against these packages, so it cannot drift from them.
 using System.Security.Claims;
 using Iyu.Core.Lowline;
 using Iyu.Lowline;
-using Iyu.Lowline.EntityFramework;
+using Iyu.Lowline.EntityFrameworkCore;
 using Lowline;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
@@ -1898,7 +1898,7 @@ public static class LowlineSample
 | settled records | `ILowlineRecordRow` (in `Iyu.Core`, namespace `Iyu.Core.Lowline`) — `Form`, `Space`, `RecordId`, `SettledAt` (`DateTimeOffset`), `Json` | `Form`, `Space`, `RecordId` |
 | chosen thresholds | `ILowlineTuningRow` (same place) — `Form`, `Space`, `Tuning` | `Form`, `Space` |
 
-`EfLowlineStore<TContext, TRecord, TTuning>` (in `Iyu.Lowline.EntityFramework`) reads and writes them through your `DbContext`, one fresh scope per
+`EfLowlineStore<TContext, TRecord, TTuning>` (in `Iyu.Lowline.EntityFrameworkCore`) reads and writes them through your `DbContext`, one fresh scope per
 call, because the engine chooses its thresholds again on a background worker after a save. A second save of one record
 id replaces the first. The package does not map the entities: the key, the column types and the names stay with the
 schema you already run.
@@ -2015,7 +2015,7 @@ starts that form's engines again on their next use.
 
 **Moving a hand-built host over.** An application that already wraps the engine itself can drop these, one for one:
 the class that holds `LowlineForms` and redefines forms (→ `AddIyuLowline`, and `Define` above); its `ILowlineStore` over two
-tables (→ give the two entities the row interfaces; the store is `EfLowlineStore`, in `Iyu.Lowline.EntityFramework`); the code that re-reads the saved row to
+tables (→ give the two entities the row interfaces; the store is `EfLowlineStore`, in `Iyu.Lowline.EntityFrameworkCore`); the code that re-reads the saved row to
 settle it (→ `ILowlineFormHook.ReadSavedAsync`, called by `IyuLowlineSettleService` and the routes); the background service that
 forgets records whose source went (→ `ListSourceKeysAsync` and the recovery pass); and an interceptor that forgets on delete
 (→ the same pass). **Two differences to expect.** Forgetting is no longer immediate: it happens within

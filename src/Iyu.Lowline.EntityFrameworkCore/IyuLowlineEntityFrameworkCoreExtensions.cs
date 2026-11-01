@@ -3,10 +3,10 @@ using Lowline;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Iyu.Lowline.EntityFramework;
+namespace Iyu.Lowline.EntityFrameworkCore;
 
 /// <summary>Turns Lowline on for a host that keeps its records in its own Entity Framework tables.</summary>
-public static class IyuLowlineEntityFrameworkExtensions
+public static class IyuLowlineEntityFrameworkCoreExtensions
 {
     /// <summary>
     /// Runs the Lowline engine for the forms <paramref name="configure"/> defines, keeping its settled records and

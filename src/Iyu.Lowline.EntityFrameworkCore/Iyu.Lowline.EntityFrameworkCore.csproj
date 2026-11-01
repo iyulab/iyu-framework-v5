@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>Iyu.Lowline.EntityFramework</RootNamespace>
+    <RootNamespace>Iyu.Lowline.EntityFrameworkCore</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

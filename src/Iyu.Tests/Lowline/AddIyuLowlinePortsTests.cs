@@ -1,5 +1,5 @@
 using Iyu.Lowline;
-using Iyu.Lowline.EntityFramework;
+using Iyu.Lowline.EntityFrameworkCore;
 using Lowline;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -76,7 +76,7 @@ public sealed class AddIyuLowlinePortsTests
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
 
         Assert.Contains($"register {missing}.", refusal.Message);
-        Assert.Contains("Iyu.Lowline.EntityFramework", refusal.Message);
+        Assert.Contains("Iyu.Lowline.EntityFrameworkCore", refusal.Message);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public sealed class AddIyuLowlinePortsTests
         Assert.DoesNotContain(host, n => n.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal));
         Assert.DoesNotContain("Iyu.Core", host);
 
-        var adapter = References(typeof(IyuLowlineEntityFrameworkExtensions));
+        var adapter = References(typeof(IyuLowlineEntityFrameworkCoreExtensions));
         Assert.Contains("Microsoft.EntityFrameworkCore", adapter);
         Assert.Contains("Iyu.Core", adapter);
         Assert.Contains("Iyu.Lowline", adapter);
