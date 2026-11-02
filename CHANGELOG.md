@@ -67,7 +67,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   — `mdd build` writes SQL files, `schemorph diff` / `apply` reads a folder of them — with the smallest working layout, the
   four-line model and the `mdd.json` that produce it, the PostgreSQL variant, and what `diff`'s exit code and plan fingerprint mean. The two tools
   deliberately do not know each other, so neither of their READMEs could say this; the section sits where the stack is
-  already described. Documentation only; no package changes.
+  already described. Followed from an empty folder with the published tools against a SQL Server and a PostgreSQL 18
+  server: the SQL Server path ran as written, and the PostgreSQL variant now names the two settings it needs besides
+  the dialect (the target schema and the Schemorph engine). Documentation only; no package changes.
 
 - **Breaking — `Iyu.Lowline`: the host layer no longer assumes Entity Framework; the EF store moves to the new `Iyu.Lowline.EntityFrameworkCore`.**
   Two files in `Iyu.Lowline` used EF Core and `Iyu.Core` — the store and the registration — yet every host that referenced

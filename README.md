@@ -77,8 +77,11 @@ With these two files `mdd build .` writes `../db/dbo/Tables_gen/Author.sql`, and
 
 `emitSqlProj` and `emitRefreshScript` switch off the files only an SSDT project uses; the
 [mdd-booster README](https://github.com/iyulab/mdd-booster#readme) says why a post-deployment script does not
-belong in the folder you give Schemorph. For PostgreSQL, set `"dialect": "postgres"` on the Sql target (the files
-land in `tables_gen/`) and give Schemorph a PostgreSQL connection string. Keep the connection string in the
+belong in the folder you give Schemorph. For PostgreSQL, three things change: set `"dialect": "postgres"` on the Sql
+target (the files land in `tables_gen/`); set `"schema": "public"` on it, or whichever schema the connection string's
+`Search Path` names — Schemorph refuses SQL qualified with any other schema, and the `dbo` above is a SQL Server name;
+and set `SCHEMORPH_PROVIDER=postgres` before giving Schemorph a PostgreSQL connection string, because it assumes SQL
+Server until told otherwise. Keep the connection string in the
 `SCHEMORPH_URL` environment variable rather than on the command line — Schemorph reads it when `--url` is absent.
 
 Two things about the commands:
