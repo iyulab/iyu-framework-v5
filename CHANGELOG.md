@@ -55,6 +55,14 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **`Iyu.Lowline`: the engine is now `Lowline` 0.11.0.** The package carries the engine's native library for Alpine Linux as
+  well (`linux-musl-x64`, `linux-musl-arm64`), so the engine can load in an Alpine-based image; it needs `libgcc` at run time,
+  which the .NET images for Alpine have. Alpine has not been exercised with this package yet, so the README no longer says it
+  cannot run there but still recommends a Debian-based image. 0.11.0 refuses an attestation that names a field the form does
+  not decide; the settle route only attests the checks it drew for the fields the form decides, so its behaviour is unchanged.
+  A store written by 0.11.0 records the score a judgement gave an answer, and a reader of the same store older than the engine's
+  decider 0.10 refuses it — if other processes read the store, move them to 0.11.0 too.
+
 - **README: «From a model to a database» connects the three tools.** The README now opens with how a model becomes tables
   — `mdd build` writes SQL files, `schemorph diff` / `apply` reads a folder of them — with the smallest working layout, the
   `mdd.json` that produces it, the PostgreSQL variant, and what `diff`'s exit code and plan fingerprint mean. The two tools
