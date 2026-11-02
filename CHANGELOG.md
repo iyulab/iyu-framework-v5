@@ -65,7 +65,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 - **README: «From a model to a database» connects the three tools.** The README now opens with how a model becomes tables
   — `mdd build` writes SQL files, `schemorph diff` / `apply` reads a folder of them — with the smallest working layout, the
-  `mdd.json` that produces it, the PostgreSQL variant, and what `diff`'s exit code and plan fingerprint mean. The two tools
+  four-line model and the `mdd.json` that produce it, the PostgreSQL variant, and what `diff`'s exit code and plan fingerprint mean. The two tools
   deliberately do not know each other, so neither of their READMEs could say this; the section sits where the stack is
   already described. Documentation only; no package changes.
 

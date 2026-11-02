@@ -44,12 +44,25 @@ dotnet tool install -g mdd
 dotnet tool install -g Schemorph
 
 mkdir -p my-app/schema/model && cd my-app/schema/model
-# put tables.m3l.md (the model) and mdd.json (below) in this folder
+# save tables.m3l.md (the model, below) and mdd.json (after it) in this folder
 
 mdd build .                                   # writes ../db/dbo/Tables_gen/*.sql
 schemorph diff  --url "$CONN" --schema ../db  # prints the plan; changes nothing
 schemorph apply --url "$CONN" --schema ../db  # runs it
 ```
+
+`tables.m3l.md` — the smallest model that produces a table (the
+[M3L specification](https://github.com/iyulab/m3l/blob/main/docs/specification.md) has the rest of the syntax):
+
+```markdown
+# Namespace: hello
+
+## Author
+- id: identifier @pk @generated
+- name: string(80) @not_null
+```
+
+`mdd.json`:
 
 ```json
 {
@@ -59,6 +72,8 @@ schemorph apply --url "$CONN" --schema ../db  # runs it
   ]
 }
 ```
+
+With these two files `mdd build .` writes `../db/dbo/Tables_gen/Author.sql`, and `schemorph diff` / `apply` read the `../db` folder.
 
 `emitSqlProj` and `emitRefreshScript` switch off the files only an SSDT project uses; the
 [mdd-booster README](https://github.com/iyulab/mdd-booster#readme) says why a post-deployment script does not
