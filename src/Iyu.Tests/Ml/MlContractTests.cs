@@ -74,16 +74,22 @@ public class MlContractTests
     }
 
     [Fact]
-    public void The_assembly_depends_on_the_platform_alone()
+    public void The_assembly_depends_on_the_platform_and_its_extension_abstractions_alone()
     {
         // A host that keeps no records in a database and serves no web endpoints starts from this assembly by itself:
-        // nothing here may pull in the web stack, a data-access library or another layer of this framework.
+        // nothing here may pull in the web stack, a data-access library or another layer of this framework. The
+        // dependency-injection, options and hosting abstractions are what any host-neutral module needs to register itself.
         var references = typeof(MlCsv).Assembly.GetReferencedAssemblies().Select(a => a.Name!).ToList();
 
         Assert.NotEmpty(references);
         Assert.All(references, name => Assert.True(
-            name.StartsWith("System.", StringComparison.Ordinal) || name is "System" or "mscorlib" or "netstandard",
-            $"Iyu.Ml references '{name}', which is not part of the platform."));
+            name.StartsWith("System.", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
+            || name is "System" or "mscorlib" or "netstandard",
+            $"Iyu.Ml references '{name}', which is neither the platform nor one of its extension abstractions."));
+        Assert.DoesNotContain(references, n => n.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal)
+            || n.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal)
+            || n.StartsWith("Iyu.", StringComparison.Ordinal));
     }
 
     private sealed class EchoPredictor : IMlPredictor

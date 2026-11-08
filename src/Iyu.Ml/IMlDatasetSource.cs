@@ -9,7 +9,9 @@ namespace Iyu.Ml;
 /// <remarks>
 /// The caller is part of the question. Exporting rows is reading them, so the identity that asks is the identity whose read
 /// permissions apply; an implementation must not return what that caller could not read directly, and must not serve a
-/// dataset to an anonymous caller. The parameter is required for that reason and has no default.
+/// dataset to an anonymous caller. The parameter is required for that reason and has no default. A source over the host's own
+/// data consults the registered <see cref="IMlReadGuard"/>: it refuses a column the guard refuses when the datasets are
+/// declared, and returns no rows to a caller the guard says may not read the entity.
 /// </remarks>
 public interface IMlDatasetSource
 {

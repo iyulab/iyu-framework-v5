@@ -9,6 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The registration entry point and its start-up checks need the dependency-injection, options and hosting
+         abstractions, the same family and version the other host-neutral modules already take. Nothing here reaches
+         for the web stack or a data-access library. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Iyu.Tests" />
   </ItemGroup>
 
