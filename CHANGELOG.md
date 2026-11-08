@@ -35,6 +35,10 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **`IIyuMainServerSurface.WriteTypes` and `IyuGraphQLSchemaBuilder.EntityPairs`.** A read policy is declared on the read type, but
+  the rows are the same rows through the table behind it. A surface now says which write type stands behind each read type it
+  serves (the default is none), and the GraphQL surface reports the pairs registered on it, so code that applies a read policy to
+  data reached through the table can find the policy declared on the read type. Additive; nothing that compiled stops compiling.
 - **Property read policies: `options.AuthorizeProperty<TRead>(x => x.Phone, read: "pii.read")`.** An entity's read policy
   decides whether a caller may read the entity at all, and `Exclude` removes a property from the model for every caller;
   nothing let a host say that one property is readable by some callers and not others. Hosts kept their own lists of

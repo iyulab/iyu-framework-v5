@@ -21,4 +21,10 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The ML layer's read guard asks which surfaces are composed in, to tie a policy declared on a read type to the table
+         behind it. -->
+    <InternalsVisibleTo Include="Iyu.MainServer.Ml" />
+  </ItemGroup>
+
 </Project>

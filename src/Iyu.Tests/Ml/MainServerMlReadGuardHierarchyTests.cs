@@ -4,6 +4,7 @@ using Iyu.MainServer;
 using Iyu.MainServer.Ml;
 using Iyu.Server.OData;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -169,5 +170,44 @@ public class MainServerMlReadGuardHierarchyTests
             options, new IyuEntityPairRegistry(), provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
 
         Assert.Contains(TitleRead, guard.RefusalFor(typeof(PolicyBase), nameof(PolicyBase.Title)));
+    }
+
+    /// <summary>A surface that serves one pair on its own, as the GraphQL surface can for a host that does not serve OData.</summary>
+    public sealed class PairOnlySurface : IIyuMainServerSurface
+    {
+        public bool Serves(Type readType) => readType == typeof(PolicyServed);
+
+        public IReadOnlyCollection<(Type ReadType, Type WriteType)> WriteTypes { get; } = [(typeof(PolicyServed), typeof(PolicyWrite))];
+
+        public void ConfigureServices(IServiceCollection services, IyuMainServerOptions options)
+        {
+        }
+
+        public bool EnforcesPropertyPolicies => true;
+
+        public void MapEndpoints(IEndpointRouteBuilder endpoints)
+        {
+        }
+    }
+
+    [Fact]
+    public async Task A_dataset_over_the_table_behind_a_pair_only_an_optional_surface_serves_finds_the_read_types_policies()
+    {
+        // No OData pair at all: the only link from the read type to the table behind it is the surface's own pair list.
+        var options = new IyuMainServerOptions()
+            .Authorize<PolicyServed>(read: SetRead)
+            .AuthorizeProperty<PolicyServed>(x => x.Extra, TitleRead);
+        options.Surface<PairOnlySurface>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization(o => o.AddPolicy(SetRead, p => p.RequireClaim("perm", SetRead)));
+        var provider = services.BuildServiceProvider();
+        var guard = new MainServerMlReadGuard(
+            options, new IyuEntityPairRegistry(), provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
+
+        Assert.False(await guard.MayReadAsync(typeof(PolicyWrite), Caller()));
+        Assert.True(await guard.MayReadAsync(typeof(PolicyWrite), Caller(SetRead)));
+        Assert.Contains(TitleRead, guard.RefusalFor(typeof(PolicyWrite), nameof(PolicyServed.Extra)));
+        Assert.True(await guard.MayReadAsync(typeof(PolicyUnrelated), Caller()));
     }
 }

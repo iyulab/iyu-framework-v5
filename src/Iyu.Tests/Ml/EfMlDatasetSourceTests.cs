@@ -279,8 +279,14 @@ public sealed class EfMlDatasetSourceTests : IDisposable
         Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => EF.Property<string>(r, "Secret") == "s1"));
         Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => ((MlReading)(object)r).Secret == "s1"));
         Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => Same(r)));
+        // Another set of rows is another entity's properties, which no guard was asked about.
+        IQueryable<MlReading> others = new List<MlReading>().AsQueryable();
+        Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => others.Any(o => o.Secret == r.Plant)));
+        Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => r.Plant.Any(c => c == 'a')));
+        Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => others.Count() > 0 && r.Active));
         // Reading a property directly is what a filter is for.
-        new MlDatasetBuilder<MlReading>().Where(r => r.Active && r.Temperature > 20);
+        var allowed = new List<string> { "a", "b" };
+        new MlDatasetBuilder<MlReading>().Where(r => r.Active && r.Temperature > 20 && allowed.Contains(r.Plant));
     }
 
     private static bool Same(MlReading reading) => reading.Active;

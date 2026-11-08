@@ -36,6 +36,13 @@ public interface IIyuMainServerSurface
     /// </summary>
     bool EnforcesPropertyPolicies => false;
 
+    /// <summary>
+    /// The write types of the entity pairs this surface serves, with the read type each stands behind. A policy is declared on
+    /// the read type, but the rows are the same rows through the table behind it, so anything that has to apply a read policy to
+    /// data reached by another type (a dataset over the table, for one) needs the link. A surface with no pairs answers empty.
+    /// </summary>
+    IReadOnlyCollection<(Type ReadType, Type WriteType)> WriteTypes => [];
+
     /// <summary>Maps the surface's endpoints — called once by <c>UseIyuMainServer</c>.</summary>
     void MapEndpoints(IEndpointRouteBuilder endpoints);
 }

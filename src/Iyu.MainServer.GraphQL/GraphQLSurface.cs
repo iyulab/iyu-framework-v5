@@ -22,6 +22,9 @@ public sealed class GraphQLSurface : IIyuMainServerSurface
     public bool EnforcesPropertyPolicies => true;
 
     /// <inheritdoc />
+    public IReadOnlyCollection<(Type ReadType, Type WriteType)> WriteTypes => Schema.EntityPairs;
+
+    /// <inheritdoc />
     public void ConfigureServices(IServiceCollection services, IyuMainServerOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);

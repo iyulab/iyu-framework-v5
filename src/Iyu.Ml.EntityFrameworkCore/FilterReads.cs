@@ -12,6 +12,19 @@ internal sealed class FilterReads(ParameterExpression entity) : ExpressionVisito
 {
     public List<string> Names { get; } = [];
 
+    // A filter that reaches another set of rows — a captured queryable, a nested query — reads that set's properties, which no
+    // read guard was asked about. Anything queryable is refused outright, and so is any nested lambda (the way a subquery is
+    // written), so a filter only ever tests properties of its own entity.
+    public override Expression? Visit(Expression? node)
+    {
+        if (node is not null && typeof(IQueryable).IsAssignableFrom(node.Type))
+            throw new ArgumentException("A filter tests properties of the entity itself and cannot read another set of rows.");
+        return base.Visit(node);
+    }
+
+    protected override Expression VisitLambda<T>(Expression<T> node) =>
+        throw new ArgumentException("A filter cannot contain a nested lambda (a subquery or a collection test): it reads properties of the entity directly.");
+
     protected override Expression VisitMember(MemberExpression node)
     {
         if (node.Expression == entity)

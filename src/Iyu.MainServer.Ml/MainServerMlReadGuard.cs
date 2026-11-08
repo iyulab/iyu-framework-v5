@@ -76,9 +76,14 @@ public sealed class MainServerMlReadGuard(
         foreach (var pair in registry.All.Where(p => Related(p.ReadType, entity) || (p.WriteType is { } write && Related(write, entity))))
             holders.Add(new Holder(pair.SetName, pair.ReadPolicy, pair.PropertyReadPolicies));
 
-        // The declarations themselves: they also hold the types only an optional surface serves.
+        // The declarations themselves: they also hold the types only an optional surface serves. Such a surface says which table
+        // stands behind each read type it serves, so a dataset over that table finds the policies declared on the read type.
+        var linked = options.Surfaces.SelectMany(surface => surface.WriteTypes)
+            .Where(pair => Related(pair.WriteType, entity))
+            .Select(pair => pair.ReadType)
+            .ToHashSet();
         var declared = options.EntityPolicies.Keys.Concat(options.PropertyPolicies.Keys.Select(k => k.ReadType)).Distinct();
-        foreach (var readType in declared.Where(t => Related(t, entity)))
+        foreach (var readType in declared.Where(t => Related(t, entity) || linked.Contains(t)))
         {
             var props = options.PropertyPolicies
                 .Where(p => p.Key.ReadType == readType)

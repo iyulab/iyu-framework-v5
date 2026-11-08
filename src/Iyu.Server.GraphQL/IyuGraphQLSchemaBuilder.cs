@@ -49,6 +49,10 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly List<Action<IObjectTypeDescriptor>> _fieldBuilders = new();
     private readonly HashSet<string> _queryNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
+    private readonly List<(Type ReadType, Type WriteType)> _entityPairs = [];
+
+    /// <summary>The read type and write type of every entity pair registered, so a policy declared on the read type can be tied to the table behind it.</summary>
+    public IReadOnlyCollection<(Type ReadType, Type WriteType)> EntityPairs => _entityPairs;
     private readonly Dictionary<string, string?> _authorizePolicies = new(StringComparer.Ordinal);
     private readonly Dictionary<(Type ReadType, string Property), string> _propertyPolicies = new();
 
@@ -169,6 +173,7 @@ public sealed class IyuGraphQLSchemaBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationPrefix);
         AddQueryField<TRead>(queryName);
         _mutationPrefixes[queryName] = mutationPrefix;
+        _entityPairs.Add((typeof(TRead), typeof(TWrite)));
         return this;
     }
 
