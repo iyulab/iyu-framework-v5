@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Iyu.Ml</RootNamespace>
+    <!-- Not packed yet. The product-neutral ML layer ships when its first release is decided; it then sits on its own version
+         line like Iyu.Lowline (its own Directory.Build.props, tag and changelog, because it references neither Iyu.Core nor
+         a host) and the README layer table gains its row. Until then no pack line may carry it. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
+</Project>
