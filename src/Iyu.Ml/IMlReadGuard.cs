@@ -9,9 +9,16 @@ namespace Iyu.Ml;
 /// consults it.
 /// </summary>
 /// <remarks>
+/// <para>
+/// An implementation answers for every type that reaches the same rows, not only the exact type it is asked about: the entity's
+/// base and derived types, and any other type the host serves over the same data. A policy that holds on one road to the rows
+/// and not on another is no policy.
+/// </para>
+/// <para>
 /// <see cref="IyuMlServiceCollectionExtensions.AddIyuMl"/> will not start a host that has neither registered a guard nor said, with
 /// <see cref="IyuMlOptions.NoReadPolicies"/>, that it has no read policies: staying silent would read as "nothing is
 /// restricted" in a host where something is.
+/// </para>
 /// </remarks>
 public interface IMlReadGuard
 {
