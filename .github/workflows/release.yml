@@ -64,11 +64,21 @@ jobs:
       - name: Pack
         run: dotnet pack IyuFramework.slnx -c Release --no-build -o ./artifacts
 
-      - name: Push to NuGet.org
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          dotnet nuget push "./artifacts/*.nupkg" \
-            --api-key "$NUGET_API_KEY" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+      # The push itself runs in the organization's central publish workflow, which holds the
+      # only NuGet trust policy; this repository holds no NuGet credential. Only the packed
+      # files go up, and they are kept for one day.
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-packages
+          path: |
+            ./artifacts/*.nupkg
+            ./artifacts/*.snupkg
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: release
+    uses: iyulab/nuget-publish/.github/workflows/request.yml@de1e58c8bcefaf88f497fcb58899a1c6e84f4e29 # main
+    permissions: {}
+    secrets: inherit
