@@ -30,6 +30,37 @@ public class AuthorizationSurfaceReportTests
         return registry;
     }
 
+    /// <summary>A property read policy is a further requirement on the read, reported beside the entity's own row.</summary>
+    [Fact]
+    public void A_property_policy_reports_on_its_own_read_row_and_is_never_unprotected()
+    {
+        var registry = RegistryWith(("Widgets", "widgets.read", "widgets.write"));
+        registry.RestrictProperty("Widgets", nameof(SurfaceWidgetExt.Name), "names.read");
+
+        var entries = new ODataAuthorizationSurfaceProvider(registry).Describe();
+
+        Assert.Contains(entries, e => e is
+            { Surface: "OData", Entity: "Widgets", Operation: AuthorizationSurfaceOperation.Read, Policy: "names.read", Property: "Name" });
+        // The entity's own read row is still there with its own policy.
+        Assert.Contains(entries, e => e is
+            { Entity: "Widgets", Operation: AuthorizationSurfaceOperation.Read, Policy: "widgets.read", Property: null });
+        Assert.DoesNotContain(entries, e => e.Property is not null && e.Policy is null);
+    }
+
+    [Fact]
+    public void A_graphql_property_policy_reports_under_the_query_field_name()
+    {
+        var builder = new IyuGraphQLSchemaBuilder();
+        builder.AddEntityPair<SurfaceWidgetExt, SurfaceWidget>("widgets", "widget");
+        builder.RestrictProperty(typeof(SurfaceWidgetExt), nameof(SurfaceWidgetExt.Name), "names.read");
+
+        var entries = new GraphQLAuthorizationSurfaceProvider(builder).Describe();
+
+        Assert.Contains(entries, e => e is
+            { Surface: "GraphQL", Entity: "widgets", Operation: AuthorizationSurfaceOperation.Read, Policy: "names.read", Property: "Name" });
+        Assert.Contains(entries, e => e is { Entity: "widgets", Policy: null, Property: null });
+    }
+
     [Fact]
     public void An_odata_set_reports_a_read_a_write_and_a_delete_entry()
     {

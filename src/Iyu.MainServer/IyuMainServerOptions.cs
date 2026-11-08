@@ -101,8 +101,10 @@ public sealed class IyuMainServerOptions
     /// </para>
     /// <para>
     /// Refused when the host is built: a type no surface serves, a property the model does not expose (one removed with
-    /// <c>Exclude</c>), a second declaration for one property, and a type the GraphQL surface also serves — GraphQL does
-    /// not enforce property policies yet, and a declaration that one surface ignores would be a hole.
+    /// <c>Exclude</c>), a second declaration for one property, a type that a surface not enforcing property policies
+    /// (<see cref="IIyuMainServerSurface.EnforcesPropertyPolicies"/>) also serves — a declaration one surface ignores would
+    /// be a hole — and a property no policy can hold on: the key, a concurrency token and a foreign-key scalar, whose value
+    /// reaches a caller in links, entity tags and the related row's key without the request naming it.
     /// </para>
     /// </remarks>
     public IyuMainServerOptions AuthorizeProperty<TRead>(Expression<Func<TRead, object?>> property, string read)
@@ -117,13 +119,45 @@ public sealed class IyuMainServerOptions
         ArgumentNullException.ThrowIfNull(readType);
         ArgumentException.ThrowIfNullOrWhiteSpace(property);
         ArgumentException.ThrowIfNullOrWhiteSpace(read);
-        if (readType.GetProperty(property) is null)
+        var info = readType.GetProperty(property)
+                   ?? throw new ArgumentException(
+                       $"'{readType.FullName}' has no public property '{property}'.", nameof(property));
+        if (UnguardableReason(readType, info) is { } reason)
             throw new ArgumentException(
-                $"'{readType.FullName}' has no public property '{property}'.", nameof(property));
+                $"A read policy cannot guard '{readType.FullName}.{property}': {reason}", nameof(property));
         if (!_propertyPolicies.TryAdd((readType, property), read))
             throw new InvalidOperationException(
                 $"A read policy for '{readType.FullName}.{property}' is already declared. Declare a property's policy once.");
         return this;
+    }
+
+    /// <summary>
+    /// Why a property's value reaches a caller without a request naming it, so no policy on it could hold — or
+    /// <c>null</c> when it can be guarded. The key is printed in links, paging tokens and the <c>Location</c> header; a
+    /// concurrency token is the entity tag and the answer to <c>If-Match</c>; a foreign-key scalar is the same value a
+    /// navigation prints as the related row's key. Guard what the value identifies instead.
+    /// </summary>
+    private static string? UnguardableReason(Type readType, System.Reflection.PropertyInfo property)
+    {
+        if (property.Name == nameof(Iyu.Core.Entities.IKeyed.Id)
+            || property.IsDefined(typeof(System.ComponentModel.DataAnnotations.KeyAttribute), inherit: true))
+            return "it is the key, which links, paging tokens and the Location header print on every read.";
+        if (property.IsDefined(typeof(System.ComponentModel.DataAnnotations.TimestampAttribute), inherit: true)
+            || property.IsDefined(typeof(System.ComponentModel.DataAnnotations.ConcurrencyCheckAttribute), inherit: true))
+            return "it is a concurrency token, which the entity tag and the If-Match answer expose.";
+        foreach (var other in readType.GetProperties())
+        {
+            if (other.GetCustomAttributes(typeof(System.ComponentModel.DataAnnotations.Schema.ForeignKeyAttribute), inherit: true)
+                    .Cast<System.ComponentModel.DataAnnotations.Schema.ForeignKeyAttribute>()
+                    .Any(a => a.Name == property.Name))
+                return $"it is the foreign key of the navigation '{other.Name}', whose key that navigation prints.";
+        }
+        if (property.Name.Length > 2 && property.Name.EndsWith("Id", StringComparison.Ordinal)
+            && readType.GetProperty(property.Name[..^2]) is { } navigation
+            && navigation.PropertyType != typeof(string) && navigation.PropertyType != typeof(byte[])
+            && !navigation.PropertyType.IsValueType)
+            return $"it is the foreign key of the navigation '{navigation.Name}', whose key that navigation prints.";
+        return null;
     }
 
     /// <summary>The policies declared with <see cref="AuthorizeProperty{TRead}"/>, by read type and property name.</summary>

@@ -30,6 +30,13 @@ public sealed class ODataAuthorizationSurfaceProvider(IyuEntityPairRegistry regi
             entries.Add(new AuthorizationSurfaceEntry(
                 Surface, pair.SetName, AuthorizationSurfaceOperation.Read, pair.ReadPolicy));
 
+            // A property read policy is a further requirement on the same read, reported beside it.
+            foreach (var (property, policy) in pair.PropertyReadPolicies.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                entries.Add(new AuthorizationSurfaceEntry(
+                    Surface, pair.SetName, AuthorizationSurfaceOperation.Read, policy, property));
+            }
+
             // A set that refuses every write verb has no write surface to protect — reporting it
             // as unprotected would be a false positive, and a false positive in a list whose whole
             // job is to be empty is what makes people stop reading the list.

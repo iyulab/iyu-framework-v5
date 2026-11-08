@@ -19,6 +19,7 @@ internal sealed class AuthorizationSurfaceReport(IEnumerable<IAuthorizationSurfa
             .OrderBy(e => e.Surface, StringComparer.Ordinal)
             .ThenBy(e => e.Entity, StringComparer.Ordinal)
             .ThenBy(e => e.Operation)
+            .ThenBy(e => e.Property, StringComparer.Ordinal)
             .ToList());
 
     /// <inheritdoc />

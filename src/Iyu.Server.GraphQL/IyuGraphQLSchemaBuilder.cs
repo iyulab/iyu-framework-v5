@@ -51,6 +51,9 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> _authorizePolicies = new(StringComparer.Ordinal);
     private readonly Dictionary<(Type ReadType, string Property), string> _propertyPolicies = new();
+
+    /// <summary>The property read policies declared with <see cref="RestrictProperty"/>, by read type and property.</summary>
+    internal IReadOnlyDictionary<(Type ReadType, string Property), string> PropertyPolicies => _propertyPolicies;
     private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
     private readonly Dictionary<Type, string> _exposedTypes = new();
     private readonly List<Action<IRequestExecutorBuilder>> _typeAuthorizers = new();

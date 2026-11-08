@@ -36,6 +36,12 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
     /// <param name="search">The search text as a list sends it in <c>$search</c>. Empty or blank selects every row.</param>
     /// <param name="user">The caller — decides which policy-protected references are searched.</param>
     /// <exception cref="ArgumentException"><paramref name="search"/> is not a valid search expression.</exception>
+    /// <exception cref="UnauthorizedAccessException">
+    /// The search has text and <paramref name="user"/> does not satisfy a property read policy of
+    /// <typeparamref name="TRead"/>'s own set (<c>AuthorizeProperty</c>): a search tests the text of every property of the
+    /// rows it matches, so the rows it selects would say whether a guess at a restricted value is right. The list's
+    /// <c>$search</c> refuses the same caller. The set's own read policy is the endpoint's to enforce, as before.
+    /// </exception>
     public async Task<IyuSearchFilter<TRead>> CreateFilterAsync<TRead>(string? search, ClaimsPrincipal user)
     {
         ArgumentNullException.ThrowIfNull(user);
@@ -44,11 +50,29 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
         if (string.IsNullOrWhiteSpace(search))
             return new(Expression.Lambda<Func<TRead, bool>>(Expression.Constant(true), parameter), []);
 
+        await RequireOwnPropertyPoliciesAsync(typeof(TRead), user);
+
         var node = Parse(search);
         var allowed = await AllowedNavigationsAsync(typeof(TRead), user);
         var (followed, excluded) = IyuStringSearchBinder.Partition(registry, typeof(TRead), allowed);
         var body = IyuStringSearchBinder.BindNode(node, parameter, typeof(TRead), followed);
         return new(Expression.Lambda<Func<TRead, bool>>(body, parameter), excluded);
+    }
+
+    /// <summary>
+    /// Refuses a caller who fails a property read policy of the searched set itself. Without an authorization service the
+    /// policies cannot be evaluated, so they refuse too — the same fail-closed answer the references get.
+    /// </summary>
+    private async Task RequireOwnPropertyPoliciesAsync(Type readType, ClaimsPrincipal user)
+    {
+        if (registry.FindByReadType(readType) is not { } own || own.PropertyReadPolicies.Count == 0) return;
+        foreach (var policy in own.PropertyReadPolicies.Values.Distinct(StringComparer.Ordinal))
+        {
+            if (authorization is not null && (await authorization.AuthorizeAsync(user, policy)).Succeeded) continue;
+            throw new UnauthorizedAccessException(
+                $"A search tests every property of '{readType.Name}', and the caller does not satisfy the read policy "
+                + $"'{policy}' of one of them.");
+        }
     }
 
     /// <summary>

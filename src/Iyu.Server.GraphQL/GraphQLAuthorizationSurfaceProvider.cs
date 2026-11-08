@@ -38,6 +38,15 @@ public sealed class GraphQLAuthorizationSurfaceProvider(IyuGraphQLSchemaBuilder 
                 _builder.GetAuthorizePolicy(queryName)));
         }
 
+        // A property read policy is a further requirement on the same read, reported beside it.
+        foreach (var ((readType, property), policy) in _builder.PropertyPolicies
+                     .OrderBy(p => p.Key.Property, StringComparer.Ordinal))
+        {
+            if (_builder.QueryNameOf(readType) is { } queryName)
+                entries.Add(new AuthorizationSurfaceEntry(
+                    Surface, queryName, AuthorizationSurfaceOperation.Read, policy, property));
+        }
+
         return entries;
     }
 }

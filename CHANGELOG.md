@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Core`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -52,7 +52,13 @@ onward; earlier entries state the same consequence in prose where it applies.
   The GraphQL surface enforces them too: the policy sits on the field of the object type, so it holds on the root field, on a
   navigation from another type and on a collection page, and a caller who fails it gets `AUTH_NOT_AUTHORIZED` for that field and no value.
   A surface you compose in with `Surface<T>()` states whether it enforces them with `IIyuMainServerSurface.EnforcesPropertyPolicies`
-  (default `false`).
+  (default `false`). A declaration for the key, a concurrency token (`[Timestamp]`, `[ConcurrencyCheck]`) or a foreign-key scalar is
+  refused when the host is built: those values reach a caller in links, paging tokens, the entity tag and the related row's key
+  without the request naming them, so no policy on them could hold — guard the property the key identifies instead.
+  `IyuSearch.CreateFilterAsync` throws `UnauthorizedAccessException` for a search with text when the caller fails a property policy of
+  the searched set, as the list's `$search` refuses the same caller (a search tests every property it matches).
+  `AuthorizationSurfaceEntry` gains an optional `Property`, and the authorization surface report lists each declared property
+  policy on a row of its own beside the entity's read row.
 
 - **`Iyu.VaultAi`: `MapVaultAiEmbed()` — the server half of embedding the chat widget in your own pages.** The widget needs
   two things from the host: where to load it from and which channel, and a short-lived token that only the chat service can

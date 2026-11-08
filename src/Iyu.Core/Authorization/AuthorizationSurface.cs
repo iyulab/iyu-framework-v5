@@ -37,11 +37,18 @@ public enum AuthorizationSurfaceOperation
 /// none. <b><c>null</c> does not prove the endpoint is open</b> — see
 /// <see cref="IAuthorizationSurfaceReport"/>.
 /// </param>
+/// <param name="Property">
+/// The property a property read policy guards, or <c>null</c> for the entity's own entry. A property entry
+/// is an additional requirement on top of the entity's read entry, never a replacement for it; it exists only
+/// for a property a host declared a policy for, so it is never <c>null</c>-policy and never in
+/// <see cref="IAuthorizationSurfaceReport.Unprotected"/>.
+/// </param>
 public sealed record AuthorizationSurfaceEntry(
     string Surface,
     string Entity,
     AuthorizationSurfaceOperation Operation,
-    string? Policy);
+    string? Policy,
+    string? Property = null);
 
 /// <summary>
 /// A surface's own account of what it exposes and what protects it. One implementation per
