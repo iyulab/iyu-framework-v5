@@ -56,6 +56,11 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
     /// <paramref name="user"/> satisfies. A reference to an unprotected set is searched without being listed; one to a
     /// protected set that is not listed is left out.
     /// </summary>
+    /// <remarks>
+    /// A set is protected by its own read policy and by the read policy of any of its properties: a search matches the
+    /// referenced row's text, so it tests the value of every property it matches there. A reference is listed only when
+    /// the caller satisfies all of them.
+    /// </remarks>
     public async Task<IReadOnlySet<string>> AllowedNavigationsAsync(Type readType, ClaimsPrincipal user)
     {
         ArgumentNullException.ThrowIfNull(readType);
@@ -65,8 +70,20 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
         if (authorization is null) return allowed;
         foreach (var navigation in IyuStringSearchBinder.SearchedNavigations(readType))
         {
-            if (registry.FindByReadType(navigation.PropertyType) is not { ReadPolicy: { } policy }) continue;
-            if ((await authorization.AuthorizeAsync(user, policy)).Succeeded) allowed.Add(navigation.Name);
+            if (registry.FindByReadType(navigation.PropertyType) is not { } target) continue;
+            if (!IyuStringSearchBinder.IsProtected(target)) continue;
+
+            var satisfied = true;
+            var policies = target.ReadPolicy is { } setPolicy
+                ? target.PropertyReadPolicies.Values.Prepend(setPolicy)
+                : target.PropertyReadPolicies.Values;
+            foreach (var policy in policies.Distinct(StringComparer.Ordinal))
+            {
+                if ((await authorization.AuthorizeAsync(user, policy)).Succeeded) continue;
+                satisfied = false;
+                break;
+            }
+            if (satisfied) allowed.Add(navigation.Name);
         }
         return allowed;
     }

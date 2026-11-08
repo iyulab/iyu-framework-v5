@@ -903,7 +903,8 @@ options.AuthorizeProperty<CustomerExt>(x => x.Phone, read: "pii.read");
 
 A caller needs both: the entity's policy to read the entity, the property's to read the property. One who does not satisfy the
 property's policy cannot read it in any way — not print it (`$select`, `$compute`, a `$apply` group or aggregate, `$expand`),
-not test it (`$filter`), not sort by it (`$orderby`), not search it (`$search` tests every property of the sets it matches). A
+not test it (`$filter`), not sort by it (`$orderby`), not search it (`$search` tests every property of the sets it matches, and a searchable reference whose target has a property
+policy the caller does not satisfy is left out of the search, as it is for the target set's own read policy). A
 request that would print every property of the entity — no `$select`, `$select=*`, an `$expand` without a nested `$select` — is
 refused to that caller too, so name the properties you may read:
 

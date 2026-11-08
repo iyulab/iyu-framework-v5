@@ -39,7 +39,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   readable properties in the adapters in front of the API, and a list that misses one place hands the value out. Declared once,
   on the read type, the policy holds on every way the OData surface reads the property: a caller who does not satisfy it can
   not print it (`$select`, `$compute`, a `$apply` group or aggregate, `$expand`), test it (`$filter`), sort by it (`$orderby`)
-  or search it (`$search` tests every property of the sets it matches). A request that would print every property of the entity
+  or search it (`$search` tests every property of the sets it matches; a searchable reference whose target has a property policy
+  the caller does not satisfy is left out of the search, as it is for a target set's own read policy). A request that would print every property of the entity
   — no `$select`, `$select=*`, an `$expand` without a nested `$select` — is refused to that caller as well; they name the
   properties they may read with `$select`. The answer is `401` without an identity and `403` with one, the same split as an
   entity's read policy, and `IIyuAuthorizationFailureFeature.Property` names the property. Nothing is blanked: a blank looks

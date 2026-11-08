@@ -116,12 +116,19 @@ public sealed class IyuStringSearchBinder(IyuEntityPairRegistry? registry = null
         foreach (var navigation in SearchedNavigations(elementType))
         {
             if (registry?.FindByReadType(navigation.PropertyType) is not { } target) continue;
-            if (target.ReadPolicy is null || allowed?.Contains(navigation.Name) == true) followed.Add(navigation);
+            if (!IsProtected(target) || allowed?.Contains(navigation.Name) == true) followed.Add(navigation);
             else excluded.Add(navigation.Name);
         }
         excluded.Sort(StringComparer.Ordinal);
         return (followed, excluded);
     }
+
+    /// <summary>
+    /// Whether searching a set's text needs the caller to satisfy something: the set's own read policy, or the read policy
+    /// of one of its properties (a search tests the value of every property it matches).
+    /// </summary>
+    internal static bool IsProtected(IyuEntityPairRegistry.EntityPair target)
+        => target.ReadPolicy is not null || target.PropertyReadPolicies.Count > 0;
 
     internal static Expression BindNode(
         QueryNode? node, ParameterExpression parameter, Type elementClrType, IReadOnlyList<PropertyInfo> navigations)
