@@ -19,7 +19,9 @@ public class VaultAiClient : IVaultAiClient
             logger?.LogWarning(
                 "VaultAi:AllowUntrustedServerCertificate is on — the server certificate is not verified, " +
                 "so the bearer token can be intercepted. Trust the server's issuing authority instead.");
-        _http = new HttpClient(CreateHandler(_settings)) { Timeout = TimeSpan.FromMinutes(10) };
+        // The deadline of a call is the module's own (VaultAiSettings.RequestTimeout, or the limit a caller passes);
+        // the HttpClient's built-in one would cut in first whenever a longer limit is asked for.
+        _http = new HttpClient(CreateHandler(_settings)) { Timeout = Timeout.InfiniteTimeSpan };
         _http.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _settings.Token);
         _http.BaseAddress = new Uri(_settings.Url.TrimEnd('/') + "/");
@@ -35,7 +37,13 @@ public class VaultAiClient : IVaultAiClient
         return handler;
     }
 
-    public async Task<string> GetMessageAsync(Guid agentId, string prompt, CancellationToken ct = default)
+    public Task<string> GetMessageAsync(Guid agentId, string prompt, CancellationToken ct = default)
+        => GetMessageAsync(agentId, prompt, _settings.RequestTimeout, ct);
+
+    public Task<string> GetMessageAsync(Guid agentId, string prompt, TimeSpan timeout, CancellationToken ct = default)
+        => VaultAiDeadline.RunAsync(timeout, ct, t => GetMessageCoreAsync(agentId, prompt, t));
+
+    private async Task<string> GetMessageCoreAsync(Guid agentId, string prompt, CancellationToken ct)
     {
         var response = await _http.PostAsJsonAsync(
             $"api/agents/{agentId}/messages",
@@ -87,12 +95,29 @@ public class VaultAiClient : IVaultAiClient
         return text ?? string.Empty;
     }
 
-    public async Task<JsonNode> GetStructuredMessageAsync(
+    public Task<JsonNode> GetStructuredMessageAsync(
         Guid agentId,
         string prompt,
         JsonNode outputSchema,
         IReadOnlyList<VaultAiImage>? images = null,
         CancellationToken ct = default)
+        => GetStructuredMessageAsync(agentId, prompt, outputSchema, _settings.RequestTimeout, images, ct);
+
+    public Task<JsonNode> GetStructuredMessageAsync(
+        Guid agentId,
+        string prompt,
+        JsonNode outputSchema,
+        TimeSpan timeout,
+        IReadOnlyList<VaultAiImage>? images = null,
+        CancellationToken ct = default)
+        => VaultAiDeadline.RunAsync(timeout, ct, t => GetStructuredMessageCoreAsync(agentId, prompt, outputSchema, images, t));
+
+    private async Task<JsonNode> GetStructuredMessageCoreAsync(
+        Guid agentId,
+        string prompt,
+        JsonNode outputSchema,
+        IReadOnlyList<VaultAiImage>? images,
+        CancellationToken ct)
     {
         // content 파트 조립 — 텍스트 + (선택) 이미지. 이미지는 vault-ai wire 계약상
         // "file" 콘텐츠의 data 블록([{type:"image", mimeType, data(base64)}])으로 실린다

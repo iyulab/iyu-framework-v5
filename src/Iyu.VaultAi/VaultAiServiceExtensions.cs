@@ -21,6 +21,11 @@ public static class VaultAiServiceExtensions
         // UseVaultAiReports; the policy services have to be there even when the host registers none of its own.
         services.AddAuthorization();
 
+        // A limit that is not greater than zero would fail every call; say so at start, naming the key, not the value.
+        services.AddOptions<VaultAiSettings>()
+            .Validate(s => s.RequestTimeout > TimeSpan.Zero, "VaultAi:RequestTimeout has to be greater than zero.")
+            .ValidateOnStart();
+
         services.AddSingleton<IVaultAiClient, VaultAiClient>();
 
         // The widget's token call (MapVaultAiEmbed) — same certificate rule as the client, no state of its own. The

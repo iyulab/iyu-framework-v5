@@ -20,4 +20,26 @@ public interface IVaultAiClient
         JsonNode outputSchema,
         IReadOnlyList<VaultAiImage>? images = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// <see cref="GetMessageAsync(Guid, string, CancellationToken)"/> under a time limit of the caller's choosing
+    /// instead of <see cref="VaultAiSettings.RequestTimeout"/>. A call that runs past it fails with
+    /// <see cref="VaultAiTimeoutException"/>; the caller's own <paramref name="ct"/> firing still surfaces as an
+    /// <see cref="OperationCanceledException"/>. The limit has to be greater than zero.
+    /// </summary>
+    Task<string> GetMessageAsync(Guid agentId, string prompt, TimeSpan timeout, CancellationToken ct = default)
+        => VaultAiDeadline.RunAsync(timeout, ct, t => GetMessageAsync(agentId, prompt, t));
+
+    /// <summary>
+    /// <see cref="GetStructuredMessageAsync(Guid, string, JsonNode, IReadOnlyList{VaultAiImage}?, CancellationToken)"/>
+    /// under a time limit of the caller's choosing — the same rule as the overload of <c>GetMessageAsync</c> above.
+    /// </summary>
+    Task<JsonNode> GetStructuredMessageAsync(
+        Guid agentId,
+        string prompt,
+        JsonNode outputSchema,
+        TimeSpan timeout,
+        IReadOnlyList<VaultAiImage>? images = null,
+        CancellationToken ct = default)
+        => VaultAiDeadline.RunAsync(timeout, ct, t => GetStructuredMessageAsync(agentId, prompt, outputSchema, images, t));
 }

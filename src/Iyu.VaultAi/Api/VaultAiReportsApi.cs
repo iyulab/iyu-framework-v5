@@ -445,7 +445,7 @@ internal static class VaultAiReportsApi
             }
             catch (Exception ex)
             {
-                // HttpClient.Timeout으로 인한 TaskCanceledException(ct 미취소)도 여기서 재시도된다.
+                // 클라이언트 자신의 기한을 넘긴 호출(VaultAiTimeoutException — ct 미취소)도 여기서 재시도된다.
                 lastEx = ex;
                 runLog.Line($"  AI 호출 예외: {ex.GetType().Name}: {ex.Message}");
                 logger?.LogWarning(ex, "AI 호출 실패 (시도 {A}/{M})", attempt, MaxRetryCount);

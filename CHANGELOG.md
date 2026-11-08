@@ -69,6 +69,15 @@ onward; earlier entries state the same consequence in prose where it applies.
   of the chat service with the same `502` without repeating what it said. New settings, all optional: `ChannelId` (blank keeps
   the routes answering "not enabled"), `EmbedOrigin` (what the browser loads from, when `Url` is a server-side address) and
   `EmbedTokenTimeout` (ten seconds). Opt-in; a host that does not call it is unchanged.
+- **`Iyu.VaultAi`: a time limit you can set, and a timeout you can tell apart from a cancellation.** Every call to the
+  vault-ai server ran under a fixed ten-minute limit, and when it ran out the caller got a `TaskCanceledException` — the
+  same type a caller's own cancellation produces — so code that called the client had to build a linked token and a filter
+  of its own to know which one had stopped the call. `VaultAi:RequestTimeout` sets the default (still ten minutes), the
+  overloads of `GetMessageAsync` and `GetStructuredMessageAsync` that take a `TimeSpan` set it for one call (shorter or
+  longer), and a call that outruns its limit now fails with `VaultAiTimeoutException`, which is not an
+  `OperationCanceledException`; the caller's own token still surfaces as one. A limit that is not greater than zero fails at
+  host start, naming the key. `IVaultAiClient` gained the two overloads as default interface members, so an existing
+  implementation (a test double, say) compiles unchanged and gets the limit applied around its own methods.
 
 ### Changed
 

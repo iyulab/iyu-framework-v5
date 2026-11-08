@@ -47,6 +47,14 @@ public class VaultAiSettings
     /// </summary>
     public TimeSpan EmbedTokenTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// How long one call to the vault-ai server may take before the client gives up with
+    /// <see cref="VaultAiTimeoutException"/>. Default ten minutes — the limit the client has always had. A caller can
+    /// pass a limit of its own to the overloads taking a <see cref="TimeSpan"/>, shorter or longer. Has to be greater
+    /// than zero; a value that is not fails at host start.
+    /// </summary>
+    public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
     public Guid ReportAgentId { get; set; }
     public string ReportPath { get; set; } = "reports";
 
