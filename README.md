@@ -7,8 +7,8 @@ generator-produced entities, plus optional modules for identity, attachments,
 chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
-Targets .NET 10. All projects share one version and ship as separate
-NuGet packages.
+Targets .NET 10. The projects ship as separate NuGet packages and share one version, except
+`Iyu.Lowline`, which does not depend on the rest and is versioned on its own line.
 
 ## Role in the stack
 
@@ -2204,7 +2204,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All `Iyu.*` packages share one version, so a new number does not by itself mean the
+All `Iyu.*` packages except `Iyu.Lowline` (its own line, with the changelog shipped inside it) share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking

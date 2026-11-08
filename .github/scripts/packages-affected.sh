@@ -40,8 +40,16 @@ shipped_packages() {
   local proj
   for proj in src/*/*.csproj; do
     grep -q '<IsPackable>false</IsPackable>' "$proj" && continue
+    own_version_line "$(dirname "$proj")" && continue
     basename "$(dirname "$proj")"
   done
+}
+
+# A package with its own Directory.Build.props sits on its own version line (Iyu.Lowline) and is
+# released, versioned and described by its own changelog -- not by this one. It must not be
+# demanded on, or judged against, the shared-number release list.
+own_version_line() {  # $1 = package directory
+  [ -f "$1/Directory.Build.props" ]
 }
 
 # --- CHANGELOG parsing --------------------------------------------------------------------
@@ -82,7 +90,10 @@ mentions_list_unparseably() {  # $1 = "Unreleased" or a version
 # carries the shared <Version> and therefore changes on every single release, so mapping it to
 # "all packages" would make this guard pass trivially and forever.
 changed_packages() {  # $1 = git range
-  git diff --name-only "$1" -- src/ | awk -F/ 'NF > 2 { print $2 }' | sort -u
+  local pkg
+  git diff --name-only "$1" -- src/ | awk -F/ 'NF > 2 { print $2 }' | sort -u | while read -r pkg; do
+    own_version_line "src/$pkg" || echo "$pkg"
+  done
 }
 
 require_tag() {  # $1 = tag, $2 = what it is needed for

@@ -15,6 +15,12 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <!-- `dotnet pack -p:IyuPackLine=core|lowline` packs one version line (release.yml passes it); unset packs everything.
+         Iyu.Lowline's own props file turns packing back on for the lowline line and off for the core line. -->
+    <IsPackable Condition="'$(IyuPackLine)' == 'lowline'">false</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <!-- NuGet 패키지 메타데이터 -->
     <Authors>iyulab</Authors>
     <Company>iyulab</Company>
@@ -27,7 +33,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>iyu;odata;graphql;framework;aspnetcore</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>See CHANGELOG.md, shipped in this package and at https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md — every Iyu.* package shares one version, so check the "Packages affected" line of each release between your current version and this one.</PackageReleaseNotes>
+    <PackageReleaseNotes>See CHANGELOG.md, shipped in this package and at https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md — every Iyu.* package except Iyu.Lowline (versioned on its own line, with its own changelog) shares one version, so check the "Packages affected" line of each release between your current version and this one.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>

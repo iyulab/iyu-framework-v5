@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
+      # Two version lines. `v0.48.0` releases the Iyu.* packages that share one number; `lowline-v0.48.0`
+      # releases Iyu.Lowline, which is versioned on its own (src/Iyu.Lowline/Directory.Build.props).
       - 'v*'
+      - 'lowline-v*'
 
 jobs:
   release:
@@ -20,20 +23,27 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Extract version from tag
+      - name: Extract line and version from tag
         id: version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Tag version: $TAG_VERSION"
+          case "$GITHUB_REF_NAME" in
+            lowline-v*) LINE=lowline; TAG_VERSION="${GITHUB_REF_NAME#lowline-v}"; PROPS=src/Iyu.Lowline/Directory.Build.props ;;
+            *)          LINE=core;    TAG_VERSION="${GITHUB_REF_NAME#v}";         PROPS=Directory.Build.props ;;
+          esac
+          {
+            echo "line=$LINE"
+            echo "tag_version=$TAG_VERSION"
+            echo "props=$PROPS"
+          } >> "$GITHUB_OUTPUT"
+          echo "Line: $LINE  Tag version: $TAG_VERSION  Props: $PROPS"
 
-      - name: Verify Directory.Build.props version matches tag
+      - name: Verify the line's props version matches tag
         run: |
-          PROPS_VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          PROPS_VERSION=$(grep -oP '(?<=<Version>)[^<]+' "${{ steps.version.outputs.props }}")
           echo "Props version: $PROPS_VERSION"
           echo "Tag version:   ${{ steps.version.outputs.tag_version }}"
           if [ "$PROPS_VERSION" != "${{ steps.version.outputs.tag_version }}" ]; then
-            echo "::error::Version mismatch: tag=${{ steps.version.outputs.tag_version }}, Directory.Build.props=$PROPS_VERSION"
+            echo "::error::Version mismatch: tag=${{ steps.version.outputs.tag_version }}, ${{ steps.version.outputs.props }}=$PROPS_VERSION"
             exit 1
           fi
 
@@ -41,7 +51,9 @@ jobs:
       # from a release's "Packages affected" line changed nothing the consumer depends on. That
       # line is hand-maintained and has been wrong. The check runs here, before Pack, because a
       # wrong list caught after publishing is already on nuget.org.
+      # The check covers the shared-number line; Iyu.Lowline's own line has one package and its own changelog.
       - name: Packages affected matches the release diff
+        if: steps.version.outputs.line == 'core'
         run: .github/scripts/packages-affected.sh released
 
       - name: Cache NuGet packages
@@ -62,7 +74,7 @@ jobs:
         run: dotnet test IyuFramework.slnx -c Release --no-build --verbosity normal
 
       - name: Pack
-        run: dotnet pack IyuFramework.slnx -c Release --no-build -o ./artifacts
+        run: dotnet pack IyuFramework.slnx -c Release --no-build -p:IyuPackLine=${{ steps.version.outputs.line }} -o ./artifacts
 
       # The push itself runs in the organization's central publish workflow, which holds the
       # only NuGet trust policy; this repository holds no NuGet credential. Only the packed

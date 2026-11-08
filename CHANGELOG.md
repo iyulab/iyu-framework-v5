@@ -9,7 +9,9 @@ record written after the fact can describe something that did not happen.
 
 ## How to read a release here
 
-**Every `Iyu.*` package shares one version number.** A release publishes all of them at the
+**Every `Iyu.*` package shares one version number — except `Iyu.Lowline`.** `Iyu.Lowline` depends on neither `Iyu.Core`, Entity Framework Core nor `Iyu.MainServer`, so it is versioned on its own line with its own changelog (`src/Iyu.Lowline/CHANGELOG.md`, shipped inside that package); its releases up to 0.47.0 are recorded here, later ones there. `Iyu.Lowline.EntityFrameworkCore` binds to `Iyu.Core` and stays on the shared number.
+
+**On the shared number,** a release publishes all of them at the
 new number whether or not each one changed, so the version alone cannot tell you if the
 code you depend on moved. Each entry below therefore opens with **Packages affected** —
 if your dependency is not listed, that release changed nothing you consume, and upgrading
@@ -29,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -59,25 +61,7 @@ onward; earlier entries state the same consequence in prose where it applies.
   the routes answering "not enabled"), `EmbedOrigin` (what the browser loads from, when `Url` is a server-side address) and
   `EmbedTokenTimeout` (ten seconds). Opt-in; a host that does not call it is unchanged.
 
-- **`Iyu.Lowline`: `ILowlineHistorySource` — start from the records the application already holds.** A new installation's
-  engine has learned nothing, so it suggests nothing until people have settled enough new records, and the host had no way to
-  bring the application's older records to it (handing them over as the application's own doing is stored but never counted,
-  so it cannot produce a suggestion). Implement the interface for a form (opt-in; scoped, next to its hook) and a background
-  pass — `IyuLowlineOptions.HistoryInterval` (five minutes; zero turns it off), `HistoryBatchSize` (500 per space per pass) —
-  learns the records the store does not hold yet as typed by a person with no suggestion shown. That is a declaration only the
-  application can make, which is why the host asks for the records instead of guessing which ones qualify. A record the engine
-  refuses is counted and logged and does not stop the batch. `IyuLowlineHistoryService.RunOnceAsync` runs one pass. No change
-  for a form without a source.
-
 ### Changed
-
-- **`Iyu.Lowline`: the engine is now `Lowline` 0.11.0.** The package carries the engine's native library for Alpine Linux as
-  well (`linux-musl-x64`, `linux-musl-arm64`), so the engine can load in an Alpine-based image; it needs `libgcc` at run time,
-  which the .NET images for Alpine have. Alpine has not been exercised with this package yet, so the README no longer says it
-  cannot run there but still recommends a Debian-based image. 0.11.0 refuses an attestation that names a field the form does
-  not decide; the settle route only attests the checks it drew for the fields the form decides, so its behaviour is unchanged.
-  A store written by 0.11.0 records the score a judgement gave an answer, and a reader of the same store older than the engine's
-  decider 0.10 refuses it — if other processes read the store, move them to 0.11.0 too.
 
 - **README: «From a model to a database» connects the three tools.** The README now opens with how a model becomes tables
   — `mdd build` writes SQL files, `schemorph diff` / `apply` reads a folder of them — with the smallest working layout, the
@@ -87,7 +71,7 @@ onward; earlier entries state the same consequence in prose where it applies.
   server: the SQL Server path ran as written, and the PostgreSQL variant now names the two settings it needs besides
   the dialect (the target schema and the Schemorph engine). Documentation only; no package changes.
 
-- **Breaking — `Iyu.Lowline`: the host layer no longer assumes Entity Framework; the EF store moves to the new `Iyu.Lowline.EntityFrameworkCore`.**
+- **Breaking — `Iyu.Lowline`: the host layer no longer assumes Entity Framework; the EF store moves to the new `Iyu.Lowline.EntityFrameworkCore`.** (`Iyu.Lowline` is now versioned on its own line, so its own entries are in the changelog shipped with it; this entry stays here because it introduces the new package.)
   Two files in `Iyu.Lowline` used EF Core and `Iyu.Core` — the store and the registration — yet every host that referenced
   the package carried both, and the only way to turn Lowline on named an EF `DbContext`. `Iyu.Lowline` now registers over two
   ports the host provides, the engine's `ILowlineStore` and `ILowlineRecordIndex`: `AddIyuLowline(o => …)` takes no type
