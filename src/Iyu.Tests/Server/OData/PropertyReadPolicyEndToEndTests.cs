@@ -289,7 +289,7 @@ public class PropertyReadPolicyEndToEndTests
             new ServiceCollection().AddIyuMainServer<NavContext>(
                 db => db.UseInMemoryDatabase("x"),
                 options => options.AuthorizeProperty<NavOrderExt>(x => x.Name, NamesRead)));
-        Assert.Contains("no OData set serves", error.Message, StringComparison.Ordinal);
+        Assert.Contains("no surface serves", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -320,7 +320,7 @@ public class PropertyReadPolicyEndToEndTests
                     options.Surface<ServesEveryType>();
                     options.AuthorizeProperty<NavOrderExt>(x => x.Name, NamesRead);
                 }));
-        Assert.Contains("does not enforce property policies yet", error.Message, StringComparison.Ordinal);
+        Assert.Contains("does not enforce property policies", error.Message, StringComparison.Ordinal);
     }
 
     private sealed class ServesEveryType : IIyuMainServerSurface

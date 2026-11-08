@@ -50,6 +50,7 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly HashSet<string> _queryNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _mutationPrefixes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> _authorizePolicies = new(StringComparer.Ordinal);
+    private readonly Dictionary<(Type ReadType, string Property), string> _propertyPolicies = new();
     private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
     private readonly Dictionary<Type, string> _exposedTypes = new();
     private readonly List<Action<IRequestExecutorBuilder>> _typeAuthorizers = new();
@@ -261,6 +262,15 @@ public sealed class IyuGraphQLSchemaBuilder
         _typeAuthorizers.Add(executorBuilder => executorBuilder.AddObjectType<TRead>(d =>
         {
             if (_authorizePolicies[queryName] is { } policy) d.Authorize(policy);
+            // A property's read policy sits on the field of the object type, so it holds wherever the type is
+            // reached: the root field, a navigation from another type, a collection page. The selection is the
+            // only way this surface reads a value (there are no filter or sort arguments), and a field whose
+            // policy the caller does not satisfy is refused before its value is resolved.
+            foreach (var ((policyType, policyProperty), propertyPolicy) in _propertyPolicies)
+            {
+                if (policyType != typeof(TRead)) continue;
+                d.Field(typeof(TRead).GetProperty(policyProperty)!).Authorize(propertyPolicy);
+            }
             foreach (var property in typeof(TRead).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (EntityTypeOf(property.PropertyType) is not { } target) continue;
@@ -438,6 +448,44 @@ public sealed class IyuGraphQLSchemaBuilder
             throw new InvalidOperationException(
                 $"Cannot restrict GraphQL query field '{queryName}': it was never registered via AddEntityPair or AddReadOnlySet.");
         _authorizePolicies[queryName] = authorizePolicy;
+        _usesAuthorization = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Requires an ASP.NET Core authorization policy to read one property of an exposed read type. The GraphQL
+    /// counterpart of the property read policy the OData surface enforces (<c>IyuMainServerOptions.AuthorizeProperty</c>):
+    /// declared once on the host options, applied to the field of the object type so it holds on every way the type is
+    /// reached. Must be called before <see cref="ApplyTo"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The read type is not exposed, the property does not exist or is a navigation (a navigation is read through the
+    /// target type's own policies), a second policy is declared for the same property, or this is called after
+    /// <see cref="ApplyTo"/>.
+    /// </exception>
+    internal IyuGraphQLSchemaBuilder RestrictProperty(Type readType, string property, string authorizePolicy)
+    {
+        ArgumentNullException.ThrowIfNull(readType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(property);
+        ArgumentException.ThrowIfNullOrWhiteSpace(authorizePolicy);
+        var where = $"'{readType.FullName}.{property}'";
+        if (_applied)
+            throw new InvalidOperationException(
+                $"Cannot restrict GraphQL property {where}: ApplyTo has already run. "
+                + "Call RestrictProperty before ApplyTo — it wires the authorization handler into DI synchronously.");
+        if (!_exposedTypes.ContainsKey(readType))
+            throw new InvalidOperationException(
+                $"Cannot restrict GraphQL property {where}: the type is not exposed by a query field.");
+        var info = readType.GetProperty(property, BindingFlags.Public | BindingFlags.Instance)
+                   ?? throw new InvalidOperationException(
+                       $"Cannot restrict GraphQL property {where}: the type has no such public instance property.");
+        if (EntityTypeOf(info.PropertyType) is not null)
+            throw new InvalidOperationException(
+                $"Cannot restrict GraphQL property {where}: it is a navigation. A navigation is read through the "
+                + "target type's own policies; declare the policy on the target's properties.");
+        if (!_propertyPolicies.TryAdd((readType, property), authorizePolicy))
+            throw new InvalidOperationException(
+                $"Cannot restrict GraphQL property {where}: a policy is already declared for it.");
         _usesAuthorization = true;
         return this;
     }

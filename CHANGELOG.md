@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -48,8 +48,11 @@ onward; earlier entries state the same consequence in prose where it applies.
   entity's read policy, and `IIyuAuthorizationFailureFeature.Property` names the property. Nothing is blanked: a blank looks
   like "no value" and `$filter` would still recover the real one. A `POST` that would echo the created row to a caller who fails
   a property's policy answers `201` with the `Location` header and no body. When the host is built, a type no OData set serves,
-  a property removed with `Exclude`, a second declaration for one property, and a type another surface also serves are refused
-  — the GraphQL surface does not enforce property policies yet, and a declaration one surface ignores would be a hole.
+  a property removed with `Exclude`, a second declaration for one property, and a type served by a surface that does not enforce property policies are refused — a declaration one surface ignores would be a hole.
+  The GraphQL surface enforces them too: the policy sits on the field of the object type, so it holds on the root field, on a
+  navigation from another type and on a collection page, and a caller who fails it gets `AUTH_NOT_AUTHORIZED` for that field and no value.
+  A surface you compose in with `Surface<T>()` states whether it enforces them with `IIyuMainServerSurface.EnforcesPropertyPolicies`
+  (default `false`).
 
 - **`Iyu.VaultAi`: `MapVaultAiEmbed()` — the server half of embedding the chat widget in your own pages.** The widget needs
   two things from the host: where to load it from and which channel, and a short-lived token that only the chat service can

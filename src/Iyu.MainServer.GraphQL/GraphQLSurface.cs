@@ -19,6 +19,9 @@ public sealed class GraphQLSurface : IIyuMainServerSurface
     public bool Serves(Type readType) => Schema.QueryNameOf(readType) is not null;
 
     /// <inheritdoc />
+    public bool EnforcesPropertyPolicies => true;
+
+    /// <inheritdoc />
     public void ConfigureServices(IServiceCollection services, IyuMainServerOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -30,6 +33,13 @@ public sealed class GraphQLSurface : IIyuMainServerSurface
         {
             if (policy.Read is { } read && Schema.QueryNameOf(readType) is { } queryName)
                 Schema.Restrict(queryName, read);
+        }
+
+        // A property's read policy is declared once and applies to the field wherever the type is reached.
+        foreach (var ((readType, property), readPolicy) in options.PropertyPolicies)
+        {
+            if (Schema.QueryNameOf(readType) is not null)
+                Schema.RestrictProperty(readType, property, readPolicy);
         }
 
         services.AddSingleton<IAuthorizationSurfaceProvider>(_ => new GraphQLAuthorizationSurfaceProvider(Schema));

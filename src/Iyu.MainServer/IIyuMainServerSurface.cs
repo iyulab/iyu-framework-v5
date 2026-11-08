@@ -28,6 +28,14 @@ public interface IIyuMainServerSurface
     /// </summary>
     void ConfigureServices(IServiceCollection services, IyuMainServerOptions options);
 
+    /// <summary>
+    /// Whether the surface enforces property read policies (<see cref="IyuMainServerOptions.AuthorizeProperty{TRead}"/>) on
+    /// the types it serves. A policy declared for a type that a surface serves without enforcing it would be a hole in
+    /// that surface, so the host refuses to start instead of ignoring it; a surface that reads
+    /// <see cref="IyuMainServerOptions.PropertyPolicies"/> in <see cref="ConfigureServices"/> answers <c>true</c>.
+    /// </summary>
+    bool EnforcesPropertyPolicies => false;
+
     /// <summary>Maps the surface's endpoints — called once by <c>UseIyuMainServer</c>.</summary>
     void MapEndpoints(IEndpointRouteBuilder endpoints);
 }

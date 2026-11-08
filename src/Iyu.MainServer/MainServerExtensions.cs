@@ -229,21 +229,23 @@ public static class MainServerExtensions
         {
             var (readType, property) = key;
             var where = $"'{readType.FullName}.{property}'";
-            var set = registry.FindByReadType(readType)
-                      ?? throw new InvalidOperationException(
-                          $"A read policy is declared for {where}, but no OData set serves '{readType.FullName}'. "
-                          + "Register its entity pair (options.ODataModel.AddEntityPair) or remove the declaration.");
+            var set = registry.FindByReadType(readType);
+            if (set is null && !options.Surfaces.Any(s => s.Serves(readType)))
+                throw new InvalidOperationException(
+                    $"A read policy is declared for {where}, but no surface serves '{readType.FullName}'. "
+                    + "Register its entity pair (options.ODataModel.AddEntityPair, or a surface's own) or remove the declaration.");
+            // A policy one surface ignores is a hole in the surface that is told about it: refused unless the surface
+            // says it enforces property policies.
+            if (options.Surfaces.FirstOrDefault(s => s.Serves(readType) && !s.EnforcesPropertyPolicies) is { } ignoring)
+                throw new InvalidOperationException(
+                    $"A read policy is declared for {where}, but the surface '{ignoring.GetType().Name}' also serves "
+                    + $"'{readType.FullName}' and does not enforce property policies. Leave the type off that surface "
+                    + "or remove the declaration.");
+            if (set is null) continue; // served only by optional surfaces, which apply it in ConfigureServices
             if (options.ODataModel.IsExcluded(readType, property))
                 throw new InvalidOperationException(
                     $"A read policy is declared for {where}, but the property was removed from the model with Exclude — "
                     + "no caller can read it. Remove one of the two.");
-            // A policy one surface ignores is a hole in the surface that is told about it: refused until GraphQL
-            // enforces property policies too.
-            if (options.Surfaces.Any(s => s.Serves(readType)))
-                throw new InvalidOperationException(
-                    $"A read policy is declared for {where}, but an optional surface (GraphQL) also serves "
-                    + $"'{readType.FullName}' and does not enforce property policies yet. Leave the type off that surface "
-                    + "or remove the declaration.");
             registry.RestrictProperty(set.SetName, property, readPolicy);
         }
     }
