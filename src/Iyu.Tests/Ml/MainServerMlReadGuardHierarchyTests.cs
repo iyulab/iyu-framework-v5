@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Iyu.Core.Entities;
+using Iyu.MainServer;
 using Iyu.MainServer.Ml;
 using Iyu.Server.OData;
 using Microsoft.AspNetCore.Authorization;
@@ -56,7 +57,7 @@ public class MainServerMlReadGuardHierarchyTests
         services.AddAuthorization(o => o.AddPolicy(SetRead, p => p.RequireClaim("perm", SetRead)));
         var provider = services.BuildServiceProvider();
         return new MainServerMlReadGuard(
-            registry, provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
+            new IyuMainServerOptions(), registry, provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
     }
 
     private static ClaimsPrincipal Caller(params string[] permissions) =>
@@ -106,7 +107,7 @@ public class MainServerMlReadGuardHierarchyTests
         });
         var provider = services.BuildServiceProvider();
         var guard = new MainServerMlReadGuard(
-            registry, provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
+            new IyuMainServerOptions(), registry, provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
 
         Assert.False(await guard.MayReadAsync(typeof(PolicyBase), Caller(SetRead)));
         Assert.False(await guard.MayReadAsync(typeof(PolicyBase), Caller("fallback")));
@@ -122,7 +123,7 @@ public class MainServerMlReadGuardHierarchyTests
         services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireClaim("perm", "fallback").Build());
         var provider = services.BuildServiceProvider();
         var guard = new MainServerMlReadGuard(
-            registry, provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
+            new IyuMainServerOptions(), registry, provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
 
         Assert.False(await guard.MayReadAsync(typeof(PolicyUnrelated), Caller()));
         Assert.True(await guard.MayReadAsync(typeof(PolicyUnrelated), Caller("fallback")));
@@ -132,5 +133,41 @@ public class MainServerMlReadGuardHierarchyTests
     public async Task An_unrelated_type_is_not_held_to_the_served_sets_read_policy()
     {
         Assert.True(await Guard().MayReadAsync(typeof(PolicyUnrelated), Caller()));
+    }
+
+    [Fact]
+    public async Task A_type_only_an_optional_surface_serves_is_held_to_its_declared_policies()
+    {
+        // No OData pair: the declarations are the only place the policies exist, as for a type only GraphQL serves.
+        var options = new IyuMainServerOptions()
+            .Authorize<PolicyBase>(read: SetRead)
+            .AuthorizeProperty<PolicyBase>(x => x.Title, TitleRead);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization(o => o.AddPolicy(SetRead, p => p.RequireClaim("perm", SetRead)));
+        var provider = services.BuildServiceProvider();
+        var guard = new MainServerMlReadGuard(
+            options, new IyuEntityPairRegistry(), provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
+
+        Assert.Contains(TitleRead, guard.RefusalFor(typeof(PolicyBase), nameof(PolicyBase.Title)));
+        Assert.Contains(TitleRead, guard.RefusalFor(typeof(PolicyServed), nameof(PolicyBase.Title)));
+        Assert.Null(guard.RefusalFor(typeof(PolicyUnrelated), nameof(PolicyUnrelated.Title)));
+        Assert.False(await guard.MayReadAsync(typeof(PolicyBase), Caller()));
+        Assert.True(await guard.MayReadAsync(typeof(PolicyBase), Caller(SetRead)));
+        Assert.True(await guard.MayReadAsync(typeof(PolicyUnrelated), Caller()));
+    }
+
+    [Fact]
+    public void A_property_policy_on_a_type_with_no_entity_policy_still_refuses_the_column()
+    {
+        var options = new IyuMainServerOptions().AuthorizeProperty<PolicyBase>(x => x.Title, TitleRead);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization();
+        var provider = services.BuildServiceProvider();
+        var guard = new MainServerMlReadGuard(
+            options, new IyuEntityPairRegistry(), provider.GetRequiredService<IAuthorizationService>(), provider.GetRequiredService<IAuthorizationPolicyProvider>());
+
+        Assert.Contains(TitleRead, guard.RefusalFor(typeof(PolicyBase), nameof(PolicyBase.Title)));
     }
 }

@@ -45,7 +45,7 @@ internal sealed class EfDatasetPlan<TEntity> : IEfDatasetPlan where TEntity : cl
         var reads = _columns.Select(c => new EfDatasetRead(c.Property.Name, c.Role == MlColumnRole.Label ? "label" : "feature")).ToList();
         if (filter is not null)
         {
-            var named = new PropertyCollector();
+            var named = new FilterReads(filter.Parameters[0]);
             named.Visit(filter.Body);
             reads.AddRange(named.Names.Distinct().Select(n => new EfDatasetRead(n, "filter")));
         }
@@ -71,18 +71,6 @@ internal sealed class EfDatasetPlan<TEntity> : IEfDatasetPlan where TEntity : cl
             for (var i = 0; i < _columns.Count; i++)
                 row[_columns[i].Column] = values[i];
             yield return row;
-        }
-    }
-
-    private sealed class PropertyCollector : ExpressionVisitor
-    {
-        public List<string> Names { get; } = [];
-
-        protected override Expression VisitMember(MemberExpression node)
-        {
-            if (node.Expression is ParameterExpression)
-                Names.Add(node.Member.Name);
-            return base.VisitMember(node);
         }
     }
 }

@@ -41,6 +41,7 @@ public sealed class MlDatasetBuilder<TEntity> where TEntity : class
     public MlDatasetBuilder<TEntity> Where(Expression<Func<TEntity, bool>> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        new FilterReads(predicate.Parameters[0]).Visit(predicate.Body); // refuses a filter whose reads cannot be named
         _filter = _filter is null
             ? predicate
             : Expression.Lambda<Func<TEntity, bool>>(

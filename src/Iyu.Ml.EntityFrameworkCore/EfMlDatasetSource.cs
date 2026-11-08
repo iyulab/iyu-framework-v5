@@ -9,6 +9,11 @@ namespace Iyu.Ml.EntityFrameworkCore;
 /// property it did not name is not selected from the database. The caller bounds what comes back: an anonymous caller is
 /// refused, and a caller the registered <see cref="IMlReadGuard"/> says may not read the entity gets no rows.
 /// </summary>
+/// <remarks>
+/// The rows are read in a scope of their own, so services that carry the current request — a tenant the middleware filled in,
+/// for one — are not visible to the context, and a global query filter that depends on them sees none. A host with such filters
+/// gives the context what it needs from the caller it is handed, not from the request.
+/// </remarks>
 /// <typeparam name="TContext">The application's <c>DbContext</c>.</typeparam>
 public sealed class EfMlDatasetSource<TContext> : IMlDatasetSource where TContext : DbContext
 {
@@ -49,6 +54,9 @@ public sealed class EfMlDatasetSource<TContext> : IMlDatasetSource where TContex
         // The guard first. A column it refuses is refused here as well as when the host starts: this source can be built
         // without the host ever starting, and a column policy that held only at start would then hold nowhere. A caller who may
         // not read the entity gets nothing, and the database is not asked.
+        var unsaid = EfMlDeclarations.LayerProblems(scope.ServiceProvider);
+        if (unsaid.Count > 0)
+            throw new InvalidOperationException("The dataset cannot be read: " + string.Join("; ", unsaid) + ".");
         var guard = scope.ServiceProvider.GetService<IMlReadGuard>();
         var refused = EfMlDeclarations.Refusals(plan, guard);
         if (refused.Count > 0)

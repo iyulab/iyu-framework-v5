@@ -273,6 +273,89 @@ public sealed class EfMlDatasetSourceTests : IDisposable
     }
 
     [Fact]
+    public void A_filter_that_passes_the_entity_on_is_refused_when_declared()
+    {
+        // Each of these reads Secret by a route the read guard could not see; a row filter is a read.
+        Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => EF.Property<string>(r, "Secret") == "s1"));
+        Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => ((MlReading)(object)r).Secret == "s1"));
+        Assert.Throws<ArgumentException>(() => new MlDatasetBuilder<MlReading>().Where(r => Same(r)));
+        // Reading a property directly is what a filter is for.
+        new MlDatasetBuilder<MlReading>().Where(r => r.Active && r.Temperature > 20);
+    }
+
+    private static bool Same(MlReading reading) => reading.Active;
+
+    [Fact]
+    public async Task A_host_that_registered_the_source_but_never_called_AddIyuMl_does_not_start()
+    {
+        var builder = Host();
+        Declare(builder);
+        using var app = builder.Build();
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
+
+        Assert.Contains("AddIyuMl", refusal.Message);
+    }
+
+    [Fact]
+    public async Task The_source_refuses_to_read_for_a_layer_that_was_never_turned_on_even_if_the_host_never_started()
+    {
+        var builder = Host();
+        Declare(builder);
+        using var app = builder.Build();
+        Seed(app);
+
+        var source = app.Services.GetRequiredService<IMlDatasetSource>();
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(async () => await Collect(source.ReadAsync("readings", Analyst)));
+
+        Assert.Contains("not turned on", refusal.Message);
+    }
+
+    [Fact]
+    public async Task The_source_refuses_to_read_when_the_host_never_said_how_read_permissions_apply()
+    {
+        var builder = Host();
+        Declare(builder);
+        builder.Services.AddIyuMl(_ => { }); // neither a guard nor NoReadPolicies()
+        using var app = builder.Build();
+        Seed(app);
+
+        var source = app.Services.GetRequiredService<IMlDatasetSource>();
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(async () => await Collect(source.ReadAsync("readings", Analyst)));
+
+        Assert.Contains("NoReadPolicies", refusal.Message);
+    }
+
+    [Fact]
+    public async Task A_guard_that_depends_on_scoped_services_works_with_scope_validation_on()
+    {
+        var builder = Host();
+        builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }));
+        Declare(builder);
+        builder.Services.AddScoped<ScopedDependency>();
+        builder.Services.AddScoped<IMlReadGuard, ScopedGuard>();
+        builder.Services.AddIyuMl(_ => { });
+        using var app = builder.Build();
+        Seed(app);
+        await app.StartAsync();
+
+        var rows = await Collect(app.Services.GetRequiredService<IMlDatasetSource>().ReadAsync("readings", Analyst));
+
+        Assert.Equal(2, rows.Count);
+        await app.StopAsync();
+    }
+
+    private sealed class ScopedDependency;
+
+    private sealed class ScopedGuard(ScopedDependency dependency) : IMlReadGuard
+    {
+        public string? RefusalFor(Type entity, string property) => dependency is null ? "no dependency" : null;
+
+        public ValueTask<bool> MayReadAsync(Type entity, ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(dependency is not null);
+    }
+
+    [Fact]
     public async Task A_property_that_only_the_filter_reads_is_a_read_too()
     {
         var guard = new RecordingGuard();

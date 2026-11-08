@@ -52,6 +52,26 @@ public class MlCsvTests
     }
 
     [Fact]
+    public async Task A_record_of_one_empty_field_is_quoted_so_it_does_not_read_as_a_blank_line()
+    {
+        var definition = new MlDatasetDefinition("d", [new("v", MlColumnRole.Feature)]);
+
+        var (text, rows) = await Write(definition, Row(("v", 1)), Row(("v", null)), Row(("v", "")), Row());
+
+        Assert.Equal("v\r\n1\r\n\"\"\r\n\"\"\r\n\"\"\r\n", text);
+        Assert.Equal(4, rows);
+    }
+
+    [Fact]
+    public void Bytes_are_written_as_base_64_and_a_value_with_no_text_of_its_own_is_refused()
+    {
+        Assert.Equal("AQID", MlCsv.Format(new byte[] { 1, 2, 3 }));
+        Assert.Equal("x", MlCsv.Format('x'));
+        Assert.Throws<ArgumentException>(() => MlCsv.Format(new object()));
+        Assert.Throws<ArgumentException>(() => MlCsv.Format(new List<int>()));
+    }
+
+    [Fact]
     public async Task An_empty_dataset_is_the_header_alone()
     {
         var (text, rows) = await Write(Definition());

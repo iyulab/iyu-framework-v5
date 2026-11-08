@@ -174,6 +174,25 @@ public sealed class MainServerMlReadGuardTests
     }
 
     [Fact]
+    public void A_second_guard_registration_is_refused_in_either_order()
+    {
+        var twice = new ServiceCollection().AddIyuMlMainServerReadGuard();
+        Assert.Throws<InvalidOperationException>(() => twice.AddIyuMlMainServerReadGuard());
+
+        var beside = new ServiceCollection();
+        beside.AddScoped<IMlReadGuard, MainServerMlReadGuardRecorder>();
+        Assert.Throws<InvalidOperationException>(() => beside.AddIyuMlMainServerReadGuard());
+    }
+
+    private sealed class MainServerMlReadGuardRecorder : IMlReadGuard
+    {
+        public string? RefusalFor(Type entity, string property) => null;
+
+        public ValueTask<bool> MayReadAsync(Type entity, ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(true);
+    }
+
+    [Fact]
     public async Task A_host_that_registered_the_guard_cannot_also_say_it_has_no_read_policies()
     {
         var builder = WebApplication.CreateBuilder();

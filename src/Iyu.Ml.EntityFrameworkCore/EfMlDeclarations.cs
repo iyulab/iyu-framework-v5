@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Iyu.Ml.EntityFrameworkCore;
 
@@ -9,6 +11,29 @@ namespace Iyu.Ml.EntityFrameworkCore;
 /// </summary>
 internal static class EfMlDeclarations
 {
+    /// <summary>
+    /// What is missing from the host's turning the layer on: <c>AddIyuMl</c> not called at all, or no word about read permissions.
+    /// The neutral layer checks these when the host starts; asked here as well, because a source that works without being told
+    /// how read permissions apply serves everything to anyone signed in, which is the one thing that must never be a default.
+    /// </summary>
+    public static List<string> LayerProblems(IServiceProvider scoped)
+    {
+        var problems = new List<string>();
+        if (scoped.GetService<IyuMlRegistration>() is null)
+        {
+            problems.Add("the ML layer is not turned on: call AddIyuMl, which is where the host says how read permissions apply");
+            return problems;
+        }
+
+        var guards = scoped.GetServices<IMlReadGuard>().Count();
+        var noPolicies = scoped.GetRequiredService<IOptions<IyuMlOptions>>().Value.ReadPoliciesNotUsed;
+        if (guards == 0 && !noPolicies)
+            problems.Add("the host has neither registered an IMlReadGuard nor said NoReadPolicies()");
+        if (guards > 1)
+            problems.Add("more than one IMlReadGuard is registered");
+        return problems;
+    }
+
     /// <summary>The columns and filter properties the guard refuses. Needs no database and no model.</summary>
     public static List<string> Refusals(IEfDatasetPlan plan, IMlReadGuard? guard)
     {

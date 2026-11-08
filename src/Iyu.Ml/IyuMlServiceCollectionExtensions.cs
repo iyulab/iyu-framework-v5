@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -20,6 +21,7 @@ public static class IyuMlServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
+        services.TryAddSingleton<IyuMlRegistration>();
         services.Configure(configure);
         services.AddSingleton<IValidateOptions<IyuMlOptions>, IyuMlOptionsValidator>();
         services.AddOptions<IyuMlOptions>().ValidateOnStart();
@@ -52,10 +54,14 @@ internal sealed class IyuMlPortsCheck : IHostedService
                 problems.Add($"serve the declared dataset '{dataset.Name}' from the registered IMlDatasetSource");
         }
 
-        var guard = services.GetService(typeof(IMlReadGuard)) as IMlReadGuard;
-        if (guard is null && !declared.ReadPoliciesNotUsed)
+        // A guard may depend on scoped services, so it is looked for in a scope, not on the root.
+        using var scope = services.CreateScope();
+        var guards = scope.ServiceProvider.GetServices<IMlReadGuard>().Count();
+        if (guards > 1)
+            problems.Add($"register one IMlReadGuard, not {guards}: a host answers for its read policies in one place");
+        if (guards == 0 && !declared.ReadPoliciesNotUsed)
             problems.Add("say how read permissions apply: register an IMlReadGuard, or call NoReadPolicies() when the host has no read policies");
-        if (guard is not null && declared.ReadPoliciesNotUsed)
+        if (guards > 0 && declared.ReadPoliciesNotUsed)
             problems.Add("choose between an IMlReadGuard and NoReadPolicies(): the host registered a guard and also said it has no read policies");
 
         if (problems.Count == 0) return;
@@ -66,3 +72,6 @@ internal sealed class IyuMlPortsCheck : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
+
+/// <summary>Present when <c>AddIyuMl</c> was called: what an adapter asks, so it never serves rows for a layer that was not turned on.</summary>
+internal sealed class IyuMlRegistration;

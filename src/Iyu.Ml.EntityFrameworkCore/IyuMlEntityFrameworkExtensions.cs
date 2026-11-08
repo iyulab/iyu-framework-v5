@@ -86,6 +86,7 @@ internal sealed class EfMlDeclarationCheck<TContext> : IHostedService where TCon
         var model = scope.ServiceProvider.GetRequiredService<TContext>().Model;
         var guard = scope.ServiceProvider.GetService<IMlReadGuard>();
         var problems = new List<string>();
+        problems.AddRange(EfMlDeclarations.LayerProblems(scope.ServiceProvider));
 
         foreach (var plan in plans)
         {

@@ -138,6 +138,21 @@ public sealed class AddIyuMlTests
     }
 
     [Fact]
+    public async Task A_host_with_two_guards_does_not_start()
+    {
+        var builder = Host();
+        builder.Services.AddSingleton<IMlDatasetSource>(new FixedSource(Readings));
+        builder.Services.AddSingleton<IMlReadGuard, FixedGuard>();
+        builder.Services.AddScoped<IMlReadGuard, FixedGuard>();
+        builder.Services.AddIyuMl(o => o.Dataset(Readings));
+        using var app = builder.Build();
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
+
+        Assert.Contains("one IMlReadGuard, not 2", refusal.Message);
+    }
+
+    [Fact]
     public async Task Every_missing_piece_is_reported_at_once()
     {
         var builder = Host();

@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Iyu.Tests" />
+    <!-- The adapter asks whether the layer was turned on, which is not something a caller should be able to fake. -->
+    <InternalsVisibleTo Include="Iyu.Ml.EntityFrameworkCore" />
   </ItemGroup>
 
 </Project>

@@ -48,7 +48,10 @@ public static class MlCsv
             // A source need not watch the token itself; a cancelled export stops at the next row either way.
             cancellationToken.ThrowIfCancellationRequested();
             var fields = definition.Columns.Select(c => row.TryGetValue(c.Name, out var value) ? Escape(Format(value)) : string.Empty);
-            await writer.WriteAsync(Join(fields) + LineEnd).ConfigureAwait(false);
+            var record = Join(fields);
+            // A record of one empty field is indistinguishable from a blank line, which many readers skip: quote it.
+            if (definition.Columns.Count == 1 && record.Length == 0) record = "\"\"";
+            await writer.WriteAsync(record + LineEnd).ConfigureAwait(false);
             count++;
         }
 
@@ -58,7 +61,8 @@ public static class MlCsv
 
     /// <summary>
     /// A value as text, the same under every culture: numbers with a point and no grouping, dates and times in ISO 8601,
-    /// booleans as <c>true</c> / <c>false</c>, an enumeration by name, <c>null</c> as the empty string.
+    /// booleans as <c>true</c> / <c>false</c>, an enumeration by name, bytes as base 64, <c>null</c> as the empty string. A value that has no
+    /// text of its own is refused.
     /// </summary>
     /// <param name="value">The value.</param>
     public static string Format(object? value) => value switch
@@ -74,8 +78,18 @@ public static class MlCsv
         Guid id => id.ToString("D", CultureInfo.InvariantCulture),
         Enum member => member.ToString(),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? string.Empty,
+        byte[] bytes => Convert.ToBase64String(bytes),
+        _ => Text(value),
     };
+
+    // A value with no text of its own prints its type name, which would land in the file as if it were data.
+    private static string Text(object value)
+    {
+        var text = value.ToString() ?? string.Empty;
+        if (text == value.GetType().ToString())
+            throw new ArgumentException($"A value of type {value.GetType().Name} has no text form to write to a CSV field.", nameof(value));
+        return text;
+    }
 
     /// <summary>A field ready to sit in a record: quoted, with inner quotes doubled, when it holds a comma, a quote or a line break.</summary>
     /// <param name="field">The field's text.</param>
