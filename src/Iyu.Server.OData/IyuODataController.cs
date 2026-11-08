@@ -85,8 +85,8 @@ public abstract class IyuODataController<TRead, TWrite> : IyuODataQueryControlle
         // Return the freshly materialized read row (includes server-assigned timestamps).
         var created = await ReadSet.AsNoTracking().FirstOrDefaultAsync(e => e.Id == write.Id, ct);
 
-        // The echoed row is a read of the entity. A caller who does not satisfy every property read policy of the set
-        // is not handed it: the Location is the answer. (Withheld whole rather than blanked property by property —
+        // The echoed row is a read of the entity. A caller who does not satisfy the set's read policy and every property
+        // read policy of it is not handed it: the Location is the answer. (Withheld whole rather than blanked property by property —
         // there is no query surface to recover a value from, and the write itself must stay possible.)
         if (await EchoWithheldAsync(pair))
         {
@@ -98,17 +98,22 @@ public abstract class IyuODataController<TRead, TWrite> : IyuODataQueryControlle
     }
 
     /// <summary>
-    /// Whether the caller fails a property read policy of this set, so that the row a write would echo back must not be
-    /// handed to them. A set with no property policy echoes as before; a policy that cannot be evaluated (no
-    /// authorization service) withholds.
+    /// Whether the caller fails the read policy of this set or a property read policy of it, so that the row a write would
+    /// echo back must not be handed to them: the echo is a read of the entity, re-read through the read type, and the write
+    /// policy does not stand in for the read one. A set with no read policy of either kind echoes as before; a policy that
+    /// cannot be evaluated (no authorization service) withholds.
     /// </summary>
     private async Task<bool> EchoWithheldAsync(IyuEntityPairRegistry.EntityPair? pair)
     {
-        if (pair is null || pair.PropertyReadPolicies.Count == 0) return false;
+        if (pair is null) return false;
+        var policies = pair.ReadPolicy is { } setPolicy
+            ? pair.PropertyReadPolicies.Values.Prepend(setPolicy)
+            : pair.PropertyReadPolicies.Values;
+        if (!policies.Any()) return false;
         if (HttpContext.RequestServices.GetService<Microsoft.AspNetCore.Authorization.IAuthorizationService>()
             is not { } authorization)
             return true;
-        foreach (var policy in pair.PropertyReadPolicies.Values.Distinct(StringComparer.Ordinal))
+        foreach (var policy in policies.Distinct(StringComparer.Ordinal))
             if (!(await authorization.AuthorizeAsync(User, policy)).Succeeded) return true;
         return false;
     }

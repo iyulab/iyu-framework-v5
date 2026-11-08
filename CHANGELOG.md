@@ -72,6 +72,13 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **`POST` no longer echoes the created row to a caller who may write the set but not read it.** The echo is a read of the
+  entity, re-read through the read type — which can carry columns the caller never sent — and the write policy does not
+  stand in for the read policy declared with `Authorize<T>(read: …)`. Such a caller now gets `201` with the `Location` header
+  and no body, as a caller who fails a property read policy already did; a caller who satisfies the read policy, and a set
+  with no read policy, echo as before. 🔇 A client that creates rows under a write-only policy and reads the response body now
+  receives none: read the row from `Location` with a caller that may read it, or grant the read policy.
+
 - **README: «From a model to a database» connects the three tools.** The README now opens with how a model becomes tables
   — `mdd build` writes SQL files, `schemorph diff` / `apply` reads a folder of them — with the smallest working layout, the
   four-line model and the `mdd.json` that produce it, the PostgreSQL variant, and what `diff`'s exit code and plan fingerprint mean. The two tools
