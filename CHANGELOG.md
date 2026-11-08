@@ -29,9 +29,24 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Lowline`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
+
+- **Property read policies: `options.AuthorizeProperty<TRead>(x => x.Phone, read: "pii.read")`.** An entity's read policy
+  decides whether a caller may read the entity at all, and `Exclude` removes a property from the model for every caller;
+  nothing let a host say that one property is readable by some callers and not others. Hosts kept their own lists of
+  readable properties in the adapters in front of the API, and a list that misses one place hands the value out. Declared once,
+  on the read type, the policy holds on every way the OData surface reads the property: a caller who does not satisfy it can
+  not print it (`$select`, `$compute`, a `$apply` group or aggregate, `$expand`), test it (`$filter`), sort by it (`$orderby`)
+  or search it (`$search` tests every property of the sets it matches). A request that would print every property of the entity
+  — no `$select`, `$select=*`, an `$expand` without a nested `$select` — is refused to that caller as well; they name the
+  properties they may read with `$select`. The answer is `401` without an identity and `403` with one, the same split as an
+  entity's read policy, and `IIyuAuthorizationFailureFeature.Property` names the property. Nothing is blanked: a blank looks
+  like "no value" and `$filter` would still recover the real one. A `POST` that would echo the created row to a caller who fails
+  a property's policy answers `201` with the `Location` header and no body. When the host is built, a type no OData set serves,
+  a property removed with `Exclude`, a second declaration for one property, and a type another surface also serves are refused
+  — the GraphQL surface does not enforce property policies yet, and a declaration one surface ignores would be a hole.
 
 - **`Iyu.VaultAi`: `MapVaultAiEmbed()` — the server half of embedding the chat widget in your own pages.** The widget needs
   two things from the host: where to load it from and which channel, and a short-lived token that only the chat service can

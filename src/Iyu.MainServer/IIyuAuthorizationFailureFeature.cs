@@ -27,6 +27,13 @@ public interface IIyuAuthorizationFailureFeature
 
     /// <summary>The entity set whose policy it is.</summary>
     string EntitySet { get; }
+
+    /// <summary>
+    /// The property whose read policy it is, when the policy that was not satisfied belongs to one property of
+    /// <see cref="EntitySet"/> rather than to the whole set; <see langword="null"/> for a set's own policy.
+    /// </summary>
+    string? Property => null;
 }
 
-internal sealed record IyuAuthorizationFailureFeature(string Policy, string EntitySet) : IIyuAuthorizationFailureFeature;
+internal sealed record IyuAuthorizationFailureFeature(string Policy, string EntitySet, string? Property = null)
+    : IIyuAuthorizationFailureFeature;

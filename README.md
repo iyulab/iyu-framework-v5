@@ -891,6 +891,38 @@ bridge HotChocolate needs to evaluate a policy against `IAuthorizationService` (
 `.Authorize(policy)` descriptor but no handler that checks it against ASP.NET Core's authorization) — so a
 host that declares nothing pays for neither.
 
+### Property read policies
+
+A read policy on an entity says who may read it. When only some callers may read one property of it — a phone number, a tax
+id — declare that on the property, once, next to the entity's own policy:
+
+```csharp
+options.Authorize<CustomerExt>(read: "customers.read");
+options.AuthorizeProperty<CustomerExt>(x => x.Phone, read: "pii.read");
+```
+
+A caller needs both: the entity's policy to read the entity, the property's to read the property. One who does not satisfy the
+property's policy cannot read it in any way — not print it (`$select`, `$compute`, a `$apply` group or aggregate, `$expand`),
+not test it (`$filter`), not sort by it (`$orderby`), not search it (`$search` tests every property of the sets it matches). A
+request that would print every property of the entity — no `$select`, `$select=*`, an `$expand` without a nested `$select` — is
+refused to that caller too, so name the properties you may read:
+
+```http
+GET /$data/Customers?$select=Id,Name       # 200 — neither names Phone
+GET /$data/Customers                         # 403 — would print Phone
+GET /$data/Customers?$filter=startswith(Phone,'01')&$select=Id   # 403 — tests Phone
+```
+
+The answer is `401` without an identity and `403` with one, as for an entity's read policy. Nothing is blanked: a blank value
+would look like "no value", and `$filter` would still let a caller recover the real one. This is not `Exclude`, which removes
+the property from the model for every caller. The framework does not know what kind of caller satisfies the policy — a person,
+a service, a tool; the policy name is the host's, and a caller using the same credential as a signed-in person is the same
+caller. A `POST` that would echo the created row to a caller who fails a property's policy answers `201` with the `Location`
+header and no body.
+
+The host refuses, when it is built: a type no OData set serves, a property removed with `Exclude`, a second declaration for one
+property, and a type another surface also serves — the GraphQL surface does not enforce property policies yet.
+
 ### How far a read policy reaches
 
 A read policy protects the **data**, not the one route you declared it on. Both surfaces enforce it

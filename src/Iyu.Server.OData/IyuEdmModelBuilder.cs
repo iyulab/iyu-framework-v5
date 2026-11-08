@@ -289,6 +289,10 @@ public sealed class IyuEdmModelBuilder
 
     private readonly List<(Type Type, PropertyInfo[] Properties)> _exclusions = new();
 
+    /// <summary>Whether <paramref name="property"/> of <paramref name="type"/> was subtracted from the model with <see cref="Exclude{T}"/>.</summary>
+    internal bool IsExcluded(Type type, string property)
+        => _exclusions.Any(e => e.Type == type && e.Properties.Any(p => p.Name == property));
+
     /// <summary>
     /// Marks <paramref name="properties"/> as not writable through the generic
     /// OData POST/PATCH surface, while leaving them exposed for reads.

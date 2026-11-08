@@ -1,5 +1,6 @@
 using Iyu.Core.Entities;
 using Iyu.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -83,7 +84,33 @@ public abstract class IyuODataController<TRead, TWrite> : IyuODataQueryControlle
 
         // Return the freshly materialized read row (includes server-assigned timestamps).
         var created = await ReadSet.AsNoTracking().FirstOrDefaultAsync(e => e.Id == write.Id, ct);
+
+        // The echoed row is a read of the entity. A caller who does not satisfy every property read policy of the set
+        // is not handed it: the Location is the answer. (Withheld whole rather than blanked property by property —
+        // there is no query surface to recover a value from, and the write itself must stay possible.)
+        if (await EchoWithheldAsync(pair))
+        {
+            Response.Headers[HeaderNames.Location] = $"{Request.Path}({write.Id})";
+            return StatusCode(StatusCodes.Status201Created);
+        }
+
         return Created($"{Request.Path}({write.Id})", created ?? (object)write);
+    }
+
+    /// <summary>
+    /// Whether the caller fails a property read policy of this set, so that the row a write would echo back must not be
+    /// handed to them. A set with no property policy echoes as before; a policy that cannot be evaluated (no
+    /// authorization service) withholds.
+    /// </summary>
+    private async Task<bool> EchoWithheldAsync(IyuEntityPairRegistry.EntityPair? pair)
+    {
+        if (pair is null || pair.PropertyReadPolicies.Count == 0) return false;
+        if (HttpContext.RequestServices.GetService<Microsoft.AspNetCore.Authorization.IAuthorizationService>()
+            is not { } authorization)
+            return true;
+        foreach (var policy in pair.PropertyReadPolicies.Values.Distinct(StringComparer.Ordinal))
+            if (!(await authorization.AuthorizeAsync(User, policy)).Succeeded) return true;
+        return false;
     }
 
     /// <summary>

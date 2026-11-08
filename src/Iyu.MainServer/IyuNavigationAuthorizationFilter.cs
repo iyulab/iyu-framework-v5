@@ -108,6 +108,23 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             return;
         }
 
+        // What a GET prints when nothing names the properties: all of them. A response to $count prints no row, and a
+        // write's response is not a query result.
+        if (HttpMethods.IsGet(request.Method) && !reach.ShapesOutput
+            && !(request.Path.Value ?? "").EndsWith("/$count", StringComparison.Ordinal)
+            && !given.ContainsKey("$select") && !given.ContainsKey("$expand"))
+            reach.AllPrinted.Add(setName);
+
+        // A property reference this walk could not attribute to an entity. Allowed through only when no entity of this
+        // API restricts a property of that name — otherwise it could be the restricted one.
+        if (reach.Unowned.Count > 0
+            && registry.All.Any(p => p.PropertyReadPolicies.Keys.Any(reach.Unowned.Contains)))
+        {
+            context.Result = Refusal("The query reads a property this server could not attribute to an entity, and a "
+                                     + "property of that name has a read policy. It was refused.");
+            return;
+        }
+
         // Every navigation the model keeps is bound to a registered set — navigations to types no
         // set serves are dropped when the model is built. One that still reaches no registered set
         // has no read policy to apply, and allowing it would serve rows nothing declared a policy
@@ -145,6 +162,31 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
 
             // Same split the framework's own AuthorizeFilter produces: a caller with no identity is
             // told to authenticate, one with an identity is told it is not enough.
+            context.Result = context.HttpContext.User.Identity?.IsAuthenticated == true
+                ? new ForbidResult()
+                : new ChallengeResult();
+            return;
+        }
+
+        // The properties the request prints, tests or sorts by, each with the policy it needs beyond its set's own.
+        // A search tests every property of the sets it matches, so it needs them all.
+        var needed = new HashSet<(string Set, string Property, string Policy)>();
+        foreach (var (set, property) in reach.Properties)
+            if (registry.Find(set) is { } owner && owner.PropertyReadPolicies.TryGetValue(property, out var policy))
+                needed.Add((set, property, policy));
+        foreach (var set in reach.AllPrinted.Concat(reach.Searched))
+            if (registry.Find(set) is { } owner)
+                foreach (var (property, policy) in owner.PropertyReadPolicies)
+                    needed.Add((set, property, policy));
+
+        foreach (var (set, property, policy) in needed.Order())
+        {
+            var result = await authorization.AuthorizeAsync(context.HttpContext.User, policy);
+            if (result.Succeeded) continue;
+
+            // Names the property too, for a host that words its own refusals.
+            context.HttpContext.Features.Set<IIyuAuthorizationFailureFeature>(
+                new IyuAuthorizationFailureFeature(policy, set, property));
             context.Result = context.HttpContext.User.Identity?.IsAuthenticated == true
                 ? new ForbidResult()
                 : new ChallengeResult();
@@ -278,7 +320,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         Interpret("$compute", () => reach.Walk(parser.ParseCompute()));
         Interpret("$filter", () => reach.Walk(parser.ParseFilter()));
         Interpret("$orderby", () => reach.Walk(parser.ParseOrderBy()));
-        Interpret(options.ContainsKey("$expand") ? "$expand" : "$select", () => reach.Walk(parser.ParseSelectAndExpand()));
+        Interpret(options.ContainsKey("$expand") ? "$expand" : "$select", () => reach.Walk(parser.ParseSelectAndExpand(), entitySet));
         // Whatever an alias stands for was bound while the options above were parsed.
         Interpret("parameter alias", () =>
         {
@@ -325,6 +367,52 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         /// </summary>
         public HashSet<string> Searched { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>The properties the query names, with the set each belongs to — for a property read policy to apply to.</summary>
+        public HashSet<(string Set, string Property)> Properties { get; } = new();
+
+        /// <summary>The sets whose every property the response prints (no <c>$select</c> narrows them, or a <c>*</c> widens it).</summary>
+        public HashSet<string> AllPrinted { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Property names the walk could not attribute to an entity (a source of a kind it has no owner rule for). Fail-closed:
+        /// the caller refuses the query if any entity restricts a property of such a name.
+        /// </summary>
+        public HashSet<string> Unowned { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The <c>$apply</c> groups or aggregates — the response then prints what the apply names, not whole rows.</summary>
+        public bool ShapesOutput { get; private set; }
+
+        private void Property(QueryNode? source, string name)
+        {
+            switch (source)
+            {
+                case ResourceRangeVariableReferenceNode range:
+                    // The row being read ($it) or a lambda's variable: the set it ranges over.
+                    if (range.NavigationSource is { } owner) Properties.Add((owner.Name, name));
+                    else Unowned.Add(name);
+                    break;
+                case SingleNavigationNode navigation:
+                    Properties.Add((navigation.NavigationSource?.Name ?? "", name));
+                    break;
+                case CollectionNavigationNode navigation:
+                    Properties.Add((navigation.NavigationSource?.Name ?? "", name));
+                    break;
+                case SingleComplexNode or CollectionComplexNode:
+                    // A member of a complex value: the complex property itself carries the policy, and is recorded
+                    // where it was accessed.
+                    break;
+                case SingleResourceCastNode cast:
+                    Property(cast.Source, name);
+                    break;
+                case CollectionResourceCastNode cast:
+                    Property(cast.Source, name);
+                    break;
+                default:
+                    Unowned.Add(name);
+                    break;
+            }
+        }
+
         // An unbound navigation has no set; recorded as an empty name, which no set has, so the caller refuses it
         // instead of skipping it.
         private void Reached(IEdmNavigationSource? source) => Sets.Add(source?.Name ?? "");
@@ -359,9 +447,11 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             Visit(clause.Expression);
         }
 
-        public void Walk(SelectExpandClause? clause)
+        public void Walk(SelectExpandClause? clause, IEdmNavigationSource? owner)
         {
             if (clause is null) return;
+            // No $select (or one that does not narrow): every property of the owner is printed.
+            if (clause.AllSelected && owner is not null) AllPrinted.Add(owner.Name);
             foreach (var item in clause.SelectedItems)
             {
                 switch (item)
@@ -374,7 +464,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
                         Walk(navigation.ComputeOption);
                         Walk(navigation.ApplyOption);
                         Walk(navigation.SearchOption, navigation.NavigationSource);
-                        Walk(navigation.SelectAndExpand);
+                        Walk(navigation.SelectAndExpand, navigation.NavigationSource);
                         break;
                     case ExpandedReferenceSelectItem reference:                  // includes $expand=Nav/$count
                         Reached(reference.NavigationSource);
@@ -386,15 +476,19 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
                         Walk(reference.SearchOption, reference.NavigationSource);
                         break;
                     case PathSelectItem path:
-                        Walk(path.SelectedPath);
+                        Walk(path.SelectedPath, owner);
                         Walk(path.FilterOption);
                         Walk(path.OrderByOption);
                         Walk(path.ComputeOption);
                         // A selected property's rows are not a set's rows — a search there has no owner to name.
                         Walk(path.SearchOption, owner: null);
-                        Walk(path.SelectAndExpand);
+                        Walk(path.SelectAndExpand, owner: null);
                         break;
-                    case WildcardSelectItem or NamespaceQualifiedWildcardSelectItem:
+                    case WildcardSelectItem:
+                        // $select=* prints every property of the owner.
+                        if (owner is not null) AllPrinted.Add(owner.Name);
+                        break;
+                    case NamespaceQualifiedWildcardSelectItem:
                         break;
                     default:
                         throw new NotImplementedException();
@@ -402,18 +496,39 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             }
         }
 
-        /// <summary>The navigations a select or expand path passes through on its way.</summary>
-        private void Walk(ODataPath? path)
+        /// <summary>
+        /// The navigations a select or expand path passes through on its way, and the property it ends on — which
+        /// belongs to the set the last navigation reached, or to <paramref name="owner"/> when it crossed none.
+        /// </summary>
+        private void Walk(ODataPath? path, IEdmNavigationSource? owner = null)
         {
             if (path is null) return;
+            var current = owner;
             foreach (var segment in path)
-                if (segment is NavigationPropertySegment navigation) Reached(navigation.NavigationSource);
+            {
+                switch (segment)
+                {
+                    case NavigationPropertySegment navigation:
+                        Reached(navigation.NavigationSource);
+                        current = navigation.NavigationSource;
+                        break;
+                    case PropertySegment property:
+                        if (current is not null) Properties.Add((current.Name, property.Property.Name));
+                        // What follows is a member of this property, not of the set.
+                        current = null;
+                        break;
+                }
+            }
         }
 
         public void Walk(ApplyClause? clause)
         {
             if (clause is null) return;
-            foreach (var transformation in clause.Transformations) Walk(transformation);
+            foreach (var transformation in clause.Transformations)
+            {
+                if (transformation is GroupByTransformationNode or AggregateTransformationNode) ShapesOutput = true;
+                Walk(transformation);
+            }
         }
 
         private void Walk(TransformationNode? transformation)
@@ -436,7 +551,9 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
                     foreach (var expression in compute.Expressions) Visit(expression.Expression);
                     break;
                 case ExpandTransformationNode expand:
-                    Walk(expand.ExpandClause);
+                    // The applied set is not named here; its default projection is accounted for by the caller, and each
+                    // expanded set below carries its own owner.
+                    Walk(expand.ExpandClause, owner: null);
                     break;
                 default:
                     throw new NotImplementedException();
@@ -498,16 +615,18 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             return true;
         }
 
-        public override bool Visit(SingleValuePropertyAccessNode nodeIn) { Visit(nodeIn.Source); return true; }
-        public override bool Visit(CollectionPropertyAccessNode nodeIn) { Visit(nodeIn.Source); return true; }
-        public override bool Visit(SingleValueOpenPropertyAccessNode nodeIn) { Visit(nodeIn.Source); return true; }
-        public override bool Visit(CollectionOpenPropertyAccessNode nodeIn) { Visit(nodeIn.Source); return true; }
-        public override bool Visit(SingleComplexNode nodeIn) { Visit(nodeIn.Source); return true; }
-        public override bool Visit(CollectionComplexNode nodeIn) { Visit(nodeIn.Source); return true; }
+        // Reading a property (printing, testing or ordering by it) is what a property read policy guards; the source is
+        // walked on for the navigations it passes through.
+        public override bool Visit(SingleValuePropertyAccessNode nodeIn) { Property(nodeIn.Source, nodeIn.Property.Name); Visit(nodeIn.Source); return true; }
+        public override bool Visit(CollectionPropertyAccessNode nodeIn) { Property(nodeIn.Source, nodeIn.Property.Name); Visit(nodeIn.Source); return true; }
+        public override bool Visit(SingleValueOpenPropertyAccessNode nodeIn) { Property(nodeIn.Source, nodeIn.Name); Visit(nodeIn.Source); return true; }
+        public override bool Visit(CollectionOpenPropertyAccessNode nodeIn) { Property(nodeIn.Source, nodeIn.Name); Visit(nodeIn.Source); return true; }
+        public override bool Visit(SingleComplexNode nodeIn) { Property(nodeIn.Source, nodeIn.Property.Name); Visit(nodeIn.Source); return true; }
+        public override bool Visit(CollectionComplexNode nodeIn) { Property(nodeIn.Source, nodeIn.Property.Name); Visit(nodeIn.Source); return true; }
         public override bool Visit(SingleResourceCastNode nodeIn) { Visit(nodeIn.Source); return true; }
         public override bool Visit(CollectionResourceCastNode nodeIn) { Visit(nodeIn.Source); return true; }
         public override bool Visit(SingleValueCastNode nodeIn) { Visit(nodeIn.Source); return true; }
-        public override bool Visit(AggregatedCollectionPropertyNode nodeIn) { Visit(nodeIn.Source); return true; }
+        public override bool Visit(AggregatedCollectionPropertyNode nodeIn) { Property(nodeIn.Source, nodeIn.Property.Name); Visit(nodeIn.Source); return true; }
 
         public override bool Visit(SingleValueFunctionCallNode nodeIn) => Call(nodeIn.Source, nodeIn.Parameters);
         public override bool Visit(SingleResourceFunctionCallNode nodeIn) => Call(nodeIn.Source, nodeIn.Parameters);

@@ -170,6 +170,37 @@ public sealed class IyuEntityPairRegistry
     }
 
     /// <summary>
+    /// Requires an ASP.NET Core authorization policy to read one property of an already-registered set — in addition
+    /// to the set's own read policy, never instead of it. The property-level sibling of <see cref="RestrictPolicy"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="setName"/> is not registered, or the property already has a policy.
+    /// </exception>
+    internal void RestrictProperty(string setName, string property, string readPolicy)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(setName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(property);
+        ArgumentException.ThrowIfNullOrWhiteSpace(readPolicy);
+
+        _bySetName.AddOrUpdate(
+            setName,
+            _ => throw new InvalidOperationException($"Entity set '{setName}' is not registered."),
+            (_, existing) =>
+            {
+                if (existing.PropertyReadPolicies.ContainsKey(property))
+                    throw new InvalidOperationException(
+                        $"Property '{property}' of entity set '{setName}' already has a read policy. Declare it once.");
+                return existing with
+                {
+                    PropertyReadPolicies = new Dictionary<string, string>(existing.PropertyReadPolicies, StringComparer.Ordinal)
+                    {
+                        [property] = readPolicy,
+                    },
+                };
+            });
+    }
+
+    /// <summary>
     /// Declares that <paramref name="setName"/>'s key is not its own: every row's key is also its
     /// reference to a row of <paramref name="principalSetName"/>.
     /// </summary>
@@ -243,5 +274,16 @@ public sealed class IyuEntityPairRegistry
         string? ReadPolicy,
         string? WritePolicy,
         string? DeletePolicy,
-        string? SharedKeyPrincipalSet);
+        string? SharedKeyPrincipalSet)
+    {
+        private static readonly IReadOnlyDictionary<string, string> NoPropertyPolicies =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The read policy a property of the read type needs, by property name — beyond <see cref="ReadPolicy"/>,
+        /// which the whole set needs. A caller who does not satisfy a property's policy cannot read that property in
+        /// any way: not printed, not filtered on, not ordered by, not aggregated.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> PropertyReadPolicies { get; init; } = NoPropertyPolicies;
+    }
 }

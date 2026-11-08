@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Reflection;
+using Iyu.Core.Entities;
 using Iyu.Server.OData;
 
 namespace Iyu.MainServer;
@@ -76,6 +78,56 @@ public sealed class IyuMainServerOptions
 
     /// <summary>The policies declared with <see cref="Authorize{TRead}"/>, by read type.</summary>
     public IReadOnlyDictionary<Type, EntityPolicy> EntityPolicies => _entityPolicies;
+
+    private readonly Dictionary<(Type ReadType, string Property), string> _propertyPolicies = new();
+
+    /// <summary>
+    /// Declares, once, the policy a caller must satisfy to read <paramref name="property"/> of the entity whose read
+    /// type is <typeparamref name="TRead"/> — in addition to the entity's own read policy, never instead of it. A caller
+    /// who does not satisfy it cannot read the property in any way: not print it, not filter on it, not order or
+    /// aggregate by it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is not <see cref="IyuEdmModelBuilder.Exclude{T}"/>: that removes the property from the model for every
+    /// caller, and this keeps it for the callers who satisfy the policy. The framework does not know what kind of
+    /// caller satisfies it — a person, a service, a tool; the policy name is the host's.
+    /// </para>
+    /// <para>
+    /// A request that would print every property of the entity (no <c>$select</c>, or a wildcard) is refused to a caller
+    /// who does not satisfy the policy — the properties it may read are named with <c>$select</c>. A refusal is not a
+    /// blanked value: a blank is indistinguishable from "no value" and still lets a caller recover the real one with
+    /// <c>$filter</c>.
+    /// </para>
+    /// <para>
+    /// Refused when the host is built: a type no surface serves, a property the model does not expose (one removed with
+    /// <c>Exclude</c>), a second declaration for one property, and a type the GraphQL surface also serves — GraphQL does
+    /// not enforce property policies yet, and a declaration that one surface ignores would be a hole.
+    /// </para>
+    /// </remarks>
+    public IyuMainServerOptions AuthorizeProperty<TRead>(Expression<Func<TRead, object?>> property, string read)
+        where TRead : class
+        => AuthorizeProperty(typeof(TRead), ExposedProperty.Resolve(property).Name, read);
+
+    /// <summary>
+    /// <see cref="AuthorizeProperty{TRead}"/> for a read type and property known only at run time.
+    /// </summary>
+    public IyuMainServerOptions AuthorizeProperty(Type readType, string property, string read)
+    {
+        ArgumentNullException.ThrowIfNull(readType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(property);
+        ArgumentException.ThrowIfNullOrWhiteSpace(read);
+        if (readType.GetProperty(property) is null)
+            throw new ArgumentException(
+                $"'{readType.FullName}' has no public property '{property}'.", nameof(property));
+        if (!_propertyPolicies.TryAdd((readType, property), read))
+            throw new InvalidOperationException(
+                $"A read policy for '{readType.FullName}.{property}' is already declared. Declare a property's policy once.");
+        return this;
+    }
+
+    /// <summary>The policies declared with <see cref="AuthorizeProperty{TRead}"/>, by read type and property name.</summary>
+    public IReadOnlyDictionary<(Type ReadType, string Property), string> PropertyPolicies => _propertyPolicies;
 
     /// <summary>
     /// OData route prefix. Defaults to <c>"$data"</c> per the design spec
