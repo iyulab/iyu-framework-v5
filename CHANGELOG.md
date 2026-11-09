@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Core`, `Iyu.Data.SqlServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -112,6 +112,15 @@ onward; earlier entries state the same consequence in prose where it applies.
   — the call and its type arguments stay as they are; any other host registers its own two ports. There is no forwarding
   alias — `EfLowlineStore` and the type-argument overload no longer exist in `Iyu.Lowline`. This is the first publication of
   `Iyu.Lowline.EntityFrameworkCore`.
+
+- **`Iyu.Data.SqlServer`: `Microsoft.Data.SqlClient` 6.1.7 → 7.1.1 (a major line).** The package followed the floor
+  `Microsoft.EntityFrameworkCore.SqlServer` asks for; it now follows the current stable line, and an application on SQL
+  Server receives it through this package. The error classification is unchanged — SQL Server's error numbers (unique
+  `2601`/`2627`, arithmetic overflow `8115`/`220`) read the same — and Entity Framework Core 10 reads, writes, rolls back and
+  creates a database over it as before (checked against a local SQL Server). **Breaking for Entra ID sign-in:** SqlClient 7
+  moved Azure/Entra ID authentication (`ActiveDirectory…` in the connection string) out of the core driver into
+  `Microsoft.Data.SqlClient.Extensions.Azure`. **To upgrade:** an application that connects with Entra ID adds a reference to
+  that package; one that uses SQL logins or integrated security changes nothing and no longer carries the Azure assemblies.
 
 ## [0.47.0] - 2026-10-31
 
