@@ -93,8 +93,20 @@ internal sealed class FakeFolderChatbotAdmin : IFolderChatbotAdmin
             .Select(r => new NamedRef(r.Id, r.Name, r.Description)).ToList());
     }
 
-    public Task<IReadOnlyList<ModelRef>> ListModelsAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<ModelRef>>([]);
+    /// <summary>The workspace's models, from which the engine picks. A usable default is one language and one embedding model.</summary>
+    public List<ModelRef> Models { get; } = [];
+
+    /// <summary>When set, listing the models waits for it (to hold a check at a known point).</summary>
+    public Task? ModelListGate { get; set; }
+
+    public int ModelListCalls;
+
+    public async Task<IReadOnlyList<ModelRef>> ListModelsAsync(CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref ModelListCalls);
+        if (ModelListGate is { } gate) await gate.ConfigureAwait(false);
+        return Models.ToList();
+    }
 
     // ---- connectors
 

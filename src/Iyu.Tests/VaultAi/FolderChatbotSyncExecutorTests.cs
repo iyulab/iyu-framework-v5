@@ -16,46 +16,10 @@ public class FolderChatbotSyncExecutorTests
 {
     private static readonly TimeSpan Grace = TimeSpan.FromHours(24);
 
-    private sealed class FakeSource : IFolderChatbotSource
-    {
-        public Dictionary<string, Dictionary<string, (byte[] Content, DateTimeOffset Written)>> Bots { get; } = new(StringComparer.Ordinal);
-        public Dictionary<string, SettingsText> Agents { get; } = [];
-        public Dictionary<string, SettingsText> Mcp { get; } = [];
-        public bool Unreadable { get; set; }
-
-        public void Put(string bot, string path, string content, DateTimeOffset? at = null)
-        {
-            if (!Bots.TryGetValue(bot, out var files)) Bots[bot] = files = new Dictionary<string, (byte[], DateTimeOffset)>(StringComparer.Ordinal);
-            files[path] = (Encoding.UTF8.GetBytes(content), at ?? new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero));
-        }
-
-        public FolderSnapshot ReadSnapshot(FolderChatbotManifest manifest)
-        {
-            if (Unreadable) return new FolderSnapshot(false, new Dictionary<string, IReadOnlyList<LocalFile>>(), "share unmounted");
-            return new FolderSnapshot(true, Bots.ToDictionary(b => b.Key, b => (IReadOnlyList<LocalFile>)b.Value
-                .Select(f => new LocalFile(f.Key, f.Value.Content.Length, f.Value.Written, Convert.ToHexStringLower(SHA256.HashData(f.Value.Content))))
-                .ToList(), StringComparer.Ordinal));
-        }
-
-        public Stream OpenRead(string bot, string relativePath) => new MemoryStream(Bots[bot][relativePath].Content);
-
-        public SettingsText ReadAgents(string? bot, out string? warning)
-        {
-            warning = null;
-            return Agents.GetValueOrDefault(bot ?? "") ?? new SettingsText(null, null);
-        }
-
-        public SettingsText ReadMcp(string bot, out string? warning)
-        {
-            warning = null;
-            return Mcp.GetValueOrDefault(bot) ?? new SettingsText(null, null);
-        }
-    }
-
     private sealed class Rig
     {
         public FakeFolderChatbotAdmin Admin { get; } = new();
-        public FakeSource Source { get; } = new();
+        public FakeFolderChatbotSource Source { get; } = new();
         public FolderChatbotManifest Manifest { get; set; } = new() { Owner = Guid.NewGuid() };
         public FolderChatbotModels Models { get; } = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null);
         public DateTimeOffset Now { get; set; } = new(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
