@@ -15,6 +15,8 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-11-09
+
 ### Added
 
 - **`Iyu.Lowline`: `ILowlineHistorySource` — start from the records the application already holds.** A new installation's

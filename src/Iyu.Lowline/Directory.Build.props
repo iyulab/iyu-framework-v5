@@ -7,7 +7,7 @@
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <PropertyGroup>
-    <Version>0.47.0</Version>
+    <Version>0.48.0</Version>
     <PackageReleaseNotes>See CHANGELOG.md, shipped in this package. Iyu.Lowline is versioned on its own line, separate from the other Iyu.* packages.</PackageReleaseNotes>
   </PropertyGroup>
 

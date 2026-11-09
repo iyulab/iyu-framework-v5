@@ -31,6 +31,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-11-09
+
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
