@@ -60,6 +60,9 @@ internal sealed class FolderChatbotSyncContext(
     /// </summary>
     public bool EmbeddingExplicit { get; init; }
 
+    /// <summary>A file larger than this is not uploaded (it is skipped and looked at again every check). Zero or less: no limit.</summary>
+    public long MaxFileBytes { get; init; }
+
     /// <summary>Messages to add to the check's warnings.</summary>
     public List<string> Warnings { get; } = [];
 

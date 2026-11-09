@@ -165,10 +165,14 @@ internal sealed class FakeFolderChatbotAdmin : IFolderChatbotAdmin
         return Task.FromResult(id);
     }
 
+    /// <summary>When set, updating the agent fails with it.</summary>
+    public Exception? UpdateAgentFailure { get; set; }
+
     public Task UpdateAgentAsync(Guid id, string name, string description, Guid? modelId, string instructions,
         IReadOnlyList<Guid> connectors, IReadOnlyList<Guid> storages, IReadOnlyList<AgentScope> scopes, CancellationToken ct = default)
     {
         Calls.Add("update-agent");
+        if (UpdateAgentFailure is { } failure) throw failure;
         if (!Agents.ContainsKey(id)) throw NotFound();
         Agents[id] = new AgentRow(id, name, description, modelId, instructions, connectors, storages, scopes);
         return Task.CompletedTask;
@@ -203,14 +207,42 @@ internal sealed class FakeFolderChatbotAdmin : IFolderChatbotAdmin
 
     // ---- files
 
+    /// <summary>Makes an upload of that remote file name fail with the exception it returns (null: succeeds).</summary>
+    public Func<string, Exception?>? UploadFailure { get; set; }
+
+    /// <summary>Makes the delete of that remote file fail with the exception it returns (null: succeeds).</summary>
+    public Func<RemoteFile, Exception?>? DeleteFileFailure { get; set; }
+
+    /// <summary>When set, listing the files of a storage fails with it.</summary>
+    public Exception? ListFilesFailure { get; set; }
+
     public Task<Guid> UploadFileAsync(Guid storageId, string fileName, IReadOnlyList<string> tags, Stream content, CancellationToken ct = default)
-        => throw new NotSupportedException();
+    {
+        Calls.Add("upload:" + fileName);
+        if (UploadFailure?.Invoke(fileName) is { } failure) throw failure;
+        if (!Files.TryGetValue(storageId, out var files)) throw NotFound();
+        using var buffer = new MemoryStream();
+        content.CopyTo(buffer);
+        var id = Guid.NewGuid();
+        files.Add(new RemoteFile(id, fileName, buffer.Length, "indexed") { Tags = tags });
+        return Task.FromResult(id);
+    }
 
     public Task<IReadOnlyList<RemoteFile>> ListFilesAsync(Guid storageId, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<RemoteFile>>(Files.TryGetValue(storageId, out var files) ? files.ToList() : []);
+    {
+        if (ListFilesFailure is { } failure) throw failure;
+        return Task.FromResult<IReadOnlyList<RemoteFile>>(Files.TryGetValue(storageId, out var files) ? files.ToList() : []);
+    }
 
     public Task DeleteFileAsync(Guid storageId, Guid fileId, CancellationToken ct = default)
-        => throw new NotSupportedException();
+    {
+        if (!Files.TryGetValue(storageId, out var files)) throw NotFound();
+        var file = files.FirstOrDefault(f => f.Id == fileId) ?? throw NotFound();
+        Calls.Add("delete-file:" + file.FileName);
+        if (DeleteFileFailure?.Invoke(file) is { } failure) throw failure;
+        files.Remove(file);
+        return Task.CompletedTask;
+    }
 
     public Task RetryFilePipelineAsync(Guid storageId, Guid fileId, CancellationToken ct = default)
     {
