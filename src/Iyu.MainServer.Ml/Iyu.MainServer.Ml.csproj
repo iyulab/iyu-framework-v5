@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Connects the Iyu.Ml read guard to Iyu.MainServer's read policies, so machine learning never reads what the caller could not.</Description>
     <RootNamespace>Iyu.MainServer.Ml</RootNamespace>
     <!-- Not packed yet, with the ML layer it adapts: the pair ships when the first release is decided. -->
     <IsPackable>false</IsPackable>

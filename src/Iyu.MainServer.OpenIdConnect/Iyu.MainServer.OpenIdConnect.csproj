@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>OpenID Connect back-channel logout for Iyu.MainServer hosts that sign people in through an OpenID Connect provider.</Description>
     <RootNamespace>Iyu.MainServer.Identity</RootNamespace>
   </PropertyGroup>
 

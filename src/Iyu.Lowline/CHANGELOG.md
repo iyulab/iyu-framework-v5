@@ -29,6 +29,9 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ### Changed
 
+- **`Iyu.Lowline` and `Iyu.Lowline.EntityFrameworkCore` describe themselves on nuget.org.** Both carried the repository-wide one-line
+  description of the other `Iyu.*` packages; each now says what it does and what it does not depend on. Package metadata only.
+
 - **`Iyu.Lowline`: the engine is now `Lowline` 0.11.0.** The package carries the engine's native library for Alpine Linux as
   well (`linux-musl-x64`, `linux-musl-arm64`), so the engine can load in an Alpine-based image; it needs `libgcc` at run time,
   which the .NET images for Alpine have. Alpine has not been exercised with this package yet, so the README no longer says it

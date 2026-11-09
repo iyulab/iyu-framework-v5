@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>HotChocolate GraphQL schema building over read/write entity pairs, for ASP.NET Core.</Description>
     <RootNamespace>Iyu.Server.GraphQL</RootNamespace>
   </PropertyGroup>
 

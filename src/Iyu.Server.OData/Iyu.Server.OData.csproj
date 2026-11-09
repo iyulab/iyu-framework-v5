@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>OData CRUD controllers and the $search and $filter binders over read/write entity pairs, for ASP.NET Core.</Description>
     <RootNamespace>Iyu.Server.OData</RootNamespace>
   </PropertyGroup>
 

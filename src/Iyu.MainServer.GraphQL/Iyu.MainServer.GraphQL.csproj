@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>The GraphQL surface for Iyu.MainServer; reference it only if the host serves GraphQL.</Description>
     <RootNamespace>Iyu.MainServer</RootNamespace>
   </PropertyGroup>
 

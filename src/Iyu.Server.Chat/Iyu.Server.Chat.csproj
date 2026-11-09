@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Description>Adapter that serves BareChat chat endpoints from an Iyu host.</Description>
     <RootNamespace>Iyu.Server.Chat</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

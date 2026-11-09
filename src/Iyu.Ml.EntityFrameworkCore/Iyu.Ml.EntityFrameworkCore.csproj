@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Entity Framework Core dataset source for Iyu.Ml: reads the declared columns of a DbContext set and honors the read guard.</Description>
     <RootNamespace>Iyu.Ml.EntityFrameworkCore</RootNamespace>
     <!-- Not packed yet, for the same reason as Iyu.Ml: it depends on a layer that has not been released, and the pair ship
          together when the first release is decided. -->

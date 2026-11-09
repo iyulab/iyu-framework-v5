@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Converts documents to PDF through a self-hosted Gotenberg instance.</Description>
     <RootNamespace>Iyu.DocConvert</RootNamespace>
   </PropertyGroup>
 

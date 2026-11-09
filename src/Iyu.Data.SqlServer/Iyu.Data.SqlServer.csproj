@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Names SQL Server's error numbers by their SQLSTATE so a failed write is classified; reference it only on SQL Server.</Description>
     <RootNamespace>Iyu.Data.SqlServer</RootNamespace>
   </PropertyGroup>
 

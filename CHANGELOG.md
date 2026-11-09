@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.Data.SqlServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
+**Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
 
 ### Added
 
@@ -121,6 +121,12 @@ onward; earlier entries state the same consequence in prose where it applies.
   moved Azure/Entra ID authentication (`ActiveDirectory…` in the connection string) out of the core driver into
   `Microsoft.Data.SqlClient.Extensions.Azure`. **To upgrade:** an application that connects with Entra ID adds a reference to
   that package; one that uses SQL logins or integrated security changes nothing and no longer carries the Azure assemblies.
+
+- **Every package now describes itself on nuget.org.** Each package carried the same one-line description ("OData + GraphQL runtime
+  framework"), so a reader choosing between `Iyu.VaultAi`, `Iyu.Report`, `Iyu.DocConvert` or the `Iyu.MainServer` family could not tell them
+  apart without opening a README. Each project now sets a one-sentence description of what it does and, where it applies, what it does
+  not need; a test fails when a project falls back to a shared one or two projects share one. Package metadata only — no code
+  changed in the packages listed for this entry.
 
 ## [0.47.0] - 2026-10-31
 

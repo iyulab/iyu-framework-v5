@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Runs the Lowline engine, which learns suggestions for form fields from confirmed records, in any .NET host over two storage ports the host provides; it depends on neither Entity Framework Core nor Iyu.Core.</Description>
     <RootNamespace>Iyu.Lowline</RootNamespace>
   </PropertyGroup>
 

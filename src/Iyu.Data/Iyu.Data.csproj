@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Entity Framework Core base DbContext for Iyu entities, with timestamp and UTC-normalizing interceptors and value converters for the Iyu value objects.</Description>
     <RootNamespace>Iyu.Data</RootNamespace>
   </PropertyGroup>
 

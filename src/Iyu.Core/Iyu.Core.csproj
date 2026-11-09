@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Description>Entity base class, marker attributes, value objects and the identity and attachment contracts the other Iyu packages build on; it depends on nothing else in the stack.</Description>
     <RootNamespace>Iyu.Core</RootNamespace>
   </PropertyGroup>
 
