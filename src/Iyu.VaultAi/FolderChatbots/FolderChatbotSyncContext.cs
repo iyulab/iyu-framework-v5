@@ -19,7 +19,7 @@ internal sealed class FolderChatbotForeignOwnerException(string name, Guid owner
     : InvalidOperationException(
         $"The vault-ai storage '{name}' belongs to another sync instance (owner {owner}), so it is not taken over and folder chatbot " +
         "sync is skipped. Keep one sync instance per workspace and prefix (use another prefix for development and tests). If it really " +
-        "should be taken over, allow adopting another instance's objects and run one check from a manifest that records no shared storage.")
+        "should be taken over, set the AdoptForeign option and run one check from a manifest that records no shared storage (then turn it off again).")
 {
     public string StorageName { get; } = name;
     public Guid Owner { get; } = owner;
@@ -32,7 +32,7 @@ internal sealed class FolderChatbotForeignOwnerException(string name, Guid owner
 internal sealed class FolderChatbotEmbeddingMismatchException(string name, Guid storageModel, Guid? common)
     : InvalidOperationException(
         $"The vault-ai storage '{name}' uses embedding model {storageModel}, so it is not switched to the common model ({common}) and " +
-        "folder chatbot sync is skipped (switching would embed the whole storage again). To switch deliberately, set the embedding model explicitly.")
+        "folder chatbot sync is skipped (switching would embed the whole storage again). To switch deliberately, set the Embedding model option (Models:Embedding) to the model row id.")
 {
     public string StorageName { get; } = name;
 }

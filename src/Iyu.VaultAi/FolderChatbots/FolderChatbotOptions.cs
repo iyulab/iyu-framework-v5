@@ -9,7 +9,10 @@ namespace Iyu.VaultAi.FolderChatbots;
 /// uses, and a <c>url</c> entry with a <c>{{KEY}}</c> header tells vault-ai to send that workspace secret to that address. Set
 /// <see cref="McpAllowedHosts"/> to the hosts those addresses may point at, so that a secret reference can only travel where the administrator
 /// said. Left unset, any host is accepted (what existing installations run with) and the engine says so in its log. A <c>connector</c> entry can
-/// only attach a connector set up for general use - never one a sync engine owns for another bot.
+/// only attach a connector set up for general use - never one a sync engine owns for another bot. A link (symbolic link, junction) inside a
+/// bot's folder is not followed, so a file outside the folder cannot be uploaded by pointing at it; that check is not atomic, so where the
+/// people who can write a bot's folder should not be trusted with whatever the service account can read, serve the documents from a
+/// location they cannot make links in.
 /// </remarks>
 internal sealed class VaultAiFolderChatbotOptions
 {

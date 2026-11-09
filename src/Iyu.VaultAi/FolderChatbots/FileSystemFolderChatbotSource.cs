@@ -93,8 +93,14 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
 
     /// <summary>
     /// Opens a file of a bot. The file has to be inside the bot's folder and reached without crossing a link: a path that was an ordinary
-    /// file when the folder was scanned may have been replaced by a link since.
+    /// file when the folder was scanned may have been replaced by a link since. The path is checked before the file is opened and again
+    /// after, and a file opened through a link that appeared in between is closed and refused.
     /// </summary>
+    /// <remarks>
+    /// This is not atomic: a link put in place and taken out again between the open and the second check would go unseen. It closes the
+    /// ordinary swap, not a determined race. Where the people who can write a bot's folder are not trusted with whatever the service account
+    /// can read, serve the documents from a location they cannot make links in.
+    /// </remarks>
     public Stream OpenRead(string bot, string relativePath)
     {
         var botDir = Path.GetFullPath(Path.Combine(Root, bot));
@@ -103,13 +109,31 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
         if (!full.StartsWith(inside, StringComparison.Ordinal))
             throw new IOException($"The path '{relativePath}' leaves the folder of the bot '{bot}'.");
 
-        for (var current = new FileInfo(full) as FileSystemInfo; current is not null; current = (current as FileInfo)?.Directory ?? (current as DirectoryInfo)?.Parent)
+        ThrowIfThroughLink(botDir, full, bot, relativePath);
+        var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
         {
-            if (string.Equals(current.FullName.TrimEnd(Path.DirectorySeparatorChar), botDir.TrimEnd(Path.DirectorySeparatorChar), StringComparison.Ordinal)) break;
+            ThrowIfThroughLink(botDir, full, bot, relativePath);   // again, now that the file is open
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Throws if the file, or any folder between it and the bot's folder, is a link.</summary>
+    private static void ThrowIfThroughLink(string botDir, string full, string bot, string relativePath)
+    {
+        var stop = botDir.TrimEnd(Path.DirectorySeparatorChar);
+        for (var current = new FileInfo(full) as FileSystemInfo; current is not null;
+             current = (current as FileInfo)?.Directory ?? (current as DirectoryInfo)?.Parent)
+        {
+            if (string.Equals(current.FullName.TrimEnd(Path.DirectorySeparatorChar), stop, StringComparison.Ordinal)) break;
             if (current.Exists && IsLink(current))
                 throw new IOException($"The path '{relativePath}' of the bot '{bot}' goes through a link, which is not followed.");
         }
-        return new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
     // ---- settings files
@@ -137,7 +161,11 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
         if (IsLink(new FileInfo(path))) return new SettingsText(null, "is a link, which is not followed");
         try
         {
-            var text = File.ReadAllText(path);
+            // Opened first and checked again, so a link put in place after the first look is not read (not atomic - see OpenRead).
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (IsLink(new FileInfo(path))) return new SettingsText(null, "is a link, which is not followed");
+            using var reader = new StreamReader(stream);
+            var text = reader.ReadToEnd();
             if (trim) text = text.Trim();
             return new SettingsText(string.IsNullOrWhiteSpace(text) ? null : text, null);
         }
