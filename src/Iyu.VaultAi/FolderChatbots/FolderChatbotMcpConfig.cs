@@ -28,6 +28,14 @@ internal sealed record McpParseResult(IReadOnlyList<McpEntry> Entries, IReadOnly
 /// not something vault-ai supports and are an error. A <c>{{KEY}}</c> in a header value is replaced by vault-ai with a workspace secret —
 /// the engine passes it on as it is.
 /// </summary>
+/// <remarks>
+/// <b>Who decides where a secret goes.</b> The folder is written by the people who keep the documents, and a <c>url</c> entry with a
+/// <c>{{KEY}}</c> header tells vault-ai to send that workspace secret to that address. So without further restriction, whoever can write a
+/// bot's folder can name any workspace secret and any address — a trust the workspace administrator may not have meant to hand them. The
+/// restriction is an allow-list of hosts (<c>allowedHosts</c> of <see cref="Parse"/>): when one is given, a <c>url</c> entry whose host is not on
+/// it is an error and is left out, so a secret reference can only travel to a host the administrator named. With no list (the default,
+/// what existing installations run with) every host is accepted, as before; the engine says so in its log.
+/// </remarks>
 internal static partial class FolderChatbotMcpConfig
 {
     /// <summary>A literal header value this long or longer is suspected to be a secret written into the file.</summary>
@@ -42,8 +50,13 @@ internal static partial class FolderChatbotMcpConfig
         AllowTrailingCommas = true,
     };
 
-    /// <summary>Empty or whitespace-only counts as no file (an empty result — every connector the engine owns for the bot is cleaned up).</summary>
-    public static McpParseResult Parse(string? json)
+    /// <summary>
+    /// Empty or whitespace-only counts as no file (an empty result — every connector the engine owns for the bot is cleaned up).
+    /// <paramref name="allowedHosts"/>, when not null, is the set of hosts a <c>url</c> entry may point to (host names, compared ignoring case; a
+    /// port is not part of it); an empty set allows no <c>url</c> entry at all. Null puts no restriction on the address. Entries that
+    /// only reference an existing connector are not affected — those are the administrator's own objects.
+    /// </summary>
+    public static McpParseResult Parse(string? json, IReadOnlySet<string>? allowedHosts = null)
     {
         if (string.IsNullOrWhiteSpace(json)) return McpParseResult.Empty;
         JsonDocument doc;
@@ -83,13 +96,13 @@ internal static partial class FolderChatbotMcpConfig
                     issues.Add(new ValidationIssue(field, "The same name appears twice."));
                     continue;
                 }
-                if (ParseEntry(prop.Name, prop.Value, field, issues) is { } entry) entries.Add(entry);
+                if (ParseEntry(prop.Name, prop.Value, field, issues, allowedHosts) is { } entry) entries.Add(entry);
             }
             return new McpParseResult(entries, issues);
         }
     }
 
-    private static McpEntry? ParseEntry(string name, JsonElement e, string field, List<ValidationIssue> issues)
+    private static McpEntry? ParseEntry(string name, JsonElement e, string field, List<ValidationIssue> issues, IReadOnlySet<string>? allowedHosts)
     {
         if (e.ValueKind != JsonValueKind.Object)
         {
@@ -129,6 +142,13 @@ internal static partial class FolderChatbotMcpConfig
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
         {
             issues.Add(new ValidationIssue(field + ".url", "Must be an absolute address starting with http:// or https://."));
+            return null;
+        }
+        if (allowedHosts is not null && !allowedHosts.Contains(uri.IdnHost, StringComparer.OrdinalIgnoreCase))
+        {
+            // The host is not echoed with the list: the message goes to logs and screens, and the list is the administrator's.
+            issues.Add(new ValidationIssue(field + ".url",
+                $"The host '{uri.IdnHost}' is not one the administrator allows for MCP addresses, so this entry is not used."));
             return null;
         }
 
