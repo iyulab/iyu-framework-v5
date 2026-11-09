@@ -166,6 +166,56 @@ public class FolderChatbotMcpConfigTests
         Assert.Empty(result.Entries);
     }
 
+    /// <summary>
+    /// The host check uses this parser; vault-ai reads the address with its own. Forms the two can read differently must not pass while
+    /// hosts are restricted, even when this parser would read the listed host out of them.
+    /// </summary>
+    [Theory]
+    [InlineData("https://mcp.corp.example\\@attacker.example/x")]          // backslash: some parsers end the host there, some at the @
+    [InlineData("https://mcp.corp.example%2f@attacker.example/x")]         // an encoded character in the part that names the host
+    [InlineData("https://mcp.corp.exampl%65/x")]                              // an unreserved character written percent-encoded in the host
+    [InlineData("https://user:pw@mcp.corp.example/x")]                      // credentials before a listed host
+    [InlineData("https://mcp.corp.example/x\u0001")]                          // a control character
+    [InlineData("https://mcp.corp.example/x y")]                            // whitespace
+    public void While_hosts_are_restricted_an_address_a_second_parser_could_read_differently_is_refused(string url)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            mcpServers = new Dictionary<string, object> { ["x"] = new { url, headers = new { A = "Bearer {{KEY}}" } } },
+        });
+
+        var result = FolderChatbotMcpConfig.Parse(json, new HashSet<string> { "mcp.corp.example" });
+
+        Assert.Empty(result.Entries);
+        Assert.True(result.HasErrors);
+    }
+
+    [Fact]
+    public void While_hosts_are_restricted_a_host_written_with_look_alike_characters_is_sent_as_the_ascii_name_it_matched()
+    {
+        // Full-width letters: this parser reads the host as the listed ASCII name; a second parser might not. What is sent is the ASCII name.
+        var json = "{\"mcpServers\": {\"x\": {\"url\": \"https://ｍcp.corp.example/café\"}}}";
+
+        var result = FolderChatbotMcpConfig.Parse(json, new HashSet<string> { "mcp.corp.example" });
+
+        var url = Assert.Single(result.Entries).Url!;
+        Assert.All(url, c => Assert.True(c < 128, "the sent address is ASCII"));
+        Assert.StartsWith("https://mcp.corp.example/", url);
+    }
+
+    [Fact]
+    public void While_hosts_are_restricted_what_is_sent_is_the_normalised_address_that_was_checked()
+    {
+        var json = """{"mcpServers": {"x": {"url": "HTTPS://MCP.Corp.Example:443/a/../b?q=1"}}}""";
+
+        var restricted = FolderChatbotMcpConfig.Parse(json, new HashSet<string> { "mcp.corp.example" });
+        var unrestricted = FolderChatbotMcpConfig.Parse(json);
+
+        Assert.Equal("https://mcp.corp.example/b?q=1", Assert.Single(restricted.Entries).Url);
+        // Without a list nothing changes for existing installations: the address is sent as written.
+        Assert.Equal("HTTPS://MCP.Corp.Example:443/a/../b?q=1", Assert.Single(unrestricted.Entries).Url);
+    }
+
     [Fact]
     public void An_empty_list_allows_no_url_entry_at_all_but_leaves_connector_references_alone()
     {

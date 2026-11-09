@@ -144,6 +144,15 @@ internal static partial class FolderChatbotMcpConfig
             issues.Add(new ValidationIssue(field + ".url", "Must be an absolute address starting with http:// or https://."));
             return null;
         }
+        if (allowedHosts is not null && IsAmbiguous(url!, uri))
+        {
+            // The host was read by this parser; vault-ai reads the address with its own. A form the two can read differently (credentials
+            // before the host, a backslash, a control character, an encoded host) could pass the check here and send the secret elsewhere.
+            issues.Add(new ValidationIssue(field + ".url",
+                "While MCP hosts are restricted, an address may not carry credentials, backslashes, control characters or an encoded host - " +
+                "different parsers read those differently - so this entry is not used."));
+            return null;
+        }
         if (allowedHosts is not null && !allowedHosts.Contains(uri.IdnHost, StringComparer.OrdinalIgnoreCase))
         {
             // The host is not echoed with the list: the message goes to logs and screens, and the list is the administrator's.
@@ -177,6 +186,29 @@ internal static partial class FolderChatbotMcpConfig
                         "This looks like a secret written into the file as it is — point to a workspace secret with {{KEY}} instead.", IsWarning: true));
             }
         }
-        return ok ? new McpEntry(name, url, headers, null) : null;
+        // With hosts restricted, what is sent is what was checked: the normalised form of the address, not the text as written.
+        return ok ? new McpEntry(name, allowedHosts is null ? url : Canonical(uri), headers, null) : null;
+    }
+
+    /// <summary>
+    /// The address rebuilt from the parts that were checked, with the host in its ASCII (IDNA) form - the form the allow-list is compared
+    /// in. A host written with look-alike or full-width characters that this parser maps onto a listed name therefore reaches vault-ai as
+    /// that ASCII name, never as the text that happened to map there.
+    /// </summary>
+    private static string Canonical(Uri uri) => new UriBuilder(uri) { Host = uri.IdnHost }.Uri.AbsoluteUri;
+
+    /// <summary>
+    /// Whether the address uses a form that parsers are known to read differently: credentials, a backslash, whitespace or a control
+    /// character anywhere, or a <c>%</c> in the part between <c>://</c> and the first <c>/</c>, <c>?</c> or <c>#</c>.
+    /// </summary>
+    private static bool IsAmbiguous(string raw, Uri parsed)
+    {
+        if (parsed.UserInfo.Length > 0) return true;
+        if (raw.Any(c => c <= ' ' || c == '\\' || c == '\u007f')) return true;
+        var start = raw.IndexOf("://", StringComparison.Ordinal);
+        if (start < 0) return true;
+        var rest = raw[(start + 3)..];
+        var end = rest.IndexOfAny(['/', '?', '#']);
+        return (end < 0 ? rest : rest[..end]).Contains('%');
     }
 }
