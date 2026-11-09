@@ -289,9 +289,34 @@ public sealed class IyuEdmModelBuilder
 
     private readonly List<(Type Type, PropertyInfo[] Properties)> _exclusions = new();
 
-    /// <summary>Whether <paramref name="property"/> of <paramref name="type"/> was subtracted from the model with <see cref="Exclude{T}"/>.</summary>
+    /// <summary>
+    /// Puts back a property the framework withholds by default (<see cref="HiddenByDefaultProperties"/>) — today a service
+    /// client's <c>SecretHash</c>. The model leaves such a property out so a host that never thought about it does not
+    /// hand it to callers; naming it here is the host saying that it did think about it.
+    /// </summary>
+    /// <remarks>
+    /// Name the read type of the pair. A property nothing withholds by default is refused by <see cref="GetEdmModel"/>:
+    /// an <c>Expose</c> that changes nothing would read as though it had.
+    /// </remarks>
+    public IyuEdmModelBuilder Expose<T>(params Expression<Func<T, object?>>[] properties)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+        if (properties.Length == 0) return this;
+
+        _exposures.Add((typeof(T), properties.Select(ExposedProperty.Resolve).ToArray()));
+        return this;
+    }
+
+    private readonly List<(Type Type, PropertyInfo[] Properties)> _exposures = new();
+
+    private bool IsExposedOnPurpose(Type type, string property)
+        => _exposures.Any(e => e.Type == type && e.Properties.Any(p => p.Name == property));
+
+    /// <summary>Whether <paramref name="property"/> of <paramref name="type"/> was subtracted from the model with <see cref="Exclude{T}"/>, or is withheld by default and was not put back with <see cref="Expose{T}"/>.</summary>
     internal bool IsExcluded(Type type, string property)
-        => _exclusions.Any(e => e.Type == type && e.Properties.Any(p => p.Name == property));
+        => _exclusions.Any(e => e.Type == type && e.Properties.Any(p => p.Name == property))
+           || (HiddenByDefaultProperties.Of(type).Any(p => p.Name == property) && !IsExposedOnPurpose(type, property));
 
     /// <summary>
     /// Marks <paramref name="properties"/> as not writable through the generic
@@ -359,6 +384,27 @@ public sealed class IyuEdmModelBuilder
             var configuration = _modelBuilder.AddEntityType(type);
             foreach (var property in properties)
                 configuration.RemoveProperty(property);
+        }
+
+        // What the framework withholds by default — after the host's own exclusions, so a property the host already removed is
+        // not removed twice — unless the host put it back on purpose.
+        foreach (var (type, properties) in _exposures)
+        {
+            EnsureExposed(type);
+            foreach (var property in properties)
+                if (!HiddenByDefaultProperties.Of(type).Any(p => p.Name == property.Name))
+                    throw new InvalidOperationException(
+                        $"Cannot expose '{property.Name}' of '{type.Name}': nothing withholds it by default, so there is nothing to put back.");
+        }
+
+        foreach (var pair in Registry.All)
+        {
+            foreach (var hidden in HiddenByDefaultProperties.Of(pair.ReadType))
+            {
+                if (IsExposedOnPurpose(pair.ReadType, hidden.Name)) continue;
+                if (_exclusions.Any(e => e.Type == pair.ReadType && e.Properties.Any(p => p.Name == hidden.Name))) continue;
+                _modelBuilder.AddEntityType(pair.ReadType).RemoveProperty(hidden);
+            }
         }
 
         foreach (var (type, properties) in _writeExclusions)

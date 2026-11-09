@@ -94,6 +94,72 @@ public class IyuEdmModelBuilderTests
         Assert.Null(type.FindProperty(nameof(Secretive.SecretHash)));
     }
 
+    public class MachineCredential : Iyu.Core.Identity.IyuServiceClient { }
+
+    /// <summary>
+    /// The framework owns the service-client type, so it - not each host - decides that its secret hash is not served:
+    /// a host that registers a derived entity and does nothing else must not hand the hash to every caller.
+    /// </summary>
+    [Fact]
+    public void A_service_clients_secret_hash_is_not_in_the_model_by_default()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<MachineCredential, MachineCredential>("MachineCredentials");
+
+        var type = builder.GetEdmModel().SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == nameof(MachineCredential));
+
+        Assert.Null(type.FindProperty(nameof(MachineCredential.SecretHash)));
+        Assert.NotNull(type.FindProperty(nameof(MachineCredential.ClientId)));       // the rest of the entity is served
+    }
+
+    [Fact]
+    public void Expose_puts_the_secret_hash_back_for_a_host_that_means_to_serve_it()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<MachineCredential, MachineCredential>("MachineCredentials");
+        builder.Expose<MachineCredential>(x => x.SecretHash);
+
+        var type = builder.GetEdmModel().SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == nameof(MachineCredential));
+
+        Assert.NotNull(type.FindProperty(nameof(MachineCredential.SecretHash)));
+    }
+
+    [Fact]
+    public void A_host_that_already_excluded_the_hash_is_not_refused_for_it()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<MachineCredential, MachineCredential>("MachineCredentials");
+        builder.Exclude<MachineCredential>(x => x.SecretHash);
+
+        var type = builder.GetEdmModel().SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == nameof(MachineCredential));
+
+        Assert.Null(type.FindProperty(nameof(MachineCredential.SecretHash)));
+    }
+
+    /// <summary>The default is about the framework's type, not a property that happens to share the name.</summary>
+    [Fact]
+    public void A_type_that_is_not_a_service_client_keeps_a_property_called_SecretHash()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<Secretive, Secretive>("Secretives");
+
+        var type = builder.GetEdmModel().SchemaElements.OfType<IEdmEntityType>().Single(t => t.Name == nameof(Secretive));
+
+        Assert.NotNull(type.FindProperty(nameof(Secretive.SecretHash)));
+    }
+
+    /// <summary>An Expose that changes nothing would read as though it had - refuse it rather than let it pass silently.</summary>
+    [Fact]
+    public void Expose_of_a_property_nothing_withholds_is_refused()
+    {
+        var builder = new IyuEdmModelBuilder();
+        builder.AddEntityPair<MachineCredential, MachineCredential>("MachineCredentials");
+        builder.Expose<MachineCredential>(x => x.ClientId);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => builder.GetEdmModel());
+        Assert.Contains("nothing withholds it by default", ex.Message);
+    }
+
     /// <summary>A typo must not silently expose the very field it meant to hide.</summary>
     [Fact]
     public void Exclude_rejects_a_non_property_expression()

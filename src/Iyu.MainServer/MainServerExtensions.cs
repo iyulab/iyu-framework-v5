@@ -244,8 +244,8 @@ public static class MainServerExtensions
             if (set is null) continue; // served only by optional surfaces, which apply it in ConfigureServices
             if (options.ODataModel.IsExcluded(readType, property))
                 throw new InvalidOperationException(
-                    $"A read policy is declared for {where}, but the property was removed from the model with Exclude — "
-                    + "no caller can read it. Remove one of the two.");
+                    $"A read policy is declared for {where}, but the property was removed from the model — with Exclude, or because the "
+                    + "framework withholds it by default (a service client's SecretHash) — so no caller can read it. Remove one of the two.");
             registry.RestrictProperty(set.SetName, property, readPolicy);
         }
     }

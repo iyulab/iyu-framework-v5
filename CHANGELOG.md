@@ -31,7 +31,23 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Lowline.EntityFrameworkCore` (and `Iyu.Lowline`, which has its own line — see its changelog).
+**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore` (and `Iyu.Lowline`, which has its own line — see its changelog).
+
+### Security
+
+- **Breaking — 🔇 no build-time signal: a service client's `SecretHash` is no longer served by default.** An entity that derives
+  `IyuServiceClient` (or implements `IServiceClient`) and is registered as an OData set or a GraphQL query field used to
+  expose its `SecretHash` to every caller who could read the set, unless the host knew to call `Exclude` on both surfaces.
+  The hash is stored so the server can check a presented secret; a caller who can read it can test guesses offline, and
+  one who can write it can choose the secret. The framework owns that type, so it now decides: the property is left out of
+  the OData model and the GraphQL schema for such a read type, on its own, and a `$select`, `$filter` or `$orderby` naming
+  it, a GraphQL field naming it, and a `POST`/`PATCH` carrying it are refused like any excluded property. An `Exclude` you
+  already wrote keeps working and is not reported as a duplicate. **If you relied on reading the hash through the API** —
+  there is little reason to — put it back where you mean to serve it: `options.ODataModel.Expose<ClientExt>(x => x.SecretHash)`
+  and `options.GraphQL.Expose<ClientExt>(x => x.SecretHash)` (new; naming a property nothing withholds is refused at startup,
+  and an `AuthorizeProperty` for a withheld property is refused as for any removed one). Only what the framework owns is
+  withheld: a password hash on your own user type stays yours to `Exclude`. `HiddenByDefaultProperties.Of(type)` (in
+  `Iyu.Core`) lists what is withheld for a type.
 
 ### Changed
 

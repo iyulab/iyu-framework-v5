@@ -59,6 +59,10 @@ public sealed class IyuGraphQLSchemaBuilder
     /// <summary>The property read policies declared with <see cref="RestrictProperty"/>, by read type and property.</summary>
     internal IReadOnlyDictionary<(Type ReadType, string Property), string> PropertyPolicies => _propertyPolicies;
     private readonly List<(Type Type, Action<IRequestExecutorBuilder> Apply)> _typeCustomizations = new();
+    private readonly List<(Type Type, PropertyInfo[] Properties)> _exposures = new();
+
+    private bool IsExposedOnPurpose(Type type, string property)
+        => _exposures.Any(e => e.Type == type && e.Properties.Any(p => p.Name == property));
     private readonly Dictionary<Type, string> _exposedTypes = new();
     private readonly List<Action<IRequestExecutorBuilder>> _typeAuthorizers = new();
     private bool _usesAuthorization;
@@ -278,6 +282,13 @@ public sealed class IyuGraphQLSchemaBuilder
             {
                 if (policyType != typeof(TRead)) continue;
                 d.Field(typeof(TRead).GetProperty(policyProperty)!).Authorize(propertyPolicy);
+            }
+            // What the framework withholds by default (HiddenByDefaultProperties — a service client's SecretHash) is not a field of
+            // the schema unless the host put it back on purpose. It is read when the schema is built, so an Expose written after
+            // this pair counts.
+            foreach (var hidden in HiddenByDefaultProperties.Of(typeof(TRead)))
+            {
+                if (!IsExposedOnPurpose(typeof(TRead), hidden.Name)) d.Field(hidden).Ignore();
             }
             foreach (var property in typeof(TRead).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
@@ -575,6 +586,22 @@ public sealed class IyuGraphQLSchemaBuilder
     }
 
     /// <summary>
+    /// Puts back a property the framework withholds by default (<see cref="HiddenByDefaultProperties"/>) — today a service
+    /// client's <c>SecretHash</c>; the counterpart of the OData model builder's <c>Expose</c>. A type exposed through both
+    /// surfaces has to be put back on both, or the value stays off the surface that was not told.
+    /// </summary>
+    /// <exception cref="ArgumentException">An entry of <paramref name="properties"/> is not a direct property access.</exception>
+    public IyuGraphQLSchemaBuilder Expose<T>(params Expression<Func<T, object?>>[] properties)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+        if (properties.Length == 0) return this;
+
+        _exposures.Add((typeof(T), properties.Select(ExposedProperty.Resolve).ToArray()));
+        return this;
+    }
+
+    /// <summary>
     /// Refuses an exclusion that names a type the schema does not expose.
     /// </summary>
     /// <remarks>
@@ -622,6 +649,14 @@ public sealed class IyuGraphQLSchemaBuilder
             foreach (var build in fieldBuilders) build(descriptor);
         });
         foreach (var authorize in _typeAuthorizers.ToArray()) authorize(executorBuilder);
+        foreach (var (type, properties) in _exposures)
+        {
+            EnsureExposed(type);
+            foreach (var property in properties)
+                if (!HiddenByDefaultProperties.Of(type).Any(p => p.Name == property.Name))
+                    throw new InvalidOperationException(
+                        $"Cannot expose '{property.Name}' of '{type.Name}': nothing withholds it by default, so there is nothing to put back.");
+        }
         foreach (var (type, customize) in _typeCustomizations.ToArray())
         {
             EnsureExposed(type);

@@ -861,6 +861,16 @@ The property is *removed*, not blanked. A blank value would be indistinguishable
 row has no value", and would still let a caller recover the real one a character at a time
 with `$filter=startswith(...)`.
 
+**One value is already withheld for you.** A machine credential's `SecretHash` (the entity
+that derives `IyuServiceClient`, or implements `IServiceClient`) is left out of both models
+by default: no caller has a use for the hash, and handing it out lets whoever reads it test
+guesses offline. You do not need to `Exclude` it, and an `Exclude` you already wrote keeps
+working. Only what the framework itself owns is withheld this way — a password hash lives on
+your own user type, so naming it stays yours. To serve the credential hash anyway, write it
+down on each surface that serves the type: `options.ODataModel.Expose<ClientExt>(x => x.SecretHash)`
+and `options.GraphQL.Expose<ClientExt>(x => x.SecretHash)`; an `Expose` for a property nothing
+withholds is refused at startup.
+
 ### Per-entity authorization
 
 Beyond authentication, a caller may need a specific claim to touch an entity at all. Declare the

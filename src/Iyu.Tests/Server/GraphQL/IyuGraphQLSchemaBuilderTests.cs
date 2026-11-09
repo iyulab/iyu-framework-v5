@@ -34,7 +34,10 @@ public class IyuGraphQLSchemaBuilderTests
         public DbSet<Widget> Widgets => Set<Widget>();
         public DbSet<Secretive> Secretives => Set<Secretive>();
         public DbSet<Annotated> Annotateds => Set<Annotated>();
+        public DbSet<MachineClient> MachineClients => Set<MachineClient>();
     }
+
+    public sealed class MachineClient : Iyu.Core.Identity.IyuServiceClient { }
 
     private static ServiceProvider BuildServices(
         string dbName, IyuGraphQLSchemaBuilder graphql, Action<IServiceCollection>? configureServices = null)
@@ -143,6 +146,79 @@ public class IyuGraphQLSchemaBuilderTests
         var probed = (await executor.ExecuteAsync("{ secretives { nodes { secretHash } } }")).ToJson();
         Assert.Contains("\"errors\"", probed);
         Assert.DoesNotContain("MUST-NOT-LEAK", probed);
+    }
+
+    private async Task<string> AskForServiceClientHashAsync(string name, Action<IyuGraphQLSchemaBuilder>? configure = null)
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<MachineClient, MachineClient>("machineClients", "machineClient");
+        configure?.Invoke(graphql);
+
+        await using var sp = BuildServices(name, graphql);
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.MachineClients.Add(new MachineClient { Id = Guid.NewGuid(), ClientId = "billing-sync", DisplayName = "Billing", SecretHash = "MUST-NOT-LEAK" });
+            await ctx.SaveChangesAsync();
+        }
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var kept = (await executor.ExecuteAsync("{ machineClients { nodes { clientId } } }")).ToJson();
+        Assert.Contains("billing-sync", kept);                    // the rest of the entity is served
+        return (await executor.ExecuteAsync("{ machineClients { nodes { secretHash } } }")).ToJson();
+    }
+
+    /// <summary>The framework owns the service-client type, so its secret hash is not a field unless the host says otherwise.</summary>
+    [Fact]
+    public async Task A_service_clients_secret_hash_is_not_in_the_schema_by_default()
+    {
+        var probed = await AskForServiceClientHashAsync(nameof(A_service_clients_secret_hash_is_not_in_the_schema_by_default));
+
+        Assert.Contains("\"errors\"", probed);
+        Assert.DoesNotContain("MUST-NOT-LEAK", probed);
+    }
+
+    [Fact]
+    public async Task Expose_puts_the_secret_hash_back_for_a_host_that_means_to_serve_it()
+    {
+        var probed = await AskForServiceClientHashAsync(
+            nameof(Expose_puts_the_secret_hash_back_for_a_host_that_means_to_serve_it),
+            g => g.Expose<MachineClient>(x => x.SecretHash));
+
+        Assert.DoesNotContain("\"errors\"", probed);
+        Assert.Contains("MUST-NOT-LEAK", probed);
+    }
+
+    [Fact]
+    public async Task A_host_that_already_excluded_the_hash_is_not_refused_for_it()
+    {
+        var probed = await AskForServiceClientHashAsync(
+            nameof(A_host_that_already_excluded_the_hash_is_not_refused_for_it),
+            g => g.Exclude<MachineClient>(x => x.SecretHash));
+
+        Assert.Contains("\"errors\"", probed);
+        Assert.DoesNotContain("MUST-NOT-LEAK", probed);
+    }
+
+    /// <summary>A type that is not a service client keeps a property called SecretHash: the default is about the framework's type.</summary>
+    [Fact]
+    public async Task A_type_that_is_not_a_service_client_keeps_a_property_called_SecretHash()
+    {
+        var graphql = new IyuGraphQLSchemaBuilder();
+        graphql.AddEntityPair<Secretive, Secretive>("secretives", "secretive");
+        await using var sp = BuildServices(nameof(A_type_that_is_not_a_service_client_keeps_a_property_called_SecretHash), graphql);
+        using (var scope = sp.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<TestContext>();
+            ctx.Secretives.Add(new Secretive { Id = Guid.NewGuid(), Name = "alpha", SecretHash = "visible" });
+            await ctx.SaveChangesAsync();
+        }
+
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var result = (await executor.ExecuteAsync("{ secretives { nodes { secretHash } } }")).ToJson();
+
+        Assert.DoesNotContain("\"errors\"", result);
+        Assert.Contains("visible", result);
     }
 
     /// <summary>A nested access would silently exclude nothing — reject it where it is written.</summary>
