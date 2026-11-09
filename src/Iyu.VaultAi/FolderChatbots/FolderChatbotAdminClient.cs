@@ -151,23 +151,31 @@ internal sealed class FolderChatbotAdminClient : IFolderChatbotAdmin
     // ---- storage ----
 
     public Task<Guid> CreateStorageAsync(string name, string description, Guid? embedding, Guid? language, Guid? rerank, CancellationToken ct = default)
-        => Run(ct, t => CreateAsync("api/storages", StorageBody(name, description, embedding, language, rerank), t));
+        => Run(ct, t => CreateAsync("api/storages", StorageBody(name, description, embedding, language, rerank, audio: null), t));
 
     public Task UpdateStorageAsync(Guid id, string name, string description, Guid? embedding, Guid? language, Guid? rerank, CancellationToken ct = default)
         => Run(ct, async t =>
         {
-            using var response = await _http.PutAsJsonAsync($"api/storages/{id}", StorageBody(name, description, embedding, language, rerank), Json, t);
+            // The storage has an audio model too, which a folder chatbot neither sets nor uses. The server's PUT replaces the whole storage, so
+            // leaving it out would clear one an operator set by hand — it is read and sent back, like the other settings this client does not own.
+            using var get = await _http.GetAsync($"api/storages/{id}", t);
+            await EnsureSuccessAsync(get, t);
+            var current = await get.Content.ReadFromJsonAsync<StorageDto>(Json, t)
+                          ?? throw new HttpRequestException("The vault-ai storage response is empty.");
+
+            using var response = await _http.PutAsJsonAsync(
+                $"api/storages/{id}", StorageBody(name, description, embedding, language, rerank, current.AudioModelId), Json, t);
             await EnsureSuccessAsync(response, t);
         });
 
     // PUT replaces everything — a null model id empties it on the server. The description must be non-null.
-    private static object StorageBody(string name, string? description, Guid? embedding, Guid? language, Guid? rerank) => new
+    private static object StorageBody(string name, string? description, Guid? embedding, Guid? language, Guid? rerank, Guid? audio) => new
     {
         name,
         description = description ?? "",
         embeddingModelId = embedding,
         languageModelId = language,
-        audioModelId = (Guid?)null,
+        audioModelId = audio,
         rerankModelId = rerank,
     };
 
@@ -376,7 +384,7 @@ internal sealed class FolderChatbotAdminClient : IFolderChatbotAdmin
     private sealed record Paged<T>(int Count, List<T>? Data);
     private sealed record NamedDto(Guid Id, string? Name, string? Description);
     private sealed record StorageDto(Guid Id, string? Name, string? Description, Guid? EmbeddingModelId, Guid? LanguageModelId,
-        Guid? RerankModelId);
+        Guid? RerankModelId, Guid? AudioModelId = null);
     private sealed record ModelDto(Guid Id, string? ModelId, string? DisplayName, string? Type, JsonElement? Metadata);
     private sealed record FileDto(Guid Id, string? FileName, long ContentSize, string? Status, List<string>? Tags);
     private sealed record TokenDto(string? Token, DateTimeOffset ExpiresAt);

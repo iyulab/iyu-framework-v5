@@ -162,10 +162,11 @@ public class FolderChatbotAdminClientTests
     public async Task A_storage_update_sends_the_whole_body_with_null_models_so_a_cleared_model_is_cleared()
     {
         var (client, server) = Make();
+        server.Respond = request => request.Method == HttpMethod.Get ? Json(new { id = Id1 }) : new HttpResponseMessage(HttpStatusCode.OK);
 
         await client.UpdateStorageAsync(Id1, "acmeall", "chatbot-meta:{}", embedding: Id2, language: null, rerank: null);
 
-        var request = Assert.Single(server.Requests);
+        var request = server.Requests[1];
         Assert.Equal(HttpMethod.Put, request.Method);
         Assert.Equal($"/api/storages/{Id1}", request.PathAndQuery);
         using var body = JsonDocument.Parse(request.Body!);
@@ -174,6 +175,22 @@ public class FolderChatbotAdminClientTests
         Assert.Equal(Id2, body.RootElement.GetProperty("embeddingModelId").GetGuid());
         Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("languageModelId").ValueKind);
         Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("rerankModelId").ValueKind);
+    }
+
+    /// <summary>Found by reading the server: its storage PUT replaces the whole storage, audio model included, which a folder chatbot does not own.</summary>
+    [Fact]
+    public async Task A_storage_update_keeps_the_audio_model_an_operator_set()
+    {
+        var (client, server) = Make();
+        var audio = Guid.Parse("00000000-0000-0000-0000-0000000000aa");
+        server.Respond = request => request.Method == HttpMethod.Get
+            ? Json(new { id = Id1, name = "acmeall", audioModelId = audio })
+            : new HttpResponseMessage(HttpStatusCode.OK);
+
+        await client.UpdateStorageAsync(Id1, "acmeall", "d", embedding: null, language: null, rerank: null);
+
+        using var body = JsonDocument.Parse(server.Requests[1].Body!);
+        Assert.Equal(audio, body.RootElement.GetProperty("audioModelId").GetGuid());
     }
 
     [Fact]
