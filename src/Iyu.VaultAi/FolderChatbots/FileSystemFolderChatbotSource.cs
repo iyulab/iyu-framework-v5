@@ -101,6 +101,12 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
     /// ordinary swap, not a determined race. Where the people who can write a bot's folder are not trusted with whatever the service account
     /// can read, serve the documents from a location they cannot make links in.
     /// </remarks>
+    public IEnumerable<string> ListBotFolders()
+        => Directory.Exists(Root)
+            ? new DirectoryInfo(Root).EnumerateDirectories().Select(d => d.Name)
+                .Where(n => !FolderChatbotFolderRules.IsExcluded(n)).ToList()
+            : [];
+
     public Stream OpenRead(string bot, string relativePath)
     {
         var botDir = Path.GetFullPath(Path.Combine(Root, bot));

@@ -163,8 +163,11 @@ internal sealed class FakeFolderChatbotAdmin : IFolderChatbotAdmin
     public Task<bool> AgentExistsAsync(Guid id, CancellationToken ct = default) => Task.FromResult(Agents.ContainsKey(id));
     public Task<bool> ChannelExistsAsync(Guid id, CancellationToken ct = default) => Task.FromResult(Channels.ContainsKey(id));
 
+    /// <summary>What the summary of a storage (optionally for some tags) says. Unset: an empty storage.</summary>
+    public Func<IReadOnlyList<string>?, CancellationToken, Task<StorageSummary>>? SummaryOf { get; set; }
+
     public Task<StorageSummary> GetStorageSummaryAsync(Guid storageId, IReadOnlyList<string>? tags = null, CancellationToken ct = default)
-        => Task.FromResult(new StorageSummary(0, new Dictionary<string, int>()));
+        => SummaryOf is { } summary ? summary(tags, ct) : Task.FromResult(new StorageSummary(0, new Dictionary<string, int>()));
 
     // ---- agent
 

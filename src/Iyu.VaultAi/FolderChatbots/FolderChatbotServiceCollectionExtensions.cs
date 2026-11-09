@@ -58,6 +58,7 @@ internal static class FolderChatbotServiceCollectionExtensions
             sp.GetRequiredService<IOptions<VaultAiSettings>>().Value.Url,
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<FolderChatbotSyncService>(),
             sp.GetRequiredService<TimeProvider>()));
+        services.TryAddSingleton<FolderChatbotStatusReader>();
         services.AddSingleton<FolderChatbotSyncHostedService>();
         services.AddHostedService(sp => sp.GetRequiredService<FolderChatbotSyncHostedService>());
         return services;

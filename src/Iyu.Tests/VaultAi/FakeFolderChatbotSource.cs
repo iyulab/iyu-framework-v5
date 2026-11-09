@@ -26,7 +26,9 @@ internal sealed class FakeFolderChatbotSource : IFolderChatbotSource
             .ToList(), StringComparer.Ordinal));
     }
 
-    public Stream OpenRead(string bot, string relativePath) => new MemoryStream(Bots[bot][relativePath].Content);
+    public IEnumerable<string> ListBotFolders() => Bots.Keys.ToList();
+
+public Stream OpenRead(string bot, string relativePath) => new MemoryStream(Bots[bot][relativePath].Content);
 
     public SettingsText ReadAgents(string? bot, out string? warning)
     {

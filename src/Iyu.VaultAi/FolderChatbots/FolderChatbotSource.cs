@@ -14,6 +14,9 @@ internal interface IFolderChatbotSource : IFolderChatbotSettingsReader
     /// </summary>
     FolderSnapshot ReadSnapshot(FolderChatbotManifest manifest);
 
+    /// <summary>The names of the folders that would be bots, cheaply (no file is read). For a status screen; <see cref="ReadSnapshot"/> is what a check uses.</summary>
+    IEnumerable<string> ListBotFolders();
+
     /// <summary>Opens a file for reading. The caller disposes the stream.</summary>
     Stream OpenRead(string bot, string relativePath);
 }

@@ -58,14 +58,36 @@ public static class VaultAiEmbedExtensions
     private static bool Enabled(VaultAiSettings s) =>
         !string.IsNullOrWhiteSpace(s.Url) && !string.IsNullOrWhiteSpace(s.Token) && !string.IsNullOrWhiteSpace(s.ChannelId);
 
-    private static IResult Config(IOptions<VaultAiSettings> options)
+    /// <remarks>
+    /// With the folder chatbot engine registered, a signed-in caller also gets <c>bots</c>: <c>[{name, state, indexed, total, inProgress,
+    /// failed, notIndexable, skipped}]</c>, one per chatbot (<c>state</c> is a code such as <c>ready</c> or <c>indexing</c>). An anonymous
+    /// caller never gets it - the widget still works, and the names of the documents' folders are not for everyone. Nothing is added for a host
+    /// that does not register the engine.
+    /// </remarks>
+    private static async Task<IResult> Config(
+        HttpContext http, IOptions<VaultAiSettings> options, [Microsoft.AspNetCore.Mvc.FromServices] FolderChatbots.FolderChatbotStatusReader? bots, CancellationToken ct)
     {
         var s = options.Value;
         if (!Enabled(s))
             return Results.Ok(new { enabled = false, origin = "", channelId = "" });
 
         var origin = string.IsNullOrWhiteSpace(s.EmbedOrigin) ? s.Url : s.EmbedOrigin;
-        return Results.Ok(new { enabled = true, origin = origin.Trim().TrimEnd('/'), channelId = s.ChannelId!.Trim() });
+        var channel = s.ChannelId!.Trim();
+        if (bots is null || http.User.Identity?.IsAuthenticated != true)
+            return Results.Ok(new { enabled = true, origin = origin.Trim().TrimEnd('/'), channelId = channel });
+
+        var statuses = await bots.GetAsync(ct);
+        return Results.Ok(new
+        {
+            enabled = true,
+            origin = origin.Trim().TrimEnd('/'),
+            channelId = channel,
+            bots = statuses.Select(b => new
+            {
+                name = b.Name, state = b.State, indexed = b.Indexed, total = b.Total,
+                inProgress = b.InProgress, failed = b.Failed, notIndexable = b.NotIndexable, skipped = b.Skipped,
+            }),
+        });
     }
 
     private static async Task<IResult> IssueToken(
