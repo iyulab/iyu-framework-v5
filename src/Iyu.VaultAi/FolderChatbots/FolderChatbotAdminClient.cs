@@ -246,13 +246,15 @@ internal sealed class FolderChatbotAdminClient : IFolderChatbotAdmin
         => Run(ct, async t =>
         {
             // The server's PUT DTO has non-null value types thinkingEffort and webSearch — leaving them out would overwrite them with none,
-            // so the current values are read and sent back.
+            // so the current values are read and sent back. The same holds for the sub-agents the agent has: the server replaces that mapping
+            // with whatever the request carries, and a request that says nothing about it carries an empty list (checked against the
+            // server's AgentService) — so a sub-agent an operator attached to this agent by hand would be silently detached.
             using var get = await _http.GetAsync($"api/agents/{id}", t);
             await EnsureSuccessAsync(get, t);
             var current = await get.Content.ReadFromJsonAsync<AgentDto>(Json, t)
                           ?? throw new HttpRequestException("The vault-ai agent response is empty.");
 
-            // connectors and storages replace the whole mapping (leaving them out removes them all), so the whole list is always sent.
+            // connectors, storages and sub-agents replace the whole mapping (leaving them out removes them all), so the whole list is always sent.
             using var response = await _http.PutAsJsonAsync($"api/agents/{id}", new
             {
                 name,
@@ -263,6 +265,7 @@ internal sealed class FolderChatbotAdminClient : IFolderChatbotAdmin
                 webSearch = current.WebSearch ?? "none",
                 connectors,
                 storages,
+                subAgents = (current.SubAgents ?? []).Select(s => s.Id).ToArray(),
                 scopes = ScopesBody(scopes), // null means "do not change" — it is always sent, even as an empty list
             }, Json, t);
             await EnsureSuccessAsync(response, t);
@@ -378,5 +381,6 @@ internal sealed class FolderChatbotAdminClient : IFolderChatbotAdmin
     private sealed record FileDto(Guid Id, string? FileName, long ContentSize, string? Status, List<string>? Tags);
     private sealed record TokenDto(string? Token, DateTimeOffset ExpiresAt);
     private sealed record SummaryDto(int TotalCount, Dictionary<string, int>? ByStatus);
-    private sealed record AgentDto(string? ThinkingEffort, string? WebSearch);
+    private sealed record AgentDto(string? ThinkingEffort, string? WebSearch, List<IdDto>? SubAgents);
+    private sealed record IdDto(Guid Id);
 }

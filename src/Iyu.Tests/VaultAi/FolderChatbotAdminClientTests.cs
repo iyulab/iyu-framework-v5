@@ -237,6 +237,36 @@ public class FolderChatbotAdminClientTests
         Assert.Equal(JsonValueKind.Null, sent[1].GetProperty("instructions").ValueKind);
     }
 
+    /// <summary>
+    /// Found by reading the server: its update replaces the sub-agent mapping with the request's list, and an omitted list is an empty one.
+    /// A client that said nothing about sub-agents would detach every one an operator had attached by hand.
+    /// </summary>
+    [Fact]
+    public async Task An_agent_update_keeps_the_sub_agents_the_agent_already_has()
+    {
+        var (client, server) = Make();
+        server.Respond = request => request.Method == HttpMethod.Get
+            ? Json(new { thinkingEffort = "none", webSearch = "none", subAgents = new object[] { new { id = Id2, name = "helper", description = "" } } })
+            : new HttpResponseMessage(HttpStatusCode.OK);
+
+        await client.UpdateAgentAsync(Id1, "acmeall", "", null, "i", [], [], []);
+
+        using var body = JsonDocument.Parse(server.Requests[1].Body!);
+        Assert.Equal([Id2], body.RootElement.GetProperty("subAgents").EnumerateArray().Select(e => e.GetGuid()));
+    }
+
+    [Fact]
+    public async Task An_agent_with_no_sub_agents_is_updated_with_an_empty_list_which_the_server_reads_as_none()
+    {
+        var (client, server) = Make();
+        server.Respond = request => request.Method == HttpMethod.Get ? Json(new { }) : new HttpResponseMessage(HttpStatusCode.OK);
+
+        await client.UpdateAgentAsync(Id1, "acmeall", "", null, "i", [], [], []);
+
+        using var body = JsonDocument.Parse(server.Requests[1].Body!);
+        Assert.Empty(body.RootElement.GetProperty("subAgents").EnumerateArray());
+    }
+
     [Fact]
     public async Task An_agent_update_with_no_scopes_sends_an_empty_list_not_a_missing_one()
     {
