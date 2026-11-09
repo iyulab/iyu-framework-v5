@@ -7,9 +7,12 @@ namespace Iyu.Core.Lowline;
 /// entities can implement it without referencing the host (ASP.NET Core, the engine, EF Core).
 /// </summary>
 /// <remarks>
-/// The table needs a unique key over <see cref="Form"/>, <see cref="Space"/> and <see cref="RecordId"/>: the engine
-/// keeps one record per id within a scope and a second save of the same id replaces the first. The store does not
-/// create the table or its mapping — that stays with the schema the application already runs.
+/// A record settled more than once keeps one row for each time (the engine's contract since Lowline 0.12): it learns a
+/// record from its latest row and counts a later check as an audit of the decision first settled. The table therefore
+/// needs a key of its own (a row id, or one that includes <see cref="SettledAt"/>) and an ordinary index over
+/// <see cref="Form"/>, <see cref="Space"/> and <see cref="RecordId"/> — never a unique key over those three, which the
+/// store refuses when it first runs. The store does not create the table or its mapping — that stays with the schema
+/// the application already runs.
 /// </remarks>
 public interface ILowlineRecordRow
 {
@@ -19,7 +22,7 @@ public interface ILowlineRecordRow
     /// <summary>The memory space within the form — a workplace, a team, whatever the host keeps apart.</summary>
     string Space { get; set; }
 
-    /// <summary>The record's id within the scope; a later save of the same id replaces the earlier.</summary>
+    /// <summary>The record's id within the scope; a later save of the same id adds a row beside the earlier.</summary>
     string RecordId { get; set; }
 
     /// <summary>When the record was settled; the engine learns records in this order.</summary>

@@ -1948,6 +1948,7 @@ using Microsoft.Extensions.DependencyInjection;
 // Your tables, in your own schema: two for Lowline, plus the data the form edits.
 public class LowlineRecord : ILowlineRecordRow
 {
+    public long Id { get; set; }   // the row's own key: a record settled again has one row for each time
     public string Form { get; set; } = "";
     public string Space { get; set; } = "";
     public string RecordId { get; set; } = "";
@@ -1978,7 +1979,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
 
     protected override void OnModelCreating(ModelBuilder model)
     {
-        model.Entity<LowlineRecord>().HasKey(r => new { r.Form, r.Space, r.RecordId });
+        model.Entity<LowlineRecord>().HasIndex(r => new { r.Form, r.Space, r.RecordId });   // an index, not a unique key
         model.Entity<LowlineTuning>().HasKey(t => new { t.Form, t.Space });
     }
 }
@@ -2031,14 +2032,21 @@ public static class LowlineSample
 
 **The tables are yours.** Declare them in your own schema and give the entities these interfaces:
 
-| Table | Entity implements | Unique key |
+| Table | Entity implements | Key |
 |---|---|---|
-| settled records | `ILowlineRecordRow` (in `Iyu.Core`, namespace `Iyu.Core.Lowline`) — `Form`, `Space`, `RecordId`, `SettledAt` (`DateTimeOffset`), `Json` | `Form`, `Space`, `RecordId` |
-| chosen thresholds | `ILowlineTuningRow` (same place) — `Form`, `Space`, `Tuning` | `Form`, `Space` |
+| settled records | `ILowlineRecordRow` (in `Iyu.Core`, namespace `Iyu.Core.Lowline`) — `Form`, `Space`, `RecordId`, `SettledAt` (`DateTimeOffset`), `Json` | a key of its own (a row id), and an ordinary index over `Form`, `Space`, `RecordId` — **not unique** |
+| chosen thresholds | `ILowlineTuningRow` (same place) — `Form`, `Space`, `Tuning` | unique over `Form`, `Space` |
+
+A record settled more than once keeps **one row for each time** (Lowline 0.12): the engine learns a record from its latest
+row, and counts a later check — a record reopened and saved, or audited by a second person — as an audit of the decision
+first settled, which the earlier row is. So the records table must not be unique over the record id; the store checks your
+model the first time it is used and refuses a table that is, with the change to make. Moving a table that was unique over
+the record id: drop that unique key, give the row a key of its own (or include `SettledAt` in the key), and add an ordinary
+index over `Form`, `Space`, `RecordId`. The rows already there stay as they are — each is the one line its record has so far.
 
 `EfLowlineStore<TContext, TRecord, TTuning>` (in `Iyu.Lowline.EntityFrameworkCore`) reads and writes them through your `DbContext`, one fresh scope per
 call, because the engine chooses its thresholds again on a background worker after a save. A second save of one record
-id replaces the first. The package does not map the entities: the key, the column types and the names stay with the
+id adds a row beside the first. The package does not map the entities: the key, the column types and the names stay with the
 schema you already run.
 
 **Settling a saved record.** Register one `ILowlineFormHook` per form (scoped): it reads a saved record back from your
@@ -2144,8 +2152,25 @@ is the only footing on which the engine counts a record as evidence — a record
 stored but neither counted nor allowed to lower the threshold, so history handed over that way would never produce a
 suggestion. Only the application knows which rows were typed by a person (an import, a bulk fill or a value a rule wrote is
 not), so return just those — typically the rows from before the installation. The ids must also be among
-`ListSourceKeysAsync`, or the recovery pass forgets them. A person who later settles one of these records replaces what the
-pass learned. A form with no source learns from settled records only.
+`ListSourceKeysAsync`, or the recovery pass forgets them. A person who later settles one of these records supersedes what the
+pass learned: the engine learns a record from its latest row. A form with no source learns from settled records only.
+
+**Sharing how the answers went.** The engine can say how a form's answers went — for each ISO week and form version, the
+counts of suggestions taken, corrected, rejected, typed over, checked and audited, per field — with no value, text, settler
+or record id in it (a record settled again is the same decision, counted in the cut of its first settlement). It sends
+nothing anywhere; whether to share it is the host's. There is no route for it here, because the audience is the host's call
+and the memory space names in a scope are the host's data: the engine's `LowlineForms` is registered, so a host that wants
+to send the aggregate on injects it with `ILowlineRecordIndex` and asks each scope of a form:
+
+```csharp
+var forms = services.GetRequiredService<LowlineForms>();
+var scopes = (await services.GetRequiredService<ILowlineRecordIndex>().ListScopesAsync()).Where(s => s.Form == "order");
+foreach (var scope in scopes)
+{
+    LowlineAggregate aggregate = await forms.AggregateAsync(scope);   // { decisions, cuts: [{ week, form_version, usage }] }
+    // send it on, or not; a scope's space is yours to name or to leave out.
+}
+```
 
 **Changing a form while the host runs.** `AddIyuLowline` defines the forms once, at startup. A form whose definition is edited
 while the application runs is redefined on the engine's `LowlineForms` (inject it): `forms.Define(name, definition)`

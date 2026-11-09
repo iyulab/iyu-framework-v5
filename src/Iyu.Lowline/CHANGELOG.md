@@ -15,6 +15,18 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependency: `Lowline` 0.11.0 → 0.12.0 — a store keeps every line of a record settled more than once.** The engine's
+  `ILowlineStore` contract changed with it: `AddRecordAsync` keeps a settled record's line beside the lines kept before (a record
+  reopened and saved, or audited by a second person, keeps its earlier lines); `ReadRecordsAsync` returns every line;
+  `ForgetBeforeAsync` removes the records last settled before the cut-off with all their lines; `ForgetAsync` removes every line
+  of a record. A host that registers its **own** `ILowlineStore` (any storage other than `Iyu.Lowline.EntityFrameworkCore`) must
+  follow it, and its `ILowlineRecordIndex.ListRecordIdsAsync` must still answer each id once. The engine's `InMemoryLowlineStore`
+  is the reference. `Iyu.Lowline.EntityFrameworkCore` follows it from the same release; see the repository's `CHANGELOG.md`.
+- The engine's new aggregate (`LowlineForms.AggregateAsync`) is reachable from the registered `LowlineForms`; the README says how.
+  This package adds no route for it.
+
 ## [0.48.0] - 2026-11-09
 
 ### Added

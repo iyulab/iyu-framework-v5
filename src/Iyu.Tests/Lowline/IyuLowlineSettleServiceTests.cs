@@ -189,14 +189,45 @@ public sealed class IyuLowlineSettleServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Settling_a_record_again_replaces_what_the_first_save_taught()
+    public async Task Settling_a_record_again_keeps_the_first_save_and_the_engine_learns_from_the_latest()
     {
         _hook.Save("r1", owner: "alice", space: "plant-a", customer: "acme", colour: "red");
         await Settle("order", "r1", null, Person("alice"));
         _hook.Save("r1", owner: "alice", space: "plant-a", customer: "acme", colour: "blue");
         await Settle("order", "r1", null, Person("alice"));
 
-        var record = Assert.Single(await Stored());
-        Assert.Equal("blue", Parse(record).GetProperty("values").GetProperty("colour").GetString());
+        // One line for each time the record was settled (Lowline 0.12): the first is what a later check is an audit of.
+        var lines = (await Stored()).OrderBy(r => r.SettledAt).ToList();
+        Assert.Equal(2, lines.Count);
+        Assert.All(lines, l => Assert.Equal("r1", l.Id));
+        Assert.Equal("red", Parse(lines[0]).GetProperty("values").GetProperty("colour").GetString());
+        Assert.Equal("blue", Parse(lines[1]).GetProperty("values").GetProperty("colour").GetString());
+    }
+
+    [Fact]
+    public async Task A_host_reads_how_the_answers_went_from_the_forms_it_already_has()
+    {
+        // The engine's aggregate needs no route of this package's: the host that wants to send it on injects the engine's
+        // forms (registered) and the record index (registered), asks each scope of a form, and decides where it goes.
+        _hook.Save("r1", owner: "alice", space: "plant-a", customer: "acme", colour: "red");
+        await Settle("order", "r1", null, Person("alice"));
+        _hook.Save("r1", owner: "alice", space: "plant-a", customer: "acme", colour: "blue");
+        await Settle("order", "r1", null, Person("alice"));      // the same decision, settled a second time
+        _hook.Save("r2", owner: "alice", space: "plant-a", customer: "globex", colour: "red");
+        await Settle("order", "r2", null, Person("alice"));
+
+        var forms = _provider.GetRequiredService<LowlineForms>();
+        var scopes = (await _provider.GetRequiredService<ILowlineRecordIndex>().ListScopesAsync()).Where(s => s.Form == "order").ToList();
+        var aggregate = await forms.AggregateAsync(Assert.Single(scopes));
+
+        // Three lines in the store, two decisions: a record settled again is the same decision.
+        Assert.Equal(3, (await Stored()).Count);
+        Assert.Equal(2, aggregate.Decisions);
+        // Nothing that names a person, a record or a value goes into it.
+        var json = JsonSerializer.Serialize(aggregate, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.DoesNotContain("alice", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("r1", json);
+        Assert.DoesNotContain("acme", json);
+        Assert.DoesNotContain("globex", json);
     }
 }

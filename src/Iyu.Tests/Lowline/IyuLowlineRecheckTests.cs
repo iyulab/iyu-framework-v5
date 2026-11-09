@@ -107,9 +107,11 @@ public sealed class IyuLowlineRecheckTests : IAsyncLifetime
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray().Single(p => p.GetProperty("field").GetString() == "colour");
     }
 
+    // The record's latest line: a record settled again keeps its earlier lines (Lowline 0.12), and what the tests ask is
+    // how the settlement they just made came out.
     private async Task<JsonElement> Stored(string id) =>
         JsonDocument.Parse((await _app.Services.GetRequiredService<ILowlineStore>().ReadRecordsAsync(new LowlineScope("order", "plant-a")))
-            .Single(r => r.Id == id).Json).RootElement;
+            .Where(r => r.Id == id).OrderBy(r => r.SettledAt).Last().Json).RootElement;
 
     private static bool HasSuggestion(JsonElement proposal) =>
         proposal.TryGetProperty("suggestion", out var s) && s.ValueKind == JsonValueKind.Object;

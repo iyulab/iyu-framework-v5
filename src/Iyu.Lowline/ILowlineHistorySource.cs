@@ -20,7 +20,8 @@ namespace Iyu.Lowline;
 /// </para>
 /// <para>
 /// Each record is learned once, with no draft and no settler, and the history pass skips an id the store already holds.
-/// A person who later settles the same record through <see cref="IyuLowlineSettleService"/> replaces what the pass learned.
+/// A person who later settles the same record through <see cref="IyuLowlineSettleService"/> supersedes what the pass learned:
+/// the engine learns a record from its latest row.
 /// The ids must also be among <see cref="ILowlineFormHook.ListSourceKeysAsync"/> — the recovery pass forgets a record whose
 /// id is not in that set, and would forget the history it was just given.
 /// </para>

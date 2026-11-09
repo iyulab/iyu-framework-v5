@@ -31,6 +31,31 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.Lowline.EntityFrameworkCore` (and `Iyu.Lowline`, which has its own line — see its changelog).
+
+### Changed
+
+- **Breaking — 🔇 no build-time signal — `Iyu.Lowline.EntityFrameworkCore`: a record settled again keeps a row for each time.**
+  The Lowline engine 0.12 changed what a store keeps: a record settled more than once — reopened and saved, or audited by a
+  second person — keeps its earlier lines. The engine learns a record from its latest line and counts a later check as an
+  audit of the decision first settled, which the earlier line is. `EfLowlineStore` used to replace the row of an id, so with
+  the new engine an audit would have erased the first settlement and the aggregate (`LowlineForms.AggregateAsync`) would have
+  counted that decision as a first check with no answer. It now adds a row for every save; `ReadRecordsAsync` returns all of
+  them in settlement order, `ForgetAsync` removes every row of the record, `ForgetBeforeAsync` removes the records whose
+  **latest** row is older than the cut-off (all their rows, once each in the ids it answers) and keeps one settled again since,
+  and the record index lists each id once.
+  **Your records table must change** — it is yours, so the package cannot do it: drop the unique key or unique index over
+  (`Form`, `Space`, `RecordId`), give the row a key of its own (a row id; or a key that also holds `SettledAt`), and add an
+  ordinary, non-unique index over those three columns for the lookups. The rows already there stay as they are — each is the
+  one line its record has so far — so no data moves. A table that is still unique over the record id is refused the first time
+  the store is used, with this change in the message, instead of failing every second save of an id on the database's key.
+  A hand-written `ILowlineStore` must follow the same contract (`ILowlineStore`'s documentation in the engine); this package's
+  `ILowlineRecordRow` documentation and the README sample state the table shape.
+- **Dependency:** `Lowline` 0.11.0 → 0.12.0 (through `Iyu.Lowline`). The engine also gains an aggregate of how its answers went
+  — `LowlineForms.AggregateAsync(scope)`, with no value, text, settler or record id in it; the README (« Sharing how the answers
+  went ») shows reading it from the registered `LowlineForms`. This package adds no route for it: whether and where to send it is
+  the host's decision.
+
 ## [0.48.0] - 2026-11-09
 
 **Packages affected:** `Iyu.Core`, `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.Server.GraphQL`, `Iyu.Server.OData`, `Iyu.VaultAi`
