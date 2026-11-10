@@ -67,7 +67,7 @@ onward; earlier entries state the same consequence in prose where it applies.
   the store is used, with this change in the message, instead of failing every second save of an id on the database's key.
   A hand-written `ILowlineStore` must follow the same contract (`ILowlineStore`'s documentation in the engine); this package's
   `ILowlineRecordRow` documentation and the README sample state the table shape.
-- **Dependency:** `Lowline` 0.11.0 → 0.12.0 (through `Iyu.Lowline`). The engine also gains an aggregate of how its answers went
+- **Dependency:** `Lowline` 0.11.0 → 0.12.1 (through `Iyu.Lowline`). The engine also gains an aggregate of how its answers went
   — `LowlineForms.AggregateAsync(scope)`, with no value, text, settler or record id in it; the README (« Sharing how the answers
   went ») shows reading it from the registered `LowlineForms`. This package adds no route for it: whether and where to send it is
   the host's decision.

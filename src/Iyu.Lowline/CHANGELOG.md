@@ -17,7 +17,7 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ### Changed
 
-- **Dependency: `Lowline` 0.11.0 → 0.12.0 — a store keeps every line of a record settled more than once.** The engine's
+- **Dependency: `Lowline` 0.11.0 → 0.12.1 — a store keeps every line of a record settled more than once.** The engine's
   `ILowlineStore` contract changed with it: `AddRecordAsync` keeps a settled record's line beside the lines kept before (a record
   reopened and saved, or audited by a second person, keeps its earlier lines); `ReadRecordsAsync` returns every line;
   `ForgetBeforeAsync` removes the records last settled before the cut-off with all their lines; `ForgetAsync` removes every line

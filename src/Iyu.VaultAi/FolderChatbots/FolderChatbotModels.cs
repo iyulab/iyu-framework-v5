@@ -14,7 +14,7 @@ internal sealed record FolderChatbotModels(Guid? Index, Guid? Answer, Guid? Embe
 /// the workspace has several candidates of the same kind and the engine cannot choose, or to change a model already in use.
 /// </summary>
 /// <remarks>The ids are rows of the vault-ai workspace's models, not model names: a name is not an identifier there.</remarks>
-public sealed class VaultAiFolderChatbotModelOptions
+internal sealed class VaultAiFolderChatbotModelOptions
 {
     /// <summary>The language model that indexes files (the storage's language model).</summary>
     public string Index { get; set; } = "";

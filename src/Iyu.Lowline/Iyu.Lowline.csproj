@@ -13,7 +13,7 @@
   <ItemGroup>
     <!-- The engine is a native library: the package carries it for Windows, Linux (glibc and musl) and macOS, x64 and arm64.
          Alpine images are not yet exercised with this package (README, "Iyu.Lowline"). -->
-    <PackageReference Include="Lowline" Version="0.12.0" />
+    <PackageReference Include="Lowline" Version="0.12.1" />
   </ItemGroup>
 
   <ItemGroup>
