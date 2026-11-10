@@ -298,6 +298,110 @@ public sealed class FileSystemFolderChatbotSourceTests : IDisposable
     }
 
     [Fact]
+    public void A_settings_file_in_a_bot_folder_that_is_itself_a_link_is_still_read()
+    {
+        var shared = Outside();
+        try
+        {
+            File.WriteAllText(Path.Combine(shared, "AGENTS.md"), "  answer briefly  ");
+            LinkDirectory(Path.Combine(_root, "shared-docs"), shared);
+
+            var result = new FileSystemFolderChatbotSource(_root).ReadAgents("shared-docs", out _);
+
+            Assert.Null(result.Error);
+            Assert.Equal("answer briefly", result.Text);
+        }
+        finally { Directory.Delete(shared, recursive: true); }
+    }
+
+    [Fact]
+    public void A_folder_swapped_for_a_link_only_for_the_instant_of_the_open_is_caught_by_where_the_open_file_really_is()
+    {
+        var outside = Outside();
+        try
+        {
+            Write("handbook/docs/secret.txt", "inside");
+            var docs = Path.Combine(_root, "handbook", "docs");
+            var aside = docs + ".real";
+            var source = new FileSystemFolderChatbotSource(_root)
+            {
+                // After the path was found clean: the folder is replaced by a link to the outside, the file opens through it ...
+                AfterFirstLinkCheck = () => { Directory.Move(docs, aside); LinkDirectory(docs, outside); },
+                // ... and the folder is put back before the path is looked at again, so only the open handle tells.
+                AfterOpen = () => { Directory.Delete(docs); Directory.Move(aside, docs); },
+            };
+
+            Assert.Throws<IOException>(() => source.OpenRead("handbook", "docs/secret.txt"));
+        }
+        finally { Directory.Delete(outside, recursive: true); }
+    }
+
+    [Fact]
+    public void A_settings_file_swapped_for_a_link_only_for_the_instant_of_the_open_is_not_read_as_the_bots_instructions()
+    {
+        var outside = Outside();
+        try
+        {
+            Write("handbook/AGENTS.md", "the real instructions");
+            var agents = Path.Combine(_root, "handbook", "AGENTS.md");
+            var aside = agents + ".real";
+            var swapped = false;
+            var source = new FileSystemFolderChatbotSource(_root)
+            {
+                AfterFirstLinkCheck = () =>
+                {
+                    File.Move(agents, aside);
+                    swapped = TryLinkFile(agents, Path.Combine(outside, "secret.txt"));
+                    if (!swapped) File.Move(aside, agents);   // no privilege to make a file link here; the folder-swap test covers the rule
+                },
+                AfterOpen = () =>
+                {
+                    if (!swapped) return;
+                    File.Delete(agents);
+                    File.Move(aside, agents);
+                },
+            };
+
+            var result = source.ReadAgents("handbook", out _);
+
+            if (!swapped) return;
+            Assert.Null(result.Text);
+            Assert.NotNull(result.Error);
+        }
+        finally { Directory.Delete(outside, recursive: true); }
+    }
+
+    [Fact]
+    public void The_real_path_of_an_open_file_is_where_it_lives_whatever_path_opened_it()
+    {
+        var shared = Outside();
+        try
+        {
+            File.WriteAllText(Path.Combine(shared, "policy.md"), "policy");
+            LinkDirectory(Path.Combine(_root, "shared-docs"), shared);
+
+            using var stream = new FileStream(Path.Combine(_root, "shared-docs", "policy.md"), FileMode.Open, FileAccess.Read, FileShare.Read);
+            var actual = FolderChatbotRealPath.OfOpenFile(stream.SafeFileHandle);
+
+            if (actual is null) return;   // an operating system that cannot say where an open handle is
+            Assert.Equal(Path.Combine(FolderChatbotRealPath.OfDirectory(shared)!, "policy.md"), actual, ignoreCase: OperatingSystem.IsWindows());
+        }
+        finally { Directory.Delete(shared, recursive: true); }
+    }
+
+    [Fact]
+    public void Resolving_a_path_follows_every_link_on_the_way_including_a_link_that_points_at_a_link()
+    {
+        Write("real/policy.md");
+        LinkDirectory(Path.Combine(_root, "second"), Path.Combine(_root, "real"));
+        LinkDirectory(Path.Combine(_root, "first"), Path.Combine(_root, "second"));
+
+        var resolved = FolderChatbotRealPath.Resolve(Path.Combine(_root, "first", "policy.md"));
+
+        Assert.Equal(Path.Combine(_root, "real", "policy.md"), resolved, ignoreCase: OperatingSystem.IsWindows());
+    }
+
+    [Fact]
     public void The_file_manifest_store_writes_atomically_reads_back_and_keeps_a_copy_on_request()
     {
         var path = Path.Combine(_root, "state", "manifest.json");

@@ -91,22 +91,29 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
         return Convert.ToHexStringLower(SHA256.HashData(stream));
     }
 
-    /// <summary>
-    /// Opens a file of a bot. The file has to be inside the bot's folder and reached without crossing a link: a path that was an ordinary
-    /// file when the folder was scanned may have been replaced by a link since. The path is checked before the file is opened and again
-    /// after, and a file opened through a link that appeared in between is closed and refused.
-    /// </summary>
-    /// <remarks>
-    /// This is not atomic: a link put in place and taken out again between the open and the second check would go unseen. It closes the
-    /// ordinary swap, not a determined race. Where the people who can write a bot's folder are not trusted with whatever the service account
-    /// can read, serve the documents from a location they cannot make links in.
-    /// </remarks>
     public IEnumerable<string> ListBotFolders()
         => Directory.Exists(Root)
             ? new DirectoryInfo(Root).EnumerateDirectories().Select(d => d.Name)
                 .Where(n => !FolderChatbotFolderRules.IsExcluded(n)).ToList()
             : [];
 
+    /// <summary>Test seams: run between the steps of <see cref="OpenRead"/> so a test can stage a swap at exactly that instant.</summary>
+    internal Action? AfterFirstLinkCheck { get; set; }
+
+    /// <inheritdoc cref="AfterFirstLinkCheck"/>
+    internal Action? AfterOpen { get; set; }
+
+    /// <summary>
+    /// Opens a file of a bot. The file has to be inside the bot's folder and reached without crossing a link: a path that was an ordinary
+    /// file when the folder was scanned may have been replaced by a link since. The path is checked before the file is opened; the open
+    /// file is then checked twice more - by its path again (a link that is still there), and by asking the operating system where the open
+    /// handle really is (a link put in place for the instant of the open and taken out again). A file that fails either is closed and refused.
+    /// </summary>
+    /// <remarks>
+    /// The last check is exact on Windows and Linux. Where the operating system cannot say where an open handle is (macOS) only the path
+    /// checks remain, which close the ordinary swap but not a determined race; there, and wherever the people who can write a bot's
+    /// folder are not trusted with whatever the service account can read, serve the documents from a location they cannot make links in.
+    /// </remarks>
     public Stream OpenRead(string bot, string relativePath)
     {
         var botDir = Path.GetFullPath(Path.Combine(Root, bot));
@@ -116,10 +123,13 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
             throw new IOException($"The path '{relativePath}' leaves the folder of the bot '{bot}'.");
 
         ThrowIfThroughLink(botDir, full, bot, relativePath);
+        AfterFirstLinkCheck?.Invoke();
         var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
         try
         {
+            AfterOpen?.Invoke();
             ThrowIfThroughLink(botDir, full, bot, relativePath);   // again, now that the file is open
+            FolderChatbotRealPath.ThrowIfOutside(stream, botDir, $"The path '{relativePath}' of the bot '{bot}'");
             return stream;
         }
         catch
@@ -150,7 +160,7 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
     public SettingsText ReadMcp(string bot, out string? warning)
         => ReadText(Path.Combine(Root, bot), FolderChatbotFolderRules.McpFileName, trim: false, out warning);
 
-    private static SettingsText ReadText(string dir, string fileName, bool trim, out string? warning)
+    private SettingsText ReadText(string dir, string fileName, bool trim, out string? warning)
     {
         string? path;
         try
@@ -167,9 +177,13 @@ internal sealed class FileSystemFolderChatbotSource(string root) : IFolderChatbo
         if (IsLink(new FileInfo(path))) return new SettingsText(null, "is a link, which is not followed");
         try
         {
-            // Opened first and checked again, so a link put in place after the first look is not read (not atomic - see OpenRead).
+            // Opened first and checked again - by path and by where the open handle really is (see OpenRead) - so a link put in place
+            // after the first look is not read.
+            AfterFirstLinkCheck?.Invoke();
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            AfterOpen?.Invoke();
             if (IsLink(new FileInfo(path))) return new SettingsText(null, "is a link, which is not followed");
+            FolderChatbotRealPath.ThrowIfOutside(stream, dir, $"'{fileName}'");
             using var reader = new StreamReader(stream);
             var text = reader.ReadToEnd();
             if (trim) text = text.Trim();
