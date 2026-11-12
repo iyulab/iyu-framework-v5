@@ -34,9 +34,9 @@
     <ProjectReference Include="..\Iyu.Report\Iyu.Report.csproj" />
     <ProjectReference Include="..\Iyu.Lowline\Iyu.Lowline.csproj" />
     <ProjectReference Include="..\Iyu.Lowline.EntityFrameworkCore\Iyu.Lowline.EntityFrameworkCore.csproj" />
-    <ProjectReference Include="..\Iyu.Ml\Iyu.Ml.csproj" />
-    <ProjectReference Include="..\Iyu.Ml.EntityFrameworkCore\Iyu.Ml.EntityFrameworkCore.csproj" />
-    <ProjectReference Include="..\Iyu.MainServer.Ml\Iyu.MainServer.Ml.csproj" />
+    <ProjectReference Include="..\Iyu.ML\Iyu.ML.csproj" />
+    <ProjectReference Include="..\Iyu.ML.EntityFrameworkCore\Iyu.ML.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\Iyu.MainServer.ML\Iyu.MainServer.ML.csproj" />
     <ProjectReference Include="..\Iyu.FileServer\Iyu.FileServer.csproj" />
     <ProjectReference Include="..\Iyu.DocConvert\Iyu.DocConvert.csproj" />
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />

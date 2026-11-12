@@ -26,7 +26,7 @@
   <ItemGroup>
     <!-- The ML layer's read guard asks which surfaces are composed in, to tie a policy declared on a read type to the table
          behind it. -->
-    <InternalsVisibleTo Include="Iyu.MainServer.Ml" />
+    <InternalsVisibleTo Include="Iyu.MainServer.ML" />
   </ItemGroup>
 
 </Project>

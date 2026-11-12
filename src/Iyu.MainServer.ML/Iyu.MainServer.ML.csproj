@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Connects the Iyu.ML read guard to Iyu.MainServer's read policies, so machine learning never reads what the caller could not.</Description>
+    <PackageTags>iyu;machine-learning;odata;aspnetcore</PackageTags>
+    <RootNamespace>Iyu.MainServer.ML</RootNamespace>
+    <!-- Not packed yet, with the ML layer it adapts: the pair ships when the first release is decided. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Iyu.ML\Iyu.ML.csproj" />
+    <ProjectReference Include="..\Iyu.MainServer\Iyu.MainServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
+</Project>
