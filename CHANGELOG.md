@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore` (and `Iyu.Lowline`, which has its own line — see its changelog).
+**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, and — NuGet tags only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.VaultAi` (and `Iyu.Lowline`, which has its own line — see its changelog).
 
 ### Security
 
@@ -50,6 +50,8 @@ onward; earlier entries state the same consequence in prose where it applies.
   `Iyu.Core`) lists what is withheld for a type.
 
 ### Changed
+
+- **Every package carries tags of its own.** The repository-wide set (`odata`, `graphql`, `framework`, ...) described none of the packages in particular, so a form-suggestion or file-gateway package was listed under words that are about something else. Each package now names what it is for; a test keeps a new project from inheriting the shared set or repeating another's.
 
 - **Breaking — 🔇 no build-time signal — `Iyu.Lowline.EntityFrameworkCore`: a record settled again keeps a row for each time.**
   The Lowline engine 0.12 changed what a store keeps: a record settled more than once — reopened and saved, or audited by a

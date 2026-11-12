@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Provider-neutral machine-learning ports - prediction, dataset sources, CSV reading, constant baselines and a read guard; no ML runtime dependency.</Description>
+    <PackageTags>iyu;machine-learning;prediction;csv</PackageTags>
     <RootNamespace>Iyu.Ml</RootNamespace>
     <!-- Not packed yet. The product-neutral ML layer ships when its first release is decided; it then sits on its own version
          line like Iyu.Lowline (its own Directory.Build.props, tag and changelog, because it references neither Iyu.Core nor

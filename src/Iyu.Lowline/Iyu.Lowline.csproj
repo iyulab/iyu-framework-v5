@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Runs the Lowline engine, which learns suggestions for form fields from confirmed records, in any .NET host over two storage ports the host provides; it depends on neither Entity Framework Core nor Iyu.Core.</Description>
+    <PackageTags>iyu;lowline;forms;suggestions;aspnetcore</PackageTags>
     <RootNamespace>Iyu.Lowline</RootNamespace>
   </PropertyGroup>
 

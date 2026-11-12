@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Fills Office document templates with data through DocuChef; unrelated to Iyu.VaultAi's scheduled reports.</Description>
+    <PackageTags>iyu;office;templates;reporting</PackageTags>
     <RootNamespace>Iyu.Report</RootNamespace>
   </PropertyGroup>
 

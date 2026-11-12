@@ -61,4 +61,41 @@ public sealed class PackageMetadataTests
 
         Assert.True(shared.Count == 0, "projects with the same description: " + string.Join("; ", shared));
     }
+
+    private static List<(string Project, string? Tags)> Tags() =>
+        Directory.GetDirectories(SourceRoot())
+            .Select(d => (Name: Path.GetFileName(d), Dir: d))
+            .Where(x => x.Name != "Iyu.Tests")
+            .Select(x => Path.Combine(x.Dir, x.Name + ".csproj"))
+            .Where(File.Exists)
+            .Select(f => (
+                Project: Path.GetFileNameWithoutExtension(f),
+                Tags: XDocument.Load(f).Descendants("PackageTags").FirstOrDefault()?.Value.Trim()))
+            .ToList();
+
+    // The repository-level props also carry one fallback set of tags (OData, GraphQL, ...): a package that does not set its
+    // own is found on nuget.org under words that describe a different package.
+    [Fact]
+    public void Every_project_sets_its_own_tags()
+    {
+        var all = Tags();
+        Assert.NotEmpty(all);
+
+        var missing = all.Where(x => string.IsNullOrWhiteSpace(x.Tags)).Select(x => x.Project).ToList();
+        Assert.True(missing.Count == 0,
+            "these projects inherit the repository-level tags instead of naming what they are for: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void No_two_projects_share_tags()
+    {
+        var shared = Tags()
+            .Where(x => !string.IsNullOrWhiteSpace(x.Tags))
+            .GroupBy(x => x.Tags!, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => string.Join(" = ", g.Select(x => x.Project)))
+            .ToList();
+
+        Assert.True(shared.Count == 0, "projects with the same tags: " + string.Join("; ", shared));
+    }
 }

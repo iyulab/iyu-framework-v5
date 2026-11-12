@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>OData CRUD controllers and the $search and $filter binders over read/write entity pairs, for ASP.NET Core.</Description>
+    <PackageTags>iyu;odata;search;aspnetcore</PackageTags>
     <RootNamespace>Iyu.Server.OData</RootNamespace>
   </PropertyGroup>
 

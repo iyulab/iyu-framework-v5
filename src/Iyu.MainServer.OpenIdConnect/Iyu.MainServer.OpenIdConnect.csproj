@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>OpenID Connect back-channel logout for Iyu.MainServer hosts that sign people in through an OpenID Connect provider.</Description>
+    <PackageTags>iyu;openid-connect;backchannel-logout;identity</PackageTags>
     <RootNamespace>Iyu.MainServer.Identity</RootNamespace>
   </PropertyGroup>
 

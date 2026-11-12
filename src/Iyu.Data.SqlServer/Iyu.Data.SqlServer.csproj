@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Names SQL Server's error numbers by their SQLSTATE so a failed write is classified; reference it only on SQL Server.</Description>
+    <PackageTags>iyu;sqlserver;sqlstate;entityframeworkcore</PackageTags>
     <RootNamespace>Iyu.Data.SqlServer</RootNamespace>
   </PropertyGroup>
 

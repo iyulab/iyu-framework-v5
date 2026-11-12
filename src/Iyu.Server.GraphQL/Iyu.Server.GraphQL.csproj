@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>HotChocolate GraphQL schema building over read/write entity pairs, for ASP.NET Core.</Description>
+    <PackageTags>iyu;graphql;hotchocolate;schema;aspnetcore</PackageTags>
     <RootNamespace>Iyu.Server.GraphQL</RootNamespace>
   </PropertyGroup>
 

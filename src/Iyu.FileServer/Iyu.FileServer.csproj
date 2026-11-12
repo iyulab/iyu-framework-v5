@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>A token-gated file byte gateway for ASP.NET Core, with Azure Blob and local filesystem backends.</Description>
+    <PackageTags>iyu;file-server;azure-blob;aspnetcore</PackageTags>
     <RootNamespace>Iyu.FileServer</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

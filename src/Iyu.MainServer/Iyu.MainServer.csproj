@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Serves entities over OData with cookie and bearer-token identity from one registration call; carries no GraphQL dependency.</Description>
+    <PackageTags>iyu;odata;identity;aspnetcore</PackageTags>
     <RootNamespace>Iyu.MainServer</RootNamespace>
   </PropertyGroup>
 

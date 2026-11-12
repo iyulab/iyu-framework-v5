@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Entity Framework Core store behind Iyu.Lowline's two ports, over the application's own DbContext tables; reference it only if the records live there.</Description>
+    <PackageTags>iyu;lowline;forms;entityframeworkcore</PackageTags>
     <RootNamespace>Iyu.Lowline.EntityFrameworkCore</RootNamespace>
   </PropertyGroup>
 

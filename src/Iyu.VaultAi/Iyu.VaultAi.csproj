@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Scheduled report generation and the chat-widget embed proxy for a vault-ai service, hosted in an Iyu application.</Description>
+    <PackageTags>iyu;vault-ai;reports;chat-widget</PackageTags>
     <RootNamespace>Iyu.VaultAi</RootNamespace>
     <!-- v3 verbatim 이식 소스의 일부 XML 주석이 전체 파라미터를 문서화하지 않음(v3엔
          GenerateDocumentationFile이 없어 드러나지 않던 것). verbatim 보존을 위해 주석을
