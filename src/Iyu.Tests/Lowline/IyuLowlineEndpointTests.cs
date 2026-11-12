@@ -159,6 +159,23 @@ public sealed class IyuLowlineEndpointTests : IAsyncLifetime
         Assert.False(record.TryGetProperty("batch", out _));
     }
 
+    // The README tells a caller the draft is a JSON object in the body, "not a string holding JSON, which is refused" — the
+    // first thing a client written from the field names alone gets wrong. The sentence was written from the code and a
+    // trial against the published package; this holds it.
+    [Fact]
+    public async Task A_draft_sent_as_a_string_holding_json_is_refused_and_nothing_is_stored_while_an_object_settles()
+    {
+        _hook.Save("r1", "alice", "plant-a", "acme", "red");
+
+        var asString = await _client.SendAsync(Post("/lowline/order/settle", """{"id":"r1","draft":"{}"}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, asString.StatusCode);
+        Assert.Empty(await Stored());
+
+        var asObject = await _client.SendAsync(Post("/lowline/order/settle", """{"id":"r1","draft":{}}"""));
+        Assert.Equal(HttpStatusCode.OK, asObject.StatusCode);
+        Assert.Single(await Stored());
+    }
+
     [Fact]
     public async Task Someone_elses_record_and_a_missing_one_are_both_404_and_nothing_is_stored()
     {
