@@ -2045,6 +2045,10 @@ public static class LowlineSample
 }
 ```
 
+**What the sample's form definition is.** `orderFormDefinition` is the engine's JSON, for example `{"form":{"fields":[{"name":"colour","kind":"choice","choices":["red","blue"]}]}}`. A field's `kind` is one of `text`, `number`, `date`, `choice`, `flag` or `reference`; a form needs at least one field the engine can decide (a `choice`), or the engine refuses it and the host does not start.
+
+**Without Entity Framework.** The sample's two tables and the three type arguments are the Entity Framework Core package's answer to two ports. A host that keeps records elsewhere implements the ports itself, registers them in the container, and calls `AddIyuLowline(o => …)` without type arguments: `Lowline.ILowlineStore` (the engine's — read and add a scope's records, read and write its tuning, forget a record or everything settled before a date; a record settled again keeps every line) and `Iyu.Lowline.ILowlineRecordIndex` (`ListScopesAsync`, `ListRecordIdsAsync`). A host that registers neither, or only one of them, does not start, and the message names the missing port. `Lowline.InMemoryLowlineStore` is the engine's `ILowlineStore` for tests and for a host that learns afresh each run; the index is always the host's.
+
 **The tables are yours.** Declare them in your own schema and give the entities these interfaces:
 
 | Table | Entity implements | Key |
@@ -2074,7 +2078,7 @@ tables for a caller, or answers `null` for one that does not exist *or that call
 - who settled the record, its batch and the fields drawn for a check are never taken from the draft: an empty
   `Attestation` is always given, because the engine lets a draft sign a record, name a batch and claim a check unless the
   host says otherwise;
-- the draft is the caller's own, unverified account of what was *shown* and what was done with it. It decides how a
+- the draft is a JSON object in the request body (`"draft":{…}` — not a string holding JSON, which is refused), the caller's own, unverified account of what was *shown* and what was done with it. It decides how a
   record is counted (a suggestion taken versus a value typed), never which values are learned. It is refused above
   `IyuLowlineOptions.MaxDraftLength` (64 KiB by default) before anything is read;
 - the outcome is a status (`Settled`, `Unauthenticated`, `Forbidden`, `FormUnknown`, `RecordNotFound`, `Refused`); a refusal's
