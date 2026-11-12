@@ -51,6 +51,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- `Iyu.Server.GraphQL` follows HotChocolate 16.7.3 → 16.7.5 (a patch release; the GraphQL tests pass unchanged).
+
 - **Every package carries tags of its own.** The repository-wide set (`odata`, `graphql`, `framework`, ...) described none of the packages in particular, so a form-suggestion or file-gateway package was listed under words that are about something else. Each package now names what it is for; a test keeps a new project from inheriting the shared set or repeating another's.
 
 - **Breaking — 🔇 no build-time signal — `Iyu.Lowline.EntityFrameworkCore`: a record settled again keeps a row for each time.**
