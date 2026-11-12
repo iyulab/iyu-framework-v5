@@ -2031,6 +2031,11 @@ public static class LowlineSample
         });
         builder.Services.AddScoped<ILowlineFormHook, OrderForm>();
 
+        // The routes need a signed-in caller, and how callers sign in is yours: register your own scheme on the first line
+        // (a bearer handler, a cookie). Both registrations are required — the two middlewares below fail to build without them.
+        builder.Services.AddAuthentication();
+        builder.Services.AddAuthorization();
+
         var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -2072,7 +2077,7 @@ tables for a caller, or answers `null` for one that does not exist *or that call
 - the draft is the caller's own, unverified account of what was *shown* and what was done with it. It decides how a
   record is counted (a suggestion taken versus a value typed), never which values are learned. It is refused above
   `IyuLowlineOptions.MaxDraftLength` (64 KiB by default) before anything is read;
-- the outcome is a status (`Settled`, `Unauthenticated`, `FormUnknown`, `RecordNotFound`, `Refused`); a refusal's
+- the outcome is a status (`Settled`, `Unauthenticated`, `Forbidden`, `FormUnknown`, `RecordNotFound`, `Refused`); a refusal's
   `Detail` is for your log and can quote a stored value, so it does not belong in a response.
 
 **Proposing without the route.** `IyuLowlineProposeService.ProposeAsync(form, recordId, values, user)` (scoped) is what the

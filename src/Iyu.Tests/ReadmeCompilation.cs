@@ -68,6 +68,25 @@ internal static class ReadmeCompilation
         return refs;
     }
 
+    /// <summary>
+    /// Compiles <paramref name="source"/> as a library and loads it, for a test that runs what the README shows rather than
+    /// only checking that it compiles. Fails with the compiler's errors if it does not compile.
+    /// </summary>
+    public static System.Reflection.Assembly Load(string assemblyName, string source)
+    {
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
+            ReferenceSet(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+
+        using var image = new MemoryStream();
+        var result = compilation.Emit(image);
+        Assert.True(result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString())));
+        return System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(image.ToArray()));
+    }
+
     /// <summary>The errors compiling <paramref name="source"/> as a library produces.</summary>
     public static IReadOnlyList<Diagnostic> Errors(string assemblyName, string source)
     {

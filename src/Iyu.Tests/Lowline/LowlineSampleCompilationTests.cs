@@ -1,5 +1,14 @@
 using Iyu.Lowline.EntityFrameworkCore;
+using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Iyu.Tests.Lowline;
@@ -37,6 +46,75 @@ public class LowlineSampleCompilationTests
             .Select(e => $"{e.Id}: {e.GetMessage()} ({e.Location.GetLineSpan().StartLinePosition.Line + 1})");
 
         Assert.Empty(errors);
+    }
+
+    /// <summary>
+    /// Compiling proves the names exist, not that the host runs: the sample once asked for authentication and authorization
+    /// middleware without registering either, compiled, and stopped on start. So the sample is built and started here, with
+    /// only what a host brings itself added — a sign-in scheme and the one table row the hook reads.
+    /// </summary>
+    [Fact]
+    public async Task The_whole_host_in_the_README_starts_and_answers()
+    {
+        const string Database = "Data Source=app.db";
+        var file = Path.Combine(Path.GetTempPath(), $"iyu-lowline-sample-{Guid.NewGuid():N}.db");
+        var source = ImplicitUsings + Sample();
+        Assert.Contains(Database, source);   // the sample's own connection string; it is pointed at a temp file below
+        var assembly = ReadmeCompilation.Load("LowlineSampleHost", source.Replace(Database, $"Data Source={file.Replace('\\', '/')}"));   // the path sits inside a string literal of the sample
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        // The only thing the host adds is how callers sign in. Authorization is deliberately not registered here: the sample must.
+        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, LowlineTestAuthHandler>("Test", null);
+
+        var app = (WebApplication)assembly.GetType("LowlineSample")!.GetMethod("Build")!
+            .Invoke(null, [builder, """{"form":{"fields":[{"name":"customer","kind":"choice","choices":["acme","globex"]},{"name":"colour","kind":"choice","choices":["red","blue"]}]}}""", new string('s', 48)])!;
+        try
+        {
+            await app.StartAsync();
+            var orderId = Guid.NewGuid();
+            using (var scope = app.Services.CreateScope())
+            {
+                var db = (DbContext)scope.ServiceProvider.GetRequiredService(assembly.GetType("AppDb")!);
+                db.Database.EnsureCreated();
+                var order = Activator.CreateInstance(assembly.GetType("Order")!)!;
+                order.GetType().GetProperty("Id")!.SetValue(order, orderId);
+                order.GetType().GetProperty("Customer")!.SetValue(order, "acme");
+                order.GetType().GetProperty("Colour")!.SetValue(order, "red");
+                db.Add(order);
+                await db.SaveChangesAsync();
+            }
+
+            using var client = app.GetTestClient();
+            HttpRequestMessage Propose(bool signedIn)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post, "/lowline/order/propose")
+                {
+                    Content = new StringContent("{\"id\":\"" + orderId + "\",\"values\":{ }}", Encoding.UTF8, "application/json"),
+                };
+                if (signedIn) request.Headers.Add("X-Test-User", "alice");
+                return request;
+            }
+
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Propose(signedIn: false))).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Propose(signedIn: true))).StatusCode);
+        }
+        finally
+        {
+            await app.DisposeAsync();
+            SqliteConnection.ClearAllPools();
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public void The_sample_registers_the_authentication_it_uses()
+    {
+        // The start test lends the host a sign-in scheme through AddAuthentication, which would hide a sample that forgot it.
+        var sample = Sample();
+
+        Assert.Contains("AddAuthentication(", sample);
+        Assert.Contains("AddAuthorization(", sample);
     }
 
     [Fact]
