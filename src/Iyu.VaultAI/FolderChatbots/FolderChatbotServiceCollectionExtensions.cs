@@ -27,11 +27,11 @@ internal static class FolderChatbotServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var vaultAi = configuration.GetSection("VaultAI");
-        var section = vaultAi.GetSection("Chatbots");
+        var vaultAI = configuration.GetSection("VaultAI");
+        var section = vaultAI.GetSection("Chatbots");
         if (!section.GetValue<bool>(nameof(VaultAIFolderChatbotOptions.Enabled))) return services;
 
-        services.Configure<VaultAISettings>(vaultAi);
+        services.Configure<VaultAISettings>(vaultAI);
         services.AddOptions<VaultAIFolderChatbotOptions>().Bind(section).ValidateOnStart();
         services.AddSingleton<IValidateOptions<VaultAIFolderChatbotOptions>, FolderChatbotOptionsValidator>();
 
@@ -75,13 +75,13 @@ internal static class FolderChatbotServiceCollectionExtensions
 /// Refuses to start a host that turned the folder chatbots on without what they need. Each message names the setting, never a value:
 /// startup errors end up in logs and on screens.
 /// </summary>
-internal sealed class FolderChatbotOptionsValidator(IOptions<VaultAISettings> vaultAi) : IValidateOptions<VaultAIFolderChatbotOptions>
+internal sealed class FolderChatbotOptionsValidator(IOptions<VaultAISettings> vaultAI) : IValidateOptions<VaultAIFolderChatbotOptions>
 {
     public ValidateOptionsResult Validate(string? name, VaultAIFolderChatbotOptions options)
     {
         if (!options.Enabled) return ValidateOptionsResult.Success;
 
-        var settings = vaultAi.Value;
+        var settings = vaultAI.Value;
         if (!Uri.TryCreate(settings.Url, UriKind.Absolute, out var url) || url.Scheme is not ("http" or "https"))
             return Fail("VaultAI:Url must be the absolute http(s) address of vault-ai when the folder chatbots are enabled.");
         if (string.IsNullOrWhiteSpace(settings.Token))

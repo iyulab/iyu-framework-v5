@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Iyu.ML.EntityFrameworkCore;
 
 /// <summary>One declared dataset in the form the source reads it, without the entity type showing.</summary>
-internal interface IEfDatasetPlan
+internal interface IEFDatasetPlan
 {
     MLDatasetDefinition Definition { get; }
 
@@ -13,21 +13,21 @@ internal interface IEfDatasetPlan
     Type EntityType { get; }
 
     /// <summary>Every property the dataset reads: its columns and the properties its filter names. Each is a read.</summary>
-    IReadOnlyList<EfDatasetRead> Reads { get; }
+    IReadOnlyList<EFDatasetRead> Reads { get; }
 
     IAsyncEnumerable<IReadOnlyDictionary<string, object?>> ReadAsync(DbContext context, CancellationToken cancellationToken);
 }
 
 /// <summary>A property a dataset reads, and what it reads it as.</summary>
-internal sealed record EfDatasetRead(string Property, string Use);
+internal sealed record EFDatasetRead(string Property, string Use);
 
-internal sealed class EfDatasetPlan<TEntity> : IEfDatasetPlan where TEntity : class
+internal sealed class EFDatasetPlan<TEntity> : IEFDatasetPlan where TEntity : class
 {
     private readonly IReadOnlyList<MLDatasetBuilder<TEntity>.ColumnBinding> _columns;
     private readonly Expression<Func<TEntity, bool>>? _filter;
     private readonly Expression<Func<TEntity, object?[]>> _projection;
 
-    public EfDatasetPlan(
+    public EFDatasetPlan(
         MLDatasetDefinition definition,
         IReadOnlyList<MLDatasetBuilder<TEntity>.ColumnBinding> columns,
         Expression<Func<TEntity, bool>>? filter)
@@ -42,12 +42,12 @@ internal sealed class EfDatasetPlan<TEntity> : IEfDatasetPlan where TEntity : cl
         var values = _columns.Select(c => new MLDatasetBuilder<TEntity>.ParameterReplacer(c.Selector.Parameters[0], parameter).Visit(c.Selector.Body));
         _projection = Expression.Lambda<Func<TEntity, object?[]>>(Expression.NewArrayInit(typeof(object), values), parameter);
 
-        var reads = _columns.Select(c => new EfDatasetRead(c.Property.Name, c.Role == MLColumnRole.Label ? "label" : "feature")).ToList();
+        var reads = _columns.Select(c => new EFDatasetRead(c.Property.Name, c.Role == MLColumnRole.Label ? "label" : "feature")).ToList();
         if (filter is not null)
         {
             var named = new FilterReads(filter.Parameters[0]);
             named.Visit(filter.Body);
-            reads.AddRange(named.Names.Distinct().Select(n => new EfDatasetRead(n, "filter")));
+            reads.AddRange(named.Names.Distinct().Select(n => new EFDatasetRead(n, "filter")));
         }
         Reads = reads;
     }
@@ -56,7 +56,7 @@ internal sealed class EfDatasetPlan<TEntity> : IEfDatasetPlan where TEntity : cl
 
     public Type EntityType => typeof(TEntity);
 
-    public IReadOnlyList<EfDatasetRead> Reads { get; }
+    public IReadOnlyList<EFDatasetRead> Reads { get; }
 
     public async IAsyncEnumerable<IReadOnlyDictionary<string, object?>> ReadAsync(
         DbContext context, [EnumeratorCancellation] CancellationToken cancellationToken)

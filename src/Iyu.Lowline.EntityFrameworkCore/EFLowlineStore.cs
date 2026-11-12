@@ -28,7 +28,7 @@ namespace Iyu.Lowline.EntityFrameworkCore;
 /// first time it is used and says so, rather than letting every second save of an id fail on the database's key.
 /// </para>
 /// </remarks>
-public sealed class EfLowlineStore<TContext, TRecord, TTuning>(IServiceScopeFactory scopes) : ILowlineStore, ILowlineRecordIndex
+public sealed class EFLowlineStore<TContext, TRecord, TTuning>(IServiceScopeFactory scopes) : ILowlineStore, ILowlineRecordIndex
     where TContext : DbContext
     where TRecord : class, ILowlineRecordRow, new()
     where TTuning : class, ILowlineTuningRow, new()

@@ -8,9 +8,9 @@ namespace Iyu.ML.EntityFrameworkCore;
 /// <typeparam name="TContext">The application's <c>DbContext</c>.</typeparam>
 public sealed class MLEntityFrameworkBuilder<TContext> where TContext : DbContext
 {
-    private readonly List<IEfDatasetPlan> _plans = [];
+    private readonly List<IEFDatasetPlan> _plans = [];
 
-    internal IReadOnlyList<IEfDatasetPlan> Plans => _plans;
+    internal IReadOnlyList<IEFDatasetPlan> Plans => _plans;
 
     /// <summary>Declares a dataset read from <typeparamref name="TEntity"/>.</summary>
     /// <param name="name">The dataset's name.</param>
@@ -68,8 +68,8 @@ public static class IyuMLEntityFrameworkExtensions
             var definition = plan.Definition;
             services.Configure<IyuMLOptions>(o => o.Dataset(definition));
         }
-        services.AddSingleton<IMLDatasetSource>(provider => new EfMLDatasetSource<TContext>(provider.GetRequiredService<IServiceScopeFactory>(), plans));
-        services.AddHostedService(provider => new EfMLDeclarationCheck<TContext>(provider.GetRequiredService<IServiceScopeFactory>(), plans));
+        services.AddSingleton<IMLDatasetSource>(provider => new EFMLDatasetSource<TContext>(provider.GetRequiredService<IServiceScopeFactory>(), plans));
+        services.AddHostedService(provider => new EFMLDeclarationCheck<TContext>(provider.GetRequiredService<IServiceScopeFactory>(), plans));
         return services;
     }
 }
@@ -78,20 +78,20 @@ public static class IyuMLEntityFrameworkExtensions
 /// Fails the host's start when a declared dataset cannot be read as declared: an entity or property outside the context's model,
 /// or a column or filter property the read guard refuses. It works in the constructor, the first moment the host asks.
 /// </summary>
-internal sealed class EfMLDeclarationCheck<TContext> : IHostedService where TContext : DbContext
+internal sealed class EFMLDeclarationCheck<TContext> : IHostedService where TContext : DbContext
 {
-    public EfMLDeclarationCheck(IServiceScopeFactory scopes, IReadOnlyList<IEfDatasetPlan> plans)
+    public EFMLDeclarationCheck(IServiceScopeFactory scopes, IReadOnlyList<IEFDatasetPlan> plans)
     {
         using var scope = scopes.CreateScope();
         var model = scope.ServiceProvider.GetRequiredService<TContext>().Model;
         var guard = scope.ServiceProvider.GetService<IMLReadGuard>();
         var problems = new List<string>();
-        problems.AddRange(EfMLDeclarations.LayerProblems(scope.ServiceProvider));
+        problems.AddRange(EFMLDeclarations.LayerProblems(scope.ServiceProvider));
 
         foreach (var plan in plans)
         {
-            problems.AddRange(EfMLDeclarations.ModelProblems(plan, model, typeof(TContext)));
-            problems.AddRange(EfMLDeclarations.Refusals(plan, guard));
+            problems.AddRange(EFMLDeclarations.ModelProblems(plan, model, typeof(TContext)));
+            problems.AddRange(EFMLDeclarations.Refusals(plan, guard));
         }
 
         if (problems.Count == 0) return;

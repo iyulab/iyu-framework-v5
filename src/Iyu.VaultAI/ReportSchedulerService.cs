@@ -15,7 +15,7 @@ namespace Iyu.VaultAI;
 /// </summary>
 public sealed class ReportSchedulerService : BackgroundService
 {
-    private readonly IVaultAIClient _vaultAi;
+    private readonly IVaultAIClient _vaultAI;
     private readonly VaultAISettings _settings;
     private readonly ILogger<ReportSchedulerService> _log;
     private readonly string _reportPath;
@@ -26,13 +26,13 @@ public sealed class ReportSchedulerService : BackgroundService
 
     public ReportSchedulerService(
         ILogger<ReportSchedulerService> logger,
-        IVaultAIClient vaultAi,
+        IVaultAIClient vaultAI,
         IOptions<VaultAISettings> options,
         IWebHostEnvironment env,
         IReportDataProvider? dataProvider = null)
     {
         _log = logger;
-        _vaultAi = vaultAi;
+        _vaultAI = vaultAI;
         _settings = options.Value;
         _dataProvider = dataProvider;
         _reportPath = Path.IsPathRooted(_settings.ReportPath)
@@ -99,7 +99,7 @@ public sealed class ReportSchedulerService : BackgroundService
 
                 var reportDate = localOccurrence.Date.AddDays(-1);
                 var result = await VaultAIReportsApi.RunGenerateAsync(
-                    def.FolderPath, _vaultAi, _settings.ReportAgentId, _settings,
+                    def.FolderPath, _vaultAI, _settings.ReportAgentId, _settings,
                     reportDate, targetFile, _log, _dataProvider);
 
                 if (result.Warnings.Count > 0)

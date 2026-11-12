@@ -107,7 +107,7 @@ public sealed class AddIyuLowlineTests : IDisposable
 
         var forms = app.Services.GetRequiredService<LowlineForms>();
         Assert.Same(forms, app.Services.GetRequiredService<LowlineForms>());
-        Assert.IsType<EfLowlineStore<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>>(app.Services.GetRequiredService<ILowlineStore>());
+        Assert.IsType<EFLowlineStore<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>>(app.Services.GetRequiredService<ILowlineStore>());
 
         var scope = new LowlineScope("order", "plant-a");
         await forms.SettleAsync(

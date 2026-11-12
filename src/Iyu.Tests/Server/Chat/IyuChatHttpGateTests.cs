@@ -70,7 +70,7 @@ public class IyuChatHttpGateTests
     [InlineData("/chat/app.css")]
     [InlineData("/chat/signalr.min.js")]
     [InlineData("/chat/sw.js")]
-    public async Task UseIyuChat_WhenEnabled_ServesEmbeddedUiAssets(string path)
+    public async Task UseIyuChat_WhenEnabled_ServesEmbeddedUIAssets(string path)
     {
         Assert.Equal(HttpStatusCode.OK, await ProbePathAsync(enabled: true, path));
     }

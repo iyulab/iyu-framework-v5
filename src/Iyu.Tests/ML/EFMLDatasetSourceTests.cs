@@ -45,7 +45,7 @@ public class MLTestDb(DbContextOptions<MLTestDb> options) : DbContext(options)
 }
 
 /// <summary>Reads datasets from the application's own tables, bounded by the caller and by the host's read guard.</summary>
-public sealed class EfMLDatasetSourceTests : IDisposable
+public sealed class EFMLDatasetSourceTests : IDisposable
 {
     private readonly string _file = Path.Combine(Path.GetTempPath(), $"iyu-ml-{Guid.NewGuid():N}.db");
     private readonly List<string> _sql = [];
@@ -452,7 +452,7 @@ public sealed class EfMLDatasetSourceTests : IDisposable
     [Fact]
     public void The_adapter_references_Entity_Framework_and_the_neutral_layer_and_nothing_of_the_host()
     {
-        var adapter = typeof(EfMLDatasetSource<>).Assembly.GetReferencedAssemblies().Select(a => a.Name!).ToList();
+        var adapter = typeof(EFMLDatasetSource<>).Assembly.GetReferencedAssemblies().Select(a => a.Name!).ToList();
 
         Assert.Contains("Iyu.ML", adapter);
         Assert.Contains(adapter, n => n.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal));

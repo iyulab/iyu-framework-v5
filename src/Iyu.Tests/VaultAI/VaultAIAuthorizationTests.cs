@@ -30,7 +30,7 @@ public sealed class VaultAIAuthorizationTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
-    private async Task<HttpClient> Host(params (string Key, string? Value)[] vaultAi)
+    private async Task<HttpClient> Host(params (string Key, string? Value)[] vaultAI)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -40,7 +40,7 @@ public sealed class VaultAIAuthorizationTests : IDisposable
             ["VaultAI:Token"] = "t",
             ["VaultAI:ReportPath"] = _root,
         };
-        foreach (var (key, value) in vaultAi) settings["VaultAI:" + key] = value;
+        foreach (var (key, value) in vaultAI) settings["VaultAI:" + key] = value;
         builder.Configuration.AddInMemoryCollection(settings);
 
         builder.Services.AddAuthentication("Test")

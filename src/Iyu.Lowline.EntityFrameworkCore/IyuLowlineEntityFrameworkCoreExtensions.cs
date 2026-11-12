@@ -16,7 +16,7 @@ public static class IyuLowlineEntityFrameworkCoreExtensions
     /// <typeparam name="TRecord">The entity of the table of settled records.</typeparam>
     /// <typeparam name="TTuning">The entity of the table of chosen thresholds.</typeparam>
     /// <remarks>
-    /// Registers <see cref="EfLowlineStore{TContext, TRecord, TTuning}"/> as the <see cref="ILowlineStore"/> and the
+    /// Registers <see cref="EFLowlineStore{TContext, TRecord, TTuning}"/> as the <see cref="ILowlineStore"/> and the
     /// <see cref="ILowlineRecordIndex"/>, then everything <see cref="IyuLowlineServiceCollectionExtensions.AddIyuLowline"/>
     /// registers. A host that keeps its records some other way calls that overload and registers its own two ports.
     /// </remarks>
@@ -30,9 +30,9 @@ public static class IyuLowlineEntityFrameworkCoreExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
-        services.AddSingleton<EfLowlineStore<TContext, TRecord, TTuning>>();
-        services.AddSingleton<ILowlineStore>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
-        services.AddSingleton<ILowlineRecordIndex>(provider => provider.GetRequiredService<EfLowlineStore<TContext, TRecord, TTuning>>());
+        services.AddSingleton<EFLowlineStore<TContext, TRecord, TTuning>>();
+        services.AddSingleton<ILowlineStore>(provider => provider.GetRequiredService<EFLowlineStore<TContext, TRecord, TTuning>>());
+        services.AddSingleton<ILowlineRecordIndex>(provider => provider.GetRequiredService<EFLowlineStore<TContext, TRecord, TTuning>>());
         return services.AddIyuLowline(configure);
     }
 }

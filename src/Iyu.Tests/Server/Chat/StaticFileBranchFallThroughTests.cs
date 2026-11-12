@@ -21,13 +21,13 @@ namespace Iyu.Tests.Server.Chat;
 /// </remarks>
 public class StaticFileBranchFallThroughTests
 {
-    private static Func<HttpContext, bool> IsJsOrCss => ctx =>
+    private static Func<HttpContext, bool> IsJSOrCss => ctx =>
     {
         var p = ctx.Request.Path.Value?.ToLowerInvariant();
         return p != null && (p.EndsWith(".js") || p.EndsWith(".css"));
     };
 
-    private static async Task<HttpStatusCode> ProbeDynamicJsAsync(bool useWhen)
+    private static async Task<HttpStatusCode> ProbeDynamicJSAsync(bool useWhen)
     {
         var webRoot = Path.Combine(Path.GetTempPath(), "iyuchat-webroot-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(webRoot); // 빈 webroot — /chat/app.js 는 물리 파일로 존재하지 않는다.
@@ -37,8 +37,8 @@ public class StaticFileBranchFallThroughTests
         var app = builder.Build();
 
         Action<IApplicationBuilder> staticBranch = b => b.UseStaticFiles();
-        if (useWhen) app.UseWhen(IsJsOrCss, staticBranch);
-        else app.MapWhen(IsJsOrCss, staticBranch);
+        if (useWhen) app.UseWhen(IsJSOrCss, staticBranch);
+        else app.MapWhen(IsJSOrCss, staticBranch);
 
         // 마운트형 서브앱이 동적으로 제공하는 .js 자산 핸들러 (BareChat /chat/app.js 모사).
         // 엔드포인트 대신 terminal 미들웨어로 두어 WebApplication 의 자동 UseRouting(파이프라인
@@ -70,15 +70,15 @@ public class StaticFileBranchFallThroughTests
     }
 
     [Fact]
-    public async Task UseWhen_RejoinsPipeline_DynamicJsAssetServedByEndpoint()
+    public async Task UseWhen_RejoinsPipeline_DynamicJSAssetServedByEndpoint()
     {
-        Assert.Equal(HttpStatusCode.OK, await ProbeDynamicJsAsync(useWhen: true));
+        Assert.Equal(HttpStatusCode.OK, await ProbeDynamicJSAsync(useWhen: true));
     }
 
     [Fact]
-    public async Task MapWhen_IsTerminal_DynamicJsAsset404s()
+    public async Task MapWhen_IsTerminal_DynamicJSAsset404s()
     {
         // 회귀의 근본 원인을 문서화: terminal 브랜치는 동적 .js 자산을 가로채 404 처리한다.
-        Assert.Equal(HttpStatusCode.NotFound, await ProbeDynamicJsAsync(useWhen: false));
+        Assert.Equal(HttpStatusCode.NotFound, await ProbeDynamicJSAsync(useWhen: false));
     }
 }

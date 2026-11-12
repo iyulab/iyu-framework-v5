@@ -15,12 +15,12 @@ namespace Iyu.ML.EntityFrameworkCore;
 /// gives the context what it needs from the caller it is handed, not from the request.
 /// </remarks>
 /// <typeparam name="TContext">The application's <c>DbContext</c>.</typeparam>
-public sealed class EfMLDatasetSource<TContext> : IMLDatasetSource where TContext : DbContext
+public sealed class EFMLDatasetSource<TContext> : IMLDatasetSource where TContext : DbContext
 {
     private readonly IServiceScopeFactory _scopes;
-    private readonly IReadOnlyList<IEfDatasetPlan> _plans;
+    private readonly IReadOnlyList<IEFDatasetPlan> _plans;
 
-    internal EfMLDatasetSource(IServiceScopeFactory scopes, IReadOnlyList<IEfDatasetPlan> plans)
+    internal EFMLDatasetSource(IServiceScopeFactory scopes, IReadOnlyList<IEFDatasetPlan> plans)
     {
         _scopes = scopes;
         _plans = plans;
@@ -46,7 +46,7 @@ public sealed class EfMLDatasetSource<TContext> : IMLDatasetSource where TContex
     }
 
     private async IAsyncEnumerable<IReadOnlyDictionary<string, object?>> Stream(
-        IEfDatasetPlan plan, ClaimsPrincipal caller,
+        IEFDatasetPlan plan, ClaimsPrincipal caller,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await using var scope = _scopes.CreateAsyncScope();
@@ -54,18 +54,18 @@ public sealed class EfMLDatasetSource<TContext> : IMLDatasetSource where TContex
         // The guard first. A column it refuses is refused here as well as when the host starts: this source can be built
         // without the host ever starting, and a column policy that held only at start would then hold nowhere. A caller who may
         // not read the entity gets nothing, and the database is not asked.
-        var unsaid = EfMLDeclarations.LayerProblems(scope.ServiceProvider);
+        var unsaid = EFMLDeclarations.LayerProblems(scope.ServiceProvider);
         if (unsaid.Count > 0)
             throw new InvalidOperationException("The dataset cannot be read: " + string.Join("; ", unsaid) + ".");
         var guard = scope.ServiceProvider.GetService<IMLReadGuard>();
-        var refused = EfMLDeclarations.Refusals(plan, guard);
+        var refused = EFMLDeclarations.Refusals(plan, guard);
         if (refused.Count > 0)
             throw new InvalidOperationException("The dataset cannot be read: " + string.Join("; ", refused) + ".");
         if (guard is not null && !await guard.MayReadAsync(plan.EntityType, caller, cancellationToken).ConfigureAwait(false))
             yield break;
 
         var context = scope.ServiceProvider.GetRequiredService<TContext>();
-        var missing = EfMLDeclarations.ModelProblems(plan, context.Model, typeof(TContext));
+        var missing = EFMLDeclarations.ModelProblems(plan, context.Model, typeof(TContext));
         if (missing.Count > 0)
             throw new InvalidOperationException("The dataset cannot be read: " + string.Join("; ", missing) + ".");
         await foreach (var row in plan.ReadAsync(context, cancellationToken).ConfigureAwait(false))

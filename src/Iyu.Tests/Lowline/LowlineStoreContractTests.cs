@@ -209,17 +209,17 @@ public sealed class InMemoryLowlineStoreContractTests : LowlineStoreContractTest
     protected override ILowlineStore Store { get; } = new InMemoryLowlineStore();
 }
 
-public sealed class EfLowlineStoreContractTests : LowlineStoreContractTests
+public sealed class EFLowlineStoreContractTests : LowlineStoreContractTests
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly ServiceProvider _provider;
 
-    public EfLowlineStoreContractTests()
+    public EFLowlineStoreContractTests()
     {
         _connection.Open();
         var services = new ServiceCollection();
         services.AddDbContext<LowlineTestDb>(o => o.UseSqlite(_connection));
-        services.AddSingleton<ILowlineStore, EfLowlineStore<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>>();
+        services.AddSingleton<ILowlineStore, EFLowlineStore<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>>();
         _provider = services.BuildServiceProvider(validateScopes: true);
         using var scope = _provider.CreateScope();
         scope.ServiceProvider.GetRequiredService<LowlineTestDb>().Database.EnsureCreated();
@@ -268,28 +268,28 @@ public sealed class LowlineTestDb(DbContextOptions<LowlineTestDb> options) : DbC
 }
 
 /// <summary>What only the application-table store has to answer for: its record index, and the model it will run over.</summary>
-public sealed class EfLowlineStoreTableTests : IDisposable
+public sealed class EFLowlineStoreTableTests : IDisposable
 {
     private static readonly LowlineScope Orders = new("order", "plant-a");
     private static readonly DateTimeOffset T0 = new(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
 
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
 
-    public EfLowlineStoreTableTests() => _connection.Open();
+    public EFLowlineStoreTableTests() => _connection.Open();
 
     public void Dispose() => _connection.Dispose();
 
-    private EfLowlineStore<TDb, TRow, LowlineTestTuning> StoreOver<TDb, TRow>(out ServiceProvider provider)
+    private EFLowlineStore<TDb, TRow, LowlineTestTuning> StoreOver<TDb, TRow>(out ServiceProvider provider)
         where TDb : DbContext
         where TRow : class, ILowlineRecordRow, new()
     {
         var services = new ServiceCollection();
         services.AddDbContext<TDb>(o => o.UseSqlite(_connection));
-        services.AddSingleton<EfLowlineStore<TDb, TRow, LowlineTestTuning>>();
+        services.AddSingleton<EFLowlineStore<TDb, TRow, LowlineTestTuning>>();
         provider = services.BuildServiceProvider(validateScopes: true);
         using var scope = provider.CreateScope();
         scope.ServiceProvider.GetRequiredService<TDb>().Database.EnsureCreated();
-        return provider.GetRequiredService<EfLowlineStore<TDb, TRow, LowlineTestTuning>>();
+        return provider.GetRequiredService<EFLowlineStore<TDb, TRow, LowlineTestTuning>>();
     }
 
     [Fact]

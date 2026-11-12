@@ -50,10 +50,10 @@ public sealed class MLDatasetBuilder<TEntity> where TEntity : class
         return this;
     }
 
-    internal EfDatasetPlan<TEntity> Build(string name)
+    internal EFDatasetPlan<TEntity> Build(string name)
     {
         var definition = new MLDatasetDefinition(name, _columns.Select(c => new MLColumn(c.Column, c.Role)));
-        return new EfDatasetPlan<TEntity>(definition, _columns, _filter);
+        return new EFDatasetPlan<TEntity>(definition, _columns, _filter);
     }
 
     private MLDatasetBuilder<TEntity> Add<TValue>(Expression<Func<TEntity, TValue>> property, string? column, MLColumnRole role)

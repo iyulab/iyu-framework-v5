@@ -47,7 +47,7 @@ public sealed class SignInRecipeCompilationTests
             public Task<Iyu.Core.Identity.IUser?> FindUserByUsernameAsync(string username, CancellationToken ct) => throw new NotImplementedException();
         }
 
-        public sealed class EfRefreshTokenStore : IRefreshTokenStore
+        public sealed class EFRefreshTokenStore : IRefreshTokenStore
         {
             public Task InsertAsync(RefreshTokenRecord token, CancellationToken ct) => throw new NotImplementedException();
             public Task<RefreshTokenRecord?> FindByHashAsync(string tokenHash, CancellationToken ct) => throw new NotImplementedException();

@@ -586,7 +586,7 @@ the store, and sign the person in through `UserTokenService` instead:
 
 ```csharp
 builder.Services.AddIyuRefreshTokens();                                        // without it, no store is needed
-builder.Services.AddScoped<IRefreshTokenStore, EfRefreshTokenStore>();        // your table of RefreshTokenRecord
+builder.Services.AddScoped<IRefreshTokenStore, EFRefreshTokenStore>();        // your table of RefreshTokenRecord
 
 app.MapPost("/api/auth/mobile-login", async (LoginRequest req, UserCredentialService credentials, UserTokenService users, CancellationToken ct) =>
 {
@@ -2063,7 +2063,7 @@ model the first time it is used and refuses a table that is, with the change to 
 the record id: drop that unique key, give the row a key of its own (or include `SettledAt` in the key), and add an ordinary
 index over `Form`, `Space`, `RecordId`. The rows already there stay as they are — each is the one line its record has so far.
 
-`EfLowlineStore<TContext, TRecord, TTuning>` (in `Iyu.Lowline.EntityFrameworkCore`) reads and writes them through your `DbContext`, one fresh scope per
+`EFLowlineStore<TContext, TRecord, TTuning>` (in `Iyu.Lowline.EntityFrameworkCore`) reads and writes them through your `DbContext`, one fresh scope per
 call, because the engine chooses its thresholds again on a background worker after a save. A second save of one record
 id adds a row beside the first. The package does not map the entities: the key, the column types and the names stay with the
 schema you already run.
@@ -2197,7 +2197,7 @@ starts that form's engines again on their next use.
 
 **Moving a hand-built host over.** An application that already wraps the engine itself can drop these, one for one:
 the class that holds `LowlineForms` and redefines forms (→ `AddIyuLowline`, and `Define` above); its `ILowlineStore` over two
-tables (→ give the two entities the row interfaces; the store is `EfLowlineStore`, in `Iyu.Lowline.EntityFrameworkCore`); the code that re-reads the saved row to
+tables (→ give the two entities the row interfaces; the store is `EFLowlineStore`, in `Iyu.Lowline.EntityFrameworkCore`); the code that re-reads the saved row to
 settle it (→ `ILowlineFormHook.ReadSavedAsync`, called by `IyuLowlineSettleService` and the routes); the background service that
 forgets records whose source went (→ `ListSourceKeysAsync` and the recovery pass); and an interceptor that forgets on delete
 (→ the same pass). **Two differences to expect.** Forgetting is no longer immediate: it happens within

@@ -9,7 +9,7 @@ namespace Iyu.ML.EntityFrameworkCore;
 /// every read, so a source that was built without the host ever starting — a service provider assembled by hand, a test — cannot
 /// serve a column the guard refuses. Neither question is cached: a guard's answer is read when it is needed.
 /// </summary>
-internal static class EfMLDeclarations
+internal static class EFMLDeclarations
 {
     /// <summary>
     /// What is missing from the host's turning the layer on: <c>AddIyuML</c> not called at all, or no word about read permissions.
@@ -35,7 +35,7 @@ internal static class EfMLDeclarations
     }
 
     /// <summary>The columns and filter properties the guard refuses. Needs no database and no model.</summary>
-    public static List<string> Refusals(IEfDatasetPlan plan, IMLReadGuard? guard)
+    public static List<string> Refusals(IEFDatasetPlan plan, IMLReadGuard? guard)
     {
         var problems = new List<string>();
         if (guard is null) return problems;
@@ -47,7 +47,7 @@ internal static class EfMLDeclarations
     }
 
     /// <summary>The entity or properties that are not part of the context's model.</summary>
-    public static List<string> ModelProblems(IEfDatasetPlan plan, IModel model, Type contextType)
+    public static List<string> ModelProblems(IEFDatasetPlan plan, IModel model, Type contextType)
     {
         var problems = new List<string>();
         var entity = model.FindEntityType(plan.EntityType);

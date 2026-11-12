@@ -52,7 +52,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     private static Upstream Issuing(string body = """{"token":"short-lived-token","expiresAt":"2030-01-01T00:00:00Z"}""") =>
         Answering(HttpStatusCode.OK, body);
 
-    private WebApplicationBuilder Builder(Upstream upstream, (string Key, string? Value)[]? vaultAi = null)
+    private WebApplicationBuilder Builder(Upstream upstream, (string Key, string? Value)[]? vaultAI = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
@@ -63,7 +63,7 @@ public sealed class VaultAIEmbedTests : IDisposable
             ["VaultAI:ChannelId"] = "chan-1",
             ["VaultAI:ReportPath"] = _root,
         };
-        foreach (var (key, value) in vaultAi ?? []) settings["VaultAI:" + key] = value;
+        foreach (var (key, value) in vaultAI ?? []) settings["VaultAI:" + key] = value;
         builder.Configuration.AddInMemoryCollection(settings);
 
         builder.Services.AddAuthentication("Test")
@@ -77,9 +77,9 @@ public sealed class VaultAIEmbedTests : IDisposable
         return builder;
     }
 
-    private async Task<HttpClient> Host(Upstream upstream, (string Key, string? Value)[]? vaultAi = null, bool withReports = false)
+    private async Task<HttpClient> Host(Upstream upstream, (string Key, string? Value)[]? vaultAI = null, bool withReports = false)
     {
-        var app = Builder(upstream, vaultAi).Build();
+        var app = Builder(upstream, vaultAI).Build();
         app.UseAuthentication();
         app.UseAuthorization();
         if (withReports) app.UseVaultAIReports();
@@ -127,7 +127,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     public async Task A_named_policy_forbids_a_user_who_does_not_meet_it_and_admits_one_who_does(string method, string path)
     {
         var upstream = Issuing();
-        var client = await Host(upstream, vaultAi: [("AuthorizationPolicy", Policy)]);
+        var client = await Host(upstream, vaultAI: [("AuthorizationPolicy", Policy)]);
 
         using var forbidden = await client.SendAsync(Request(new HttpMethod(method), path, perm: "other"));
         var callsAfterForbidden = upstream.Calls.Count;
@@ -141,7 +141,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     [Fact]
     public async Task AllowAnonymous_is_the_only_way_to_open_it_to_an_unsigned_caller()
     {
-        var client = await Host(Issuing(), vaultAi: [("AllowAnonymous", "true")]);
+        var client = await Host(Issuing(), vaultAI: [("AllowAnonymous", "true")]);
 
         using var config = await client.SendAsync(Request(HttpMethod.Get, ConfigPath, perm: null));
         using var token = await client.SendAsync(Request(HttpMethod.Post, TokenPath, perm: null));
@@ -164,7 +164,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     [Fact]
     public async Task The_routes_coexist_with_the_report_module_under_the_same_policy()
     {
-        var client = await Host(Issuing(), withReports: true, vaultAi: [("AuthorizationPolicy", Policy)]);
+        var client = await Host(Issuing(), withReports: true, vaultAI: [("AuthorizationPolicy", Policy)]);
 
         using var anonymous = await client.SendAsync(Request(HttpMethod.Get, ConfigPath, perm: null));
         using var other = await client.SendAsync(Request(HttpMethod.Get, ConfigPath, perm: "other"));
@@ -195,7 +195,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     [Fact]
     public async Task Config_names_where_to_load_the_widget_from_and_the_channel()
     {
-        var client = await Host(Issuing(), vaultAi: [("Url", "https://vault.example.test/")]);
+        var client = await Host(Issuing(), vaultAI: [("Url", "https://vault.example.test/")]);
 
         using var resp = await client.SendAsync(Request(HttpMethod.Get, ConfigPath));
         var body = JsonNode.Parse(await resp.Content.ReadAsStringAsync())!;
@@ -209,7 +209,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     [Fact]
     public async Task Config_gives_the_browser_the_embed_origin_when_the_server_address_is_not_the_browsers()
     {
-        var client = await Host(Issuing(), vaultAi: [("Url", "http://10.0.0.5:8080"), ("EmbedOrigin", "https://chat.example.test/")]);
+        var client = await Host(Issuing(), vaultAI: [("Url", "http://10.0.0.5:8080"), ("EmbedOrigin", "https://chat.example.test/")]);
 
         using var resp = await client.SendAsync(Request(HttpMethod.Get, ConfigPath));
         var text = await resp.Content.ReadAsStringAsync();
@@ -222,7 +222,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     public async Task Without_a_channel_config_says_not_enabled_and_token_says_not_configured()
     {
         var upstream = Issuing();
-        var client = await Host(upstream, vaultAi: [("ChannelId", null)]);
+        var client = await Host(upstream, vaultAI: [("ChannelId", null)]);
 
         using var config = await client.SendAsync(Request(HttpMethod.Get, ConfigPath));
         using var token = await client.SendAsync(Request(HttpMethod.Post, TokenPath));
@@ -237,7 +237,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     [Fact]
     public async Task With_no_chat_service_address_the_module_maps_no_routes_at_all()
     {
-        var client = await Host(Issuing(), vaultAi: [("Url", null)]);
+        var client = await Host(Issuing(), vaultAI: [("Url", null)]);
 
         using var resp = await client.SendAsync(Request(HttpMethod.Get, ConfigPath));
 
@@ -270,7 +270,7 @@ public sealed class VaultAIEmbedTests : IDisposable
     public async Task A_channel_id_is_escaped_into_the_path()
     {
         var upstream = Issuing();
-        var client = await Host(upstream, vaultAi: [("ChannelId", "a b/c")]);
+        var client = await Host(upstream, vaultAI: [("ChannelId", "a b/c")]);
 
         using var resp = await client.SendAsync(Request(HttpMethod.Post, TokenPath));
 
@@ -311,7 +311,7 @@ public sealed class VaultAIEmbedTests : IDisposable
             await Task.Delay(Timeout.Infinite, ct);
             return new HttpResponseMessage(HttpStatusCode.OK);
         });
-        var client = await Host(upstream, vaultAi: [("EmbedTokenTimeout", "00:00:00.100")]);
+        var client = await Host(upstream, vaultAI: [("EmbedTokenTimeout", "00:00:00.100")]);
         var clock = System.Diagnostics.Stopwatch.StartNew();
 
         using var resp = await client.SendAsync(Request(HttpMethod.Post, TokenPath));
