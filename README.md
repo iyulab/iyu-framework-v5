@@ -111,7 +111,7 @@ The C# half is what the rest of this page is about: «Minimum consumer» below w
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
-| `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host over two ports the host registers for keeping its records; assumes no storage technology (Alpine images: the engine carries a musl build but this package has not been run there yet) |
+| `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host over two ports the host registers for keeping its records; assumes no storage technology (Alpine images: the engine carries a musl build, and this package's tests pass on an x64 Alpine image) |
 | `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
@@ -2206,9 +2206,9 @@ And there is no table of settle requests that never arrived: a record that was s
 rather than learned later as a record with no source.
 
 **Platforms.** The engine is a native library; its package carries it for Windows, Linux (glibc) and macOS, on x64 and
-arm64, and (since engine 0.11.0) for `linux-musl`. **Alpine-based images are not yet exercised with this package** — the musl library
-needs `libgcc`, which the .NET images for Alpine have; a Debian-based image such as `mcr.microsoft.com/dotnet/aspnet` is the
-tested choice.
+arm64, and (since engine 0.11.0) for `linux-musl`. **This package's tests pass on the x64 Alpine image `mcr.microsoft.com/dotnet/sdk:10.0-alpine`**
+(the engine loads and runs there); the musl library needs `libgcc`, which the .NET images for Alpine have. Alpine on arm64 has
+not been run; a Debian-based image such as `mcr.microsoft.com/dotnet/aspnet` remains the widest-tested choice.
 
 ## Previewing a model change
 
