@@ -1,6 +1,6 @@
 # Iyu.Report
 
-Fills Office document templates with data through DocuChef; unrelated to Iyu.VaultAi's scheduled reports.
+Fills Office document templates with data through DocuChef; unrelated to Iyu.VaultAI's scheduled reports.
 
 ```
 dotnet add package Iyu.Report

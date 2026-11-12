@@ -109,8 +109,8 @@ The C# half is what the rest of this page is about: «Minimum consumer» below w
 | `Iyu.MainServer.OpenIdConnect` | `AddIyuBackChannelLogout` / `MapIyuBackChannelLogout` — receives an OpenID Connect provider's logout notices and ends the sessions opened from the session they name. Reference it only if the host signs people in through an OpenID Connect provider and wants that (see «Identity») |
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
-| `Iyu.VaultAi` | `AddVaultAiReports` / `UseVaultAiReports` — scheduled report generation |
-| `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAi`'s scheduled reports, see below |
+| `Iyu.VaultAI` | `AddVaultAIReports` / `UseVaultAIReports` — scheduled report generation |
+| `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAI`'s scheduled reports, see below |
 | `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host over two ports the host registers for keeping its records; assumes no storage technology (Alpine images: the engine carries a musl build, and this package's tests pass on an x64 Alpine image) |
 | `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
@@ -1733,24 +1733,24 @@ present. The user identifier stays `ClaimTypes.NameIdentifier`, BareChat's own s
 For everything past these two calls — message model, moderation, storage — see BareChat's own
 documentation; this package only adapts identity and toggles the feature on.
 
-## Scheduled reports (`Iyu.VaultAi`)
+## Scheduled reports (`Iyu.VaultAI`)
 
 A hosted scheduler plus embedded viewer SPA that generates Markdown reports via an LLM agent
 and serves them at a mounted route. Registration is conditional: both
-`AddVaultAiReports(configuration)` and `UseVaultAiReports()` no-op (the feature is entirely
-absent — no hosted service, no routes) when the `VaultAi:Url` configuration key is blank, so
+`AddVaultAIReports(configuration)` and `UseVaultAIReports()` no-op (the feature is entirely
+absent — no hosted service, no routes) when the `VaultAI:Url` configuration key is blank, so
 leaving the section out of `appsettings.json` is how a consumer opts out.
 
 ```csharp
-builder.Services.AddVaultAiReports(builder.Configuration);   // reads the "VaultAi" section
+builder.Services.AddVaultAIReports(builder.Configuration);   // reads the "VaultAI" section
 
 var app = builder.Build();
-app.UseVaultAiReports();   // API + SPA at VaultAiSettings.BasePath (default "/vault-ai-reports")
+app.UseVaultAIReports();   // API + SPA at VaultAISettings.BasePath (default "/vault-ai-reports")
 ```
 
 ```jsonc
 // appsettings.json
-"VaultAi": {
+"VaultAI": {
   "Url": "https://vault-ai.internal",
   "Token": "...",
   "ReportAgentId": "...",
@@ -1765,32 +1765,32 @@ app.UseVaultAiReports();   // API + SPA at VaultAiSettings.BasePath (default "/v
 `BasePath`, the report folders browsable at `{BasePath}-files`, and the `GET {BasePath}/{folder}/new` link that starts a
 generation — requires a signed-in user by default, and the module answers `401`/`403` through your authentication scheme
 like any protected endpoint. Reading, generating (an LLM call), editing and deleting reports are all behind that one gate.
-Name a stricter policy with `VaultAi:AuthorizationPolicy` (register it with `AddAuthorization`; a name that is not
-registered fails at `UseVaultAiReports()`). The host needs authentication configured and `app.UseAuthentication()` before
-`app.UseVaultAiReports()`. `GET {BasePath}/{folder}/new` changes state (it starts a generation), so a browser request
+Name a stricter policy with `VaultAI:AuthorizationPolicy` (register it with `AddAuthorization`; a name that is not
+registered fails at `UseVaultAIReports()`). The host needs authentication configured and `app.UseAuthentication()` before
+`app.UseVaultAIReports()`. `GET {BasePath}/{folder}/new` changes state (it starts a generation), so a browser request
 that another site started — `Sec-Fetch-Site` other than `same-origin` or `none`, or without that header an `Origin` or
 `Referer` of another origin — is refused with `403`; typed URLs, the viewer and
 non-browser callers such as a monitor are not affected. The bundled viewer calls the API with the browser's own credentials, so a signed-in browser
-session means a cookie-based scheme. `VaultAi:AllowAnonymous` = `true` turns the gate off — meant for a host whose network boundary or
+session means a cookie-based scheme. `VaultAI:AllowAnonymous` = `true` turns the gate off — meant for a host whose network boundary or
 authenticating reverse proxy already decides who reaches it, because anonymous callers can then start generations and read
 the report folders, which hold prompts and run logs.
 
-**Embedding the chat widget in your own pages.** `app.MapVaultAiEmbed()` maps the server half of the chat service's browser
+**Embedding the chat widget in your own pages.** `app.MapVaultAIEmbed()` maps the server half of the chat service's browser
 widget: `GET /api/vault-ai-embed/config` returns `{ enabled, origin, channelId }` (where to load the widget from, and which
 channel), and `POST /api/vault-ai-embed/token` asks the chat service for a short-lived token with the key the host holds —
 the key never reaches the browser, only the short-lived token and its expiry do. Loading the widget and handing it the token
-stays in your page. Nothing changes for a host that does not call it; it is also off until `VaultAi:ChannelId` names a
+stays in your page. Nothing changes for a host that does not call it; it is also off until `VaultAI:ChannelId` names a
 channel (`config` then answers `enabled: false` and `token` answers `503`), and like the rest of the module it maps nothing
-when `VaultAi:Url` is blank.
+when `VaultAI:Url` is blank.
 
 ```csharp
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapVaultAiEmbed();   // or app.MapVaultAiEmbed("/my/path")
+app.MapVaultAIEmbed();   // or app.MapVaultAIEmbed("/my/path")
 ```
 
 ```jsonc
-"VaultAi": {
+"VaultAI": {
   "Url": "https://vault-ai.internal",   // the server-side address
   "Token": "...",
   "ChannelId": "...",                    // blank = the widget routes answer "not enabled"
@@ -1799,8 +1799,8 @@ app.MapVaultAiEmbed();   // or app.MapVaultAiEmbed("/my/path")
 }
 ```
 
-Both routes are held to the same rule as the rest of the module: a signed-in user by default, `VaultAi:AuthorizationPolicy`
-when you name one (a name that is not registered fails when the routes are mapped), and only `VaultAi:AllowAnonymous` opens
+Both routes are held to the same rule as the rest of the module: a signed-in user by default, `VaultAI:AuthorizationPolicy`
+when you name one (a name that is not registered fails when the routes are mapped), and only `VaultAI:AllowAnonymous` opens
 them to an unsigned caller. A browser request another site started is refused with `403` on the token route. The token route
 answers every failure — the chat service refusing, unreachable, slow, or answering without a token — with the same `502` and
 repeats nothing of what went wrong; the detail is in the host's log.
@@ -1845,7 +1845,7 @@ using var dish = recipe.CookDish();
 dish.SaveAs(outputStream);
 ```
 
-**Not the same thing as `Iyu.VaultAi`'s "scheduled reports"** — `Iyu.VaultAi` schedules and
+**Not the same thing as `Iyu.VaultAI`'s "scheduled reports"** — `Iyu.VaultAI` schedules and
 generates its own report content; `Iyu.Report` fills an Office document template (Excel,
 for now) with data the caller supplies, on demand. Independent modules, independent
 dependency footprint (`Iyu.Report` has no `Iyu.Core` reference and no

@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, and — NuGet tags and README only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.VaultAi` (and `Iyu.Lowline`, which has its own line — see its changelog).
+**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.VaultAI`, and — NuGet tags and README only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat` (and `Iyu.Lowline`, which has its own line — see its changelog).
 
 ### Security
 
@@ -77,6 +77,15 @@ onward; earlier entries state the same consequence in prose where it applies.
   — `LowlineForms.AggregateAsync(scope)`, with no value, text, settler or record id in it; the README (« Sharing how the answers
   went ») shows reading it from the registered `LowlineForms`. This package adds no route for it: whether and where to send it is
   the host's decision.
+- **Breaking — `Iyu.VaultAi` is spelled `Iyu.VaultAI`.** Two-letter acronyms are written in capitals (`IO`, `ML`, `AI`), and the
+  package now follows that rule like the rest of the .NET ecosystem. Every public name that carried `VaultAi` carries `VaultAI`
+  instead: the namespaces (`Iyu.VaultAI`, `Iyu.VaultAI.FolderChatbots`), `IVaultAIClient`, `VaultAIClient`, `VaultAISettings`,
+  `VaultAITimeoutException`, `VaultAIConflictException`, `VaultAIUnsupportedFileException`, `VaultAIImage`,
+  `AddVaultAIReports`, `UseVaultAIReports` and `MapVaultAIEmbed`. **To move**, replace `VaultAi` with `VaultAI` in your
+  `using` directives and identifiers; the compiler names every place that is left. Nothing else changes: NuGet package ids are
+  not case-sensitive, so the `PackageReference` you have keeps resolving to this package (the assembly is now `Iyu.VaultAI.dll`),
+  and the configuration section is read without regard to case, so an existing `VaultAi:` section keeps working while the
+  documentation now writes `VaultAI:`. No compatibility aliases are kept.
 
 ## [0.48.0] - 2026-11-09
 

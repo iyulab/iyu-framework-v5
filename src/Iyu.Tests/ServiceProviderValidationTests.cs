@@ -7,7 +7,7 @@ using Iyu.Report;
 using Iyu.Server.Chat;
 using Iyu.Tests.Data;
 using Iyu.Tests.Identity;
-using Iyu.VaultAi;
+using Iyu.VaultAI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -206,10 +206,10 @@ public class ServiceProviderValidationTests
     }
 
     [Fact]
-    public void VaultAi_reports_build()
+    public void VaultAI_reports_build()
     {
-        var builder = DevelopmentBuilder(new Dictionary<string, string?> { ["VaultAi:Url"] = "http://localhost:1" });
-        builder.Services.AddVaultAiReports(builder.Configuration);
+        var builder = DevelopmentBuilder(new Dictionary<string, string?> { ["VaultAI:Url"] = "http://localhost:1" });
+        builder.Services.AddVaultAIReports(builder.Configuration);
 
         BuildsAndDisposes(builder);
     }
