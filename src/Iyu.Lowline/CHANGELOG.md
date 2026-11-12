@@ -17,6 +17,8 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ### Changed
 
+- **The package page opens on a README about this package** rather than on the repository's README (more than two thousand lines, headed with the repository's name): what the package is, the install command, and a link to its section of the repository README.
+
 - **Documentation: Alpine is now exercised.** The package's tests (the engine, the host over two ports, the README's sample host) were run on
   `mcr.microsoft.com/dotnet/sdk:10.0-alpine` (x64, musl) and pass; the README no longer says the package has not been run there.
   The engine still needs `libgcc` at run time, which the .NET images for Alpine have. Alpine on arm64 has not been run.

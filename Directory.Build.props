@@ -43,7 +43,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)README.md')" />
+    <!-- A package carries the short README written for it (package-readmes/<project>.md, packed as README.md); one without falls back to the repository README. -->
+    <None Include="$(MSBuildThisFileDirectory)package-readmes/$(MSBuildProjectName).md" Pack="true" PackagePath="README.md" Condition="Exists('$(MSBuildThisFileDirectory)package-readmes/$(MSBuildProjectName).md')" />
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Condition="!Exists('$(MSBuildThisFileDirectory)package-readmes/$(MSBuildProjectName).md') And Exists('$(MSBuildThisFileDirectory)README.md')" />
     <None Include="$(MSBuildThisFileDirectory)CHANGELOG.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)CHANGELOG.md')" />
   </ItemGroup>
 

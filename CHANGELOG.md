@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, and — NuGet tags only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.VaultAi` (and `Iyu.Lowline`, which has its own line — see its changelog).
+**Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, and — NuGet tags and README only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat`, `Iyu.VaultAi` (and `Iyu.Lowline`, which has its own line — see its changelog).
 
 ### Security
 
@@ -52,6 +52,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 ### Changed
 
 - `Iyu.Server.GraphQL` follows HotChocolate 16.7.3 → 16.7.5 (a patch release; the GraphQL tests pass unchanged).
+
+- **Every package opens on a README of its own.** The package page on nuget.org used to show the repository's README (more than two thousand lines, headed with the repository's name) for every package. Each package now packs a short front page — what it is, the install command, and a link to the section of the repository README that documents it — kept in `package-readmes/<project>.md`; the repository README is unchanged and is still where the documentation lives. A test keeps a new package from shipping without one and keeps each page's words in step with its project's description.
 
 - **Every package carries tags of its own.** The repository-wide set (`odata`, `graphql`, `framework`, ...) described none of the packages in particular, so a form-suggestion or file-gateway package was listed under words that are about something else. Each package now names what it is for; a test keeps a new project from inheriting the shared set or repeating another's.
 

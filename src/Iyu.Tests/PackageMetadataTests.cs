@@ -15,7 +15,7 @@ namespace Iyu.Tests;
 /// </remarks>
 public sealed class PackageMetadataTests
 {
-    private static string SourceRoot()
+    internal static string SourceRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "IyuFramework.slnx")))
