@@ -1,6 +1,6 @@
 # Iyu.FileServer
 
-A token-gated file byte gateway for ASP.NET Core, with Azure Blob and local filesystem backends.
+A token-gated file byte gateway for ASP.NET Core, with a local filesystem backend and a storage port other backends plug into (Iyu.FileServer.Azure for Azure Blob).
 
 ```
 dotnet add package Iyu.FileServer

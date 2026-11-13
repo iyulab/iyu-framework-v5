@@ -9,25 +9,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Iyu.FileServer;
 
-/// <summary>DI + endpoint helpers for a token-gated Azure Blob file gateway host.</summary>
+/// <summary>DI + endpoint helpers for a token-gated file gateway host.</summary>
 public static partial class FileGatewayExtensions
 {
-    /// <summary>Registers the token-gated file gateway backed by <b>Azure Blob</b> storage.</summary>
-    public static IServiceCollection AddIyuFileGateway(
-        this IServiceCollection services,
-        Action<FileGatewayOptions> configureGateway,
-        Action<AzureBlobOptions> configureBlob)
-    {
-        ArgumentNullException.ThrowIfNull(configureBlob);
-        var blob = new AzureBlobOptions();
-        configureBlob(blob);
-
-        AddGatewayCore(services, configureGateway);
-        services.AddSingleton(blob);
-        services.AddSingleton<IAttachmentStorage, AzureBlobAttachmentStorage>();
-        return services;
-    }
-
     /// <summary>Registers the token-gated file gateway backed by the <b>local filesystem</b> (on-prem/NAS hosting).</summary>
     public static IServiceCollection AddIyuFileGateway(
         this IServiceCollection services,
@@ -38,15 +22,20 @@ public static partial class FileGatewayExtensions
         var fs = new FileSystemOptions();
         configureFileSystem(fs);
 
-        AddGatewayCore(services, configureGateway);
+        AddIyuFileGateway(services, configureGateway);
         services.AddSingleton(fs);
         services.AddSingleton<IAttachmentStorage, FileSystemAttachmentStorage>();
         return services;
     }
 
-    /// <summary>Backend-agnostic gateway registration shared by every storage overload.</summary>
-    private static void AddGatewayCore(IServiceCollection services, Action<FileGatewayOptions> configureGateway)
+    /// <summary>
+    /// Registers the gateway itself — signing key, token service, clock — and <b>no storage</b>. The storage overloads call this;
+    /// a backend package (<c>Iyu.FileServer.Azure</c>) does the same and registers its own <see cref="IAttachmentStorage"/>, and a
+    /// host with a backend of its own registers that one after this call.
+    /// </summary>
+    public static IServiceCollection AddIyuFileGateway(this IServiceCollection services, Action<FileGatewayOptions> configureGateway)
     {
+        ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configureGateway);
 
         var gw = new FileGatewayOptions();
@@ -60,6 +49,7 @@ public static partial class FileGatewayExtensions
         // unconditional interceptor append used to beat a consumer's clock in IyuDbContext.
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<FileAccessTokenService>();
+        return services;
     }
 
     public static IEndpointRouteBuilder MapIyuFileGateway(this IEndpointRouteBuilder app)

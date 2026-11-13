@@ -38,6 +38,7 @@
     <ProjectReference Include="..\Iyu.ML.EntityFrameworkCore\Iyu.ML.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\Iyu.MainServer.ML\Iyu.MainServer.ML.csproj" />
     <ProjectReference Include="..\Iyu.FileServer\Iyu.FileServer.csproj" />
+    <ProjectReference Include="..\Iyu.FileServer.Azure\Iyu.FileServer.Azure.csproj" />
     <ProjectReference Include="..\Iyu.DocConvert\Iyu.DocConvert.csproj" />
     <ProjectReference Include="..\Iyu.Server.OData\Iyu.Server.OData.csproj" />
     <ProjectReference Include="..\Iyu.Server.GraphQL\Iyu.Server.GraphQL.csproj" />

@@ -1,5 +1,6 @@
 using Iyu.Core.Attachments;
 using Iyu.FileServer;
+using Iyu.FileServer.Azure;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 

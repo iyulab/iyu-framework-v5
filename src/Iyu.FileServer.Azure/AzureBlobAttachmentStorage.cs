@@ -3,7 +3,7 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Iyu.Core.Attachments;
 
-namespace Iyu.FileServer;
+namespace Iyu.FileServer.Azure;
 
 /// <summary>Azure Blob Storage-backed <see cref="IAttachmentStorage"/>. Container is created lazily on first use (constructing
 /// <see cref="BlobContainerClient"/> itself performs no network I/O, so DI registration stays offline/testable).</summary>
@@ -16,7 +16,10 @@ public sealed class AzureBlobAttachmentStorage : IAttachmentStorage
     public AzureBlobAttachmentStorage(AzureBlobOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _container = new BlobContainerClient(options.ConnectionString, options.ContainerName);
+        options.Validate();
+        _container = options.ServiceUri is not null
+            ? new BlobContainerClient(options.ContainerUri(), options.Credential!)
+            : new BlobContainerClient(options.ConnectionString, options.ContainerName);
     }
 
     public async Task<string> SaveAsync(Stream content, string storageKey, string? contentType, CancellationToken ct = default)

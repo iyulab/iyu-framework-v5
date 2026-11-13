@@ -31,6 +31,24 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out) and the new `Iyu.FileServer.Azure`.
+
+### Changed
+
+- **Breaking: the Azure Blob backend of the file gateway is its own package, `Iyu.FileServer.Azure`.** `Iyu.FileServer` used to take
+  `Azure.Storage.Blobs` as a dependency, so a host that stores on disk restored and shipped the Azure SDK anyway. The gateway
+  package now carries the gateway and the filesystem backend only, and `AzureBlobOptions`, `AzureBlobAttachmentStorage` and the
+  Azure overload of `AddIyuFileGateway` live in `Iyu.FileServer.Azure` (namespace `Iyu.FileServer.Azure`). There is no
+  compatibility alias. **To migrate:** add a reference to `Iyu.FileServer.Azure` and `using Iyu.FileServer.Azure;` to the file that
+  registers the gateway; the call itself is unchanged. A host that uses the filesystem backend changes nothing and drops the
+  Azure SDK from its output.
+- **`Iyu.FileServer.Azure` authenticates without an account key.** `AzureBlobOptions` takes `ServiceUri` together with a `Credential`
+  (any `Azure.Core` `TokenCredential` the host supplies — a managed identity, for a storage account that has shared-key access turned
+  off) as an alternative to `ConnectionString`. Exactly one way is set; setting both or neither is refused when the gateway is
+  registered instead of at the first request. The package adds no `Azure.Identity` reference — the credential is the host's choice.
+- **`AddIyuFileGateway(services, configureGateway)` registers the gateway and no storage**, for a host that registers an
+  `IAttachmentStorage` of its own and for backend packages.
+
 ## [0.49.0] - 2026-11-15
 
 **Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.VaultAI`, and — NuGet tags and README only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat` (and `Iyu.Lowline`, which has its own line — see its changelog).

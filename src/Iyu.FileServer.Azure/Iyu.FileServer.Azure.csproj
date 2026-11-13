@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Azure Blob Storage backend for the Iyu.FileServer file gateway, with connection-string and keyless (token credential) authentication.</Description>
+    <PackageTags>iyu;file-server;azure-blob;aspnetcore</PackageTags>
+    <RootNamespace>Iyu.FileServer.Azure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Iyu.FileServer/Iyu.FileServer.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+</Project>

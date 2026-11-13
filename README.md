@@ -107,7 +107,8 @@ The C# half is what the rest of this page is about: «Minimum consumer» below w
 | `Iyu.MainServer` | Composite — `AddIyuMainServer` / `UseIyuMainServer`; also `AddIyuIdentity` / `MapIyuIdentity` (cookie + JWT bearer sessions; service clients, local credentials and refresh tokens each turned on by their own call). Serves OData; carries no GraphQL dependency |
 | `Iyu.MainServer.GraphQL` | The GraphQL surface for `AddIyuMainServer` — `options.GraphQL`, `/graphql`. Reference it only if the host serves GraphQL (below) |
 | `Iyu.MainServer.OpenIdConnect` | `AddIyuBackChannelLogout` / `MapIyuBackChannelLogout` — receives an OpenID Connect provider's logout notices and ends the sessions opened from the session they name. Reference it only if the host signs people in through an OpenID Connect provider and wants that (see «Identity») |
-| `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with Azure Blob and local filesystem backends |
+| `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with a local filesystem backend and a storage port other backends plug into |
+| `Iyu.FileServer.Azure` | `AddIyuFileGateway(…, AzureBlobOptions)` — the gateway's Azure Blob backend; a connection string, or a token credential the host supplies (no account key) |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
 | `Iyu.VaultAI` | `AddVaultAIReports` / `UseVaultAIReports` — scheduled report generation |
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAI`'s scheduled reports, see below |
@@ -1629,11 +1630,32 @@ builder.Services.AddIyuFileGateway(
         gw.MaxBytes = 50L * 1024 * 1024;
         gw.AllowedContentTypes = ["application/pdf", "image/png"];  // empty = allow all
     },
-    (FileSystemOptions fs) => fs.RootPath = "/var/attachments");     // or AzureBlobOptions
+    (FileSystemOptions fs) => fs.RootPath = "/var/attachments");     // or AzureBlobOptions — see below
 
 var app = builder.Build();
 app.MapIyuFileGateway();   // PUT / GET / DELETE at gw.RoutePrefix (default "/files")
 ```
+
+**Azure Blob storage is its own package**, so a host that stores on disk does not ship the Azure SDK. Reference
+`Iyu.FileServer.Azure` and register the same gateway with `AzureBlobOptions` (`using Iyu.FileServer.Azure;`):
+
+```csharp
+builder.Services.AddIyuFileGateway(
+    gw => gw.SigningKey = builder.Configuration["Files:SigningKey"]!,
+    (AzureBlobOptions blob) =>
+    {
+        // A storage account with shared-key access turned off: the endpoint, plus a credential you choose.
+        blob.ServiceUri = new Uri("https://account.blob.core.windows.net");
+        blob.Credential = new DefaultAzureCredential();   // or any Azure.Core TokenCredential; needs your own Azure.Identity reference
+        blob.ContainerName = "attachments";
+        // Or, with a key or a SAS:  blob.ConnectionString = builder.Configuration["Files:Blob"]!;
+    });
+```
+
+Exactly one way to authenticate is set; both, or neither, is refused where it is registered. The package takes no
+dependency on `Azure.Identity` — the credential is yours, and the identity needs the `Storage Blob Data Contributor` role on
+the account (the gateway creates the container on first use). A host with a backend of its own registers its
+`IAttachmentStorage` after `AddIyuFileGateway(gw => …)`, the overload that registers the gateway and no storage.
 
 Behaviour worth knowing before deploying it:
 
@@ -2278,9 +2300,10 @@ Known gaps, in rough priority order:
 - `Iyu.DocConvert` is new. `GotenbergDocumentConverter` is covered by unit tests against a
   stubbed HTTP handler (request shape, content-type mapping, error surfacing); it has not yet
   been round-tripped against a live Gotenberg instance in this repo's own test suite.
-- The Azure Blob storage backend has no automated coverage — the test suite uses
-  a fake and the local filesystem backend. Backend-specific failure modes are
-  therefore not caught here.
+- `Iyu.FileServer.Azure` is covered up to the Azure SDK's door: its options, the two ways to
+  authenticate, registration and the container address are tested, and no test talks to a storage
+  service — the gateway tests use a fake and the local filesystem backend. Backend-specific failure
+  modes, and a managed identity's role assignment, are therefore not caught here.
 - Resumable (chunked) upload is **not** supported. A GB-scale upload that drops
   restarts from zero. Adding it means a resumable protocol plus session state,
   which the gateway deliberately does not have today.

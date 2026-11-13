@@ -18,6 +18,7 @@
   <Project Path="src/Iyu.Server.Chat/Iyu.Server.Chat.csproj" />
   <Project Path="src/Iyu.VaultAI/Iyu.VaultAI.csproj" />
   <Project Path="src/Iyu.FileServer/Iyu.FileServer.csproj" />
+  <Project Path="src/Iyu.FileServer.Azure/Iyu.FileServer.Azure.csproj" />
   <Project Path="src/Iyu.DocConvert/Iyu.DocConvert.csproj" />
   <Project Path="src/Iyu.Tests/Iyu.Tests.csproj" />
 </Solution>
