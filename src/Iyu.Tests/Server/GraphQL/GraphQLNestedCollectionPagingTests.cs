@@ -4,7 +4,6 @@ using HotChocolate.Execution;
 using Iyu.Core.Entities;
 using Iyu.Data;
 using Iyu.Server.GraphQL;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -47,11 +46,9 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
     }
 
     private const int BookCount = 5;
-    private readonly SqliteConnection _connection = new("Data Source=:memory:");
+    private readonly SharedMemorySqlite _db = new();
 
-    public GraphQLNestedCollectionPagingTests() => _connection.Open();
-
-    public void Dispose() => _connection.Dispose();
+    public void Dispose() => _db.Dispose();
 
     /// <summary>Counts the commands that read the books table — one per batch, not one per shelf, is the point.</summary>
     private sealed class BookReads : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
@@ -79,7 +76,7 @@ public sealed class GraphQLNestedCollectionPagingTests : IDisposable
         graphql.AddEntityPair<Review, Review>("reviews", "review");
 
         var services = new ServiceCollection();
-        services.AddDbContext<ShelfContext>(o => o.UseSqlite(_connection).AddInterceptors(_bookReads));
+        services.AddDbContext<ShelfContext>(o => o.UseSqlite(_db.ConnectionString).AddInterceptors(_bookReads));
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<ShelfContext>());
         services.AddLogging();
         graphql.ApplyTo(services.AddGraphQLServer().ModifyRequestOptions(o => o.IncludeExceptionDetails = true));

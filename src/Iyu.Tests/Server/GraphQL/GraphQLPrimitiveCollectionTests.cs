@@ -4,7 +4,6 @@ using HotChocolate.Execution;
 using Iyu.Core.Entities;
 using Iyu.Data;
 using Iyu.Server.GraphQL;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -34,11 +33,9 @@ public sealed class GraphQLPrimitiveCollectionTests : IDisposable
         public DbSet<Label> Labels => Set<Label>();
     }
 
-    private readonly SqliteConnection _connection = new("Data Source=:memory:");
+    private readonly SharedMemorySqlite _db = new();
 
-    public GraphQLPrimitiveCollectionTests() => _connection.Open();
-
-    public void Dispose() => _connection.Dispose();
+    public void Dispose() => _db.Dispose();
 
     private async Task<IRequestExecutor> BuildAsync()
     {
@@ -46,7 +43,7 @@ public sealed class GraphQLPrimitiveCollectionTests : IDisposable
         graphql.AddEntityPair<Label, Label>("labels", "label");
 
         var services = new ServiceCollection();
-        services.AddDbContext<LabelContext>(o => o.UseSqlite(_connection));
+        services.AddDbContext<LabelContext>(o => o.UseSqlite(_db.ConnectionString));
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<LabelContext>());
         services.AddLogging();
         graphql.ApplyTo(services.AddGraphQLServer().ModifyRequestOptions(o => o.IncludeExceptionDetails = true));

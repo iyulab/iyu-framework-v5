@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -67,19 +66,18 @@ public sealed class GraphQLReachFeatureEndToEndTests : IAsyncLifetime
 
     private const string BooksPolicy = "books.read";
 
-    private readonly SqliteConnection _connection = new("Data Source=:memory:");
+    private readonly SharedMemorySqlite _db = new();
     private readonly List<WebApplication> _apps = [];
 
     public Task InitializeAsync()
     {
-        _connection.Open();
         return Task.CompletedTask;
     }
 
     public async Task DisposeAsync()
     {
         foreach (var app in _apps) await app.DisposeAsync();
-        _connection.Dispose();
+        _db.Dispose();
     }
 
     /// <summary>What the host's recording middleware saw once the request had run.</summary>
@@ -103,7 +101,7 @@ public sealed class GraphQLReachFeatureEndToEndTests : IAsyncLifetime
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(new Capture(Log));
         builder.WebHost.UseTestServer();
-        builder.Services.AddDbContext<ReachContext>(o => o.UseSqlite(_connection));
+        builder.Services.AddDbContext<ReachContext>(o => o.UseSqlite(_db.ConnectionString));
         builder.Services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<ReachContext>());
         builder.Services.AddAuthentication("Test")
             .AddScheme<AuthenticationSchemeOptions, HeaderClaimAuthHandler>("Test", null);
@@ -262,7 +260,7 @@ public sealed class GraphQLReachFeatureEndToEndTests : IAsyncLifetime
         graphql.AddEntityPair<ReachBook, ReachBook>("books", "book");
         graphql.AddEntityPair<ReachReview, ReachReview>("reviews", "review");
         var services = new ServiceCollection();
-        services.AddDbContext<ReachContext>(o => o.UseSqlite(_connection));
+        services.AddDbContext<ReachContext>(o => o.UseSqlite(_db.ConnectionString));
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<ReachContext>());
         services.AddLogging();
         graphql.ApplyTo(services.AddGraphQLServer());
