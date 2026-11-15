@@ -7,6 +7,7 @@
   <Project Path="src/Iyu.ML/Iyu.ML.csproj" />
   <Project Path="src/Iyu.ML.EntityFrameworkCore/Iyu.ML.EntityFrameworkCore.csproj" />
   <Project Path="src/Iyu.Notifications/Iyu.Notifications.csproj" />
+  <Project Path="src/Iyu.Notifications.EntityFrameworkCore/Iyu.Notifications.EntityFrameworkCore.csproj" />
   <Project Path="src/Iyu.MainServer.ML/Iyu.MainServer.ML.csproj" />
   <Project Path="src/Iyu.Core/Iyu.Core.csproj" />
   <Project Path="src/Iyu.Data/Iyu.Data.csproj" />
