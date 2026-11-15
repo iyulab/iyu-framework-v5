@@ -8,7 +8,7 @@ chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
 Targets .NET 10. The projects ship as separate NuGet packages and share one version, except
-`Iyu.Lowline`, which does not depend on the rest and is versioned on its own line.
+`Iyu.Lowline` and `Iyu.Notifications`, which do not depend on the rest and are each versioned on their own line.
 
 ## Role in the stack
 
@@ -114,6 +114,8 @@ The C# half is what the rest of this page is about: «Minimum consumer» below w
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAI`'s scheduled reports, see below |
 | `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host over two ports the host registers for keeping its records; assumes no storage technology (Alpine images: the engine carries a musl build, and this package's tests pass on an x64 Alpine image) |
 | `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
+| `Iyu.Notifications` | `AddIyuNotifications` — host-neutral notification routing: events declared in code, recipients resolved from users and roles (and from kinds the application resolves itself), an inbox with read and handled state, and a record of events nobody could be reached for; assumes no storage technology (see «Telling people what happened») |
+| `Iyu.Notifications.EntityFrameworkCore` | `AddIyuNotifications<TContext, TInbox, TUnreached, TTarget>` — the inbox, the unreached record and the administrators' target table over the application's own Entity Framework tables. Reference it only if they live in your `DbContext` |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
@@ -2316,7 +2318,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All `Iyu.*` packages except `Iyu.Lowline` (its own line, with the changelog shipped inside it) share one version, so a new number does not by itself mean the
+All `Iyu.*` packages except `Iyu.Lowline` and `Iyu.Notifications` (each on its own line, with its changelog shipped inside it) share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking

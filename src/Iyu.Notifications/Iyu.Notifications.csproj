@@ -4,10 +4,6 @@
     <Description>Host-neutral notification routing - events declared in code, recipients resolved from users and roles, an inbox with read and handled state, and a record of events nobody could be reached for; it depends on neither Entity Framework Core nor Iyu.Core.</Description>
     <PackageTags>iyu;notifications;inbox;routing</PackageTags>
     <RootNamespace>Iyu.Notifications</RootNamespace>
-    <!-- Not packed yet. The host-neutral layer ships when its first release is decided; it then sits on its own version
-         line like Iyu.Lowline (its own Directory.Build.props, tag and changelog, because it references neither Iyu.Core nor
-         a host) and the README layer table gains its row. Until then no pack line may carry it. -->
-    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

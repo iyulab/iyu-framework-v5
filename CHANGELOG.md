@@ -9,7 +9,7 @@ record written after the fact can describe something that did not happen.
 
 ## How to read a release here
 
-**Every `Iyu.*` package shares one version number — except `Iyu.Lowline`.** `Iyu.Lowline` depends on neither `Iyu.Core`, Entity Framework Core nor `Iyu.MainServer`, so it is versioned on its own line with its own changelog (`src/Iyu.Lowline/CHANGELOG.md`, shipped inside that package); its releases up to 0.47.0 are recorded here, later ones there. `Iyu.Lowline.EntityFrameworkCore` binds to `Iyu.Core` and stays on the shared number.
+**Every `Iyu.*` package shares one version number — except `Iyu.Lowline` and `Iyu.Notifications`.** Each depends on neither `Iyu.Core`, Entity Framework Core nor `Iyu.MainServer`, so each is versioned on its own line with its own changelog (`src/Iyu.Lowline/CHANGELOG.md` and `src/Iyu.Notifications/CHANGELOG.md`, shipped inside those packages); `Iyu.Lowline`'s releases up to 0.47.0 are recorded here, later ones there, and `Iyu.Notifications` has never been recorded here. `Iyu.Lowline.EntityFrameworkCore` binds to `Iyu.Core` and `Iyu.Notifications.EntityFrameworkCore` to Entity Framework Core; both stay on the shared number.
 
 **On the shared number,** a release publishes all of them at the
 new number whether or not each one changed, so the version alone cannot tell you if the
@@ -31,7 +31,18 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out) and the new `Iyu.FileServer.Azure`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out) and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+
+### Added
+
+- **`Iyu.Notifications.EntityFrameworkCore` — the Entity Framework Core stores behind `Iyu.Notifications`.** The inbox, the record of
+  unreached events and the administrators' target table, over tables of the application's own `DbContext`: the package states
+  the columns it needs (`INotificationInboxRow`, `INotificationUnreachedRow`, `INotificationTargetRow`) and the application owns
+  the tables and their migrations. `AddIyuNotifications<TContext, TInbox, TUnreached, TTarget>(…)` registers it. Each call saves
+  what it changed, so inside a transaction begun on the same context an item is committed or rolled back with the change that
+  raised it. It depends on `Iyu.Notifications` (a new package on its own version line, with its own changelog) from 0.1.0, and
+  that package has to be on the registry before this one is restored. SQLite cannot order or compare a `DateTimeOffset` column in
+  SQL: map those columns as a number in a context that runs on SQLite; SQL Server and PostgreSQL need nothing.
 
 ### Changed
 

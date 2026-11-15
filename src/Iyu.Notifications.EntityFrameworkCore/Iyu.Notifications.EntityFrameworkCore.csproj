@@ -4,10 +4,6 @@
     <Description>Entity Framework Core stores behind Iyu.Notifications - the inbox, the record of unreached events and the administrators' target table - over the application's own DbContext tables.</Description>
     <PackageTags>iyu;notifications;inbox;entityframeworkcore</PackageTags>
     <RootNamespace>Iyu.Notifications.EntityFrameworkCore</RootNamespace>
-    <!-- Not packed yet, for the same reason as Iyu.Notifications: it depends on a layer that has not been released, and the
-         pair ship together when the first release is decided. Unlike the host-neutral layer it stays on the shared version
-         line, as Iyu.Lowline.EntityFrameworkCore does, because it moves with the platform. -->
-    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

@@ -45,7 +45,7 @@ shipped_packages() {
   done
 }
 
-# A package with its own Directory.Build.props sits on its own version line (Iyu.Lowline) and is
+# A package with its own Directory.Build.props sits on its own version line (Iyu.Lowline, Iyu.Notifications) and is
 # released, versioned and described by its own changelog -- not by this one. It must not be
 # demanded on, or judged against, the shared-number release list.
 own_version_line() {  # $1 = package directory

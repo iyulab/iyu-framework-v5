@@ -1,0 +1,25 @@
+<Project>
+
+  <!-- Host-neutral line. Iyu.Notifications does not reference Iyu.Core, EF Core or MainServer, so it carries its own version
+       and its own changelog instead of riding the shared Iyu.* number: a change to the core packages must not make a
+       consumer of this package re-pin, and the reverse. Everything else comes from the repository-level props.
+       The adapter package (Iyu.Notifications.EntityFrameworkCore) stays on the shared line and depends on a minimum
+       version of this one, which its own release notes state. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <PackageReleaseNotes>See CHANGELOG.md, shipped in this package. Iyu.Notifications is versioned on its own line, separate from the other Iyu.* packages.</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable Condition="'$(IyuPackLine)' == 'notifications'">true</IsPackable>
+    <IsPackable Condition="'$(IyuPackLine)' == 'core'">false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="$(MSBuildThisFileDirectory)../../CHANGELOG.md" />
+    <None Include="$(MSBuildThisFileDirectory)CHANGELOG.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)CHANGELOG.md')" />
+  </ItemGroup>
+
+</Project>
