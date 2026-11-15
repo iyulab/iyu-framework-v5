@@ -16,7 +16,11 @@ public interface INotificationTargetSource
 /// Turns one target into the users it stands for. The identity kinds (<see cref="NotificationTargetKinds"/>) are handled by
 /// this package; an application registers its own for the kinds only it understands.
 /// </summary>
-/// <remarks>When more than one resolver handles a kind, the one registered last answers, so an application can replace a built-in.</remarks>
+/// <remarks>
+/// A resolver the application registers always answers before the package's own identity resolver, whatever order the
+/// registrations were made in, so an application can replace how users and roles are resolved. When more than one application
+/// resolver handles a kind, the one registered last answers.
+/// </remarks>
 public interface INotificationTargetResolver
 {
     /// <summary>Whether this resolver understands targets of <paramref name="targetKind"/>.</summary>

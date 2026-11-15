@@ -31,7 +31,6 @@ public static class IyuNotificationsServiceCollectionExtensions
         services.AddSingleton<IValidateOptions<IyuNotificationsOptions>, IyuNotificationsOptionsValidator>();
         services.AddOptions<IyuNotificationsOptions>().ValidateOnStart();
 
-        services.TryAddEnumerable(ServiceDescriptor.Scoped<INotificationTargetResolver, IdentityTargetResolver>());
         services.TryAddScoped<IyuNotificationService>();
         services.AddHostedService<IyuNotificationsPortsCheck>();
         services.AddHostedService<IyuNotificationsCleanupWorker>();

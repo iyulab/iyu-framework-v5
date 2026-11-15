@@ -30,6 +30,7 @@ public sealed class UndeclaredNotificationEventException(string eventKey)
 public sealed class IyuNotificationService(
     IOptions<IyuNotificationsOptions> options,
     INotificationTargetSource targets,
+    INotificationIdentityDirectory identityDirectory,
     IEnumerable<INotificationTargetResolver> resolvers,
     INotificationInbox inbox,
     INotificationUnreachedLog unreachedLog,
@@ -38,6 +39,10 @@ public sealed class IyuNotificationService(
     ILogger<IyuNotificationService> logger)
 {
     private readonly IReadOnlyList<INotificationTargetResolver> _resolvers = resolvers.ToList();
+
+    // The identity kinds are answered by this package from the host's directory, but only when no application resolver claims the
+    // kind: an application resolver wins whatever order the registrations were made in.
+    private readonly IdentityTargetResolver _identity = new(identityDirectory);
     private readonly IReadOnlyList<INotificationDelivery> _deliveries = deliveries.ToList();
 
     /// <summary>
@@ -64,7 +69,8 @@ public sealed class IyuNotificationService(
 
         foreach (var target in wanted)
         {
-            var resolver = _resolvers.LastOrDefault(r => r.Handles(target.Kind));
+            var resolver = _resolvers.LastOrDefault(r => r.Handles(target.Kind))
+                ?? (_identity.Handles(target.Kind) ? _identity : null);
             if (resolver is null)
             {
                 // The kind is the application's own vocabulary, so it can be named; the target's value is not repeated.

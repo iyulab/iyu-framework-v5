@@ -20,6 +20,7 @@ public sealed class IyuNotificationServiceTests
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero));
     private readonly List<INotificationTargetResolver> _extraResolvers = [];
     private readonly List<INotificationDelivery> _deliveries = [];
+    private bool _resolversAfterTheLayer;
 
     private ServiceProvider Start()
     {
@@ -30,13 +31,16 @@ public sealed class IyuNotificationServiceTests
         services.AddSingleton<INotificationTargetSource>(_targets);
         services.AddSingleton<INotificationUnreachedLog>(_unreached);
         services.AddSingleton<INotificationIdentityDirectory>(_directory);
-        foreach (var resolver in _extraResolvers) services.AddSingleton(resolver);
+        if (!_resolversAfterTheLayer)
+            foreach (var resolver in _extraResolvers) services.AddSingleton(resolver);
         foreach (var delivery in _deliveries) services.AddSingleton(delivery);
         services.AddIyuNotifications(o =>
         {
             o.Event("work-order.delayed", NotificationKind.Notice, "Work order delayed");
             o.Event("quality.hold", NotificationKind.ActionRequest);
         });
+        if (_resolversAfterTheLayer)
+            foreach (var resolver in _extraResolvers) services.AddSingleton(resolver);
         return services.BuildServiceProvider(validateScopes: true);
     }
 
@@ -154,6 +158,36 @@ public sealed class IyuNotificationServiceTests
         Assert.Empty(result.Unreached);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_application_resolver_replaces_the_identity_resolver_whichever_is_registered_first(bool afterTheLayer)
+    {
+        _directory.User("ana", true, "planner").User("bo", true, "planner");
+        _resolversAfterTheLayer = afterTheLayer;
+        _extraResolvers.Add(new FixedResolver("role", "zed"));
+        _targets.Add("work-order.delayed", "role", "planner").Add("work-order.delayed", "user", "ana");
+        using var provider = Start();
+
+        var result = await InScope(provider, s => s.RaiseAsync("work-order.delayed"));
+
+        // The role is answered by the application; the user kind, which no application resolver claims, still by the directory.
+        Assert.Equal(["ana", "zed"], result.Recipients.Order().ToArray());
+    }
+
+    [Fact]
+    public async Task Among_application_resolvers_the_one_registered_last_answers()
+    {
+        _extraResolvers.Add(new FixedResolver("department", "first"));
+        _extraResolvers.Add(new FixedResolver("department", "second"));
+        _targets.Add("work-order.delayed", "department", "welding");
+        using var provider = Start();
+
+        var result = await InScope(provider, s => s.RaiseAsync("work-order.delayed"));
+
+        Assert.Equal(["second"], result.Recipients.ToArray());
+    }
+
     [Fact]
     public async Task A_notice_is_read_and_cannot_be_handled_while_an_action_request_is_handled_and_counts_as_read()
     {
@@ -243,6 +277,14 @@ public sealed class IyuNotificationServiceTests
 
         public Task<IReadOnlyCollection<string>> ResolveAsync(NotificationTarget target, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyCollection<string>>(members.TryGetValue(target.Value, out var ids) ? ids : []);
+    }
+
+    private sealed class FixedResolver(string kind, string user) : INotificationTargetResolver
+    {
+        public bool Handles(string targetKind) => targetKind == kind;
+
+        public Task<IReadOnlyCollection<string>> ResolveAsync(NotificationTarget target, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyCollection<string>>([user]);
     }
 
     private sealed class FailingDelivery : INotificationDelivery
