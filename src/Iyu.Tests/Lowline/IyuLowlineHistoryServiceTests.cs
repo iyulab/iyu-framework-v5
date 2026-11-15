@@ -4,6 +4,7 @@ using Lowline;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Iyu.Tests.Lowline;
@@ -22,6 +23,7 @@ public sealed class IyuLowlineHistoryServiceTests : IAsyncLifetime
 
     private readonly string _file = Path.Combine(Path.GetTempPath(), $"iyu-lowline-{Guid.NewGuid():N}.db");
     private readonly HistorySource _source = new();
+    private readonly CapturedLog _log = new();
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync() => Task.CompletedTask;
@@ -38,7 +40,7 @@ public sealed class IyuLowlineHistoryServiceTests : IAsyncLifetime
     private void Start(int batchSize = 500, bool withSource = true)
     {
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(b => b.AddProvider(_log));
         services.AddDbContext<LowlineTestDb>(o => o.UseSqlite($"Data Source={_file}"));
         services.AddIyuLowline<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>(o =>
         {
@@ -132,6 +134,56 @@ public sealed class IyuLowlineHistoryServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_refused_record_is_named_by_its_id_in_the_report_and_the_log_but_never_by_what_it_held()
+    {
+        _source.Add("plant-a", "a-bad", "acme", "green"); // not one of the form's choices
+        _source.Add("plant-a", "b-ok", "acme", "red");
+        Start();
+
+        var report = await Run();
+
+        var refusal = Assert.Single(report.Refusals);
+        Assert.Equal(new IyuLowlineRefusal("order", "plant-a", "a-bad"), refusal);
+        var warning = Assert.Single(_log.Warnings);
+        Assert.Contains("a-bad", warning);
+        Assert.DoesNotContain("b-ok", warning);
+        // the engine's own message quotes the stored value; neither the report nor the log may carry it
+        Assert.DoesNotContain("green", warning);
+        Assert.DoesNotContain("green", string.Join("|", report.Refusals) + string.Join("|", report.Skipped));
+        Assert.DoesNotContain("which is none of its choices", string.Join("|", _log.Warnings));
+    }
+
+    [Fact]
+    public async Task Refused_records_beyond_the_limit_are_counted_but_not_named()
+    {
+        var total = IyuLowlineHistoryReport.RefusalsListedLimit + 10;
+        for (var i = 0; i < total; i++) _source.Add("plant-a", $"bad{i:000}", "acme", "green");
+        Start();
+
+        var report = await Run();
+
+        Assert.Equal(total, report.Refused);
+        Assert.Equal(IyuLowlineHistoryReport.RefusalsListedLimit, report.Refusals.Count);
+        Assert.Equal("bad000", report.Refusals[0].RecordId);
+        var warning = Assert.Single(_log.Warnings);
+        Assert.Contains("bad000", warning);
+        Assert.Contains("and 10 more", warning);
+        Assert.DoesNotContain($"bad{total - 1:000}", warning);
+    }
+
+    [Fact]
+    public async Task A_pass_that_refuses_nothing_reports_no_refusals()
+    {
+        _source.Add("plant-a", "h1", "acme", "red");
+        Start();
+
+        var report = await Run();
+
+        Assert.Empty(report.Refusals);
+        Assert.Empty(_log.Warnings);
+    }
+
+    [Fact]
     public async Task A_space_that_cannot_be_read_does_not_keep_the_others_from_being_learned()
     {
         _source.Add("plant-a", "h1", "acme", "red");
@@ -157,6 +209,37 @@ public sealed class IyuLowlineHistoryServiceTests : IAsyncLifetime
 
         Assert.Equal(0, report.Learned);
         Assert.Empty(await HeldIds());
+    }
+
+    private sealed class CapturedLog : ILoggerProvider
+    {
+        private readonly List<string> _warnings = [];
+
+        public IReadOnlyList<string> Warnings
+        {
+            get { lock (_warnings) return _warnings.ToList(); }
+        }
+
+        public ILogger CreateLogger(string categoryName) => new Capture(this);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Capture(CapturedLog owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state,
+                Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel != LogLevel.Warning) return;
+                lock (owner._warnings) owner._warnings.Add(formatter(state, exception));
+            }
+        }
     }
 
     private sealed class HistorySource : ILowlineHistorySource

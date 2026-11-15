@@ -15,6 +15,10 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ## [Unreleased]
 
+### Added
+
+- **A history record the engine refuses is now named.** A pass over an `ILowlineHistorySource` used to report only how many records the engine refused, so a host could not tell which row to fix. `IyuLowlineHistoryReport.Refusals` now lists them (`IyuLowlineRefusal`: form, space, record id; the first `IyuLowlineHistoryReport.RefusalsListedLimit` = 50 of a pass, `Refused` still counts them all), and the warning the pass logs carries the same ids (with "and N more" beyond the limit). Only the id is reported: the engine's own refusal message can quote a value the record held, so it is not logged or reported — read the record from your source by its id and compare it with the form's definition. Additive; `Learned`, `Refused` and `Skipped` are unchanged.
+
 ## [0.49.0] - 2026-11-15
 
 ### Changed

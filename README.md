@@ -2186,7 +2186,8 @@ people have settled enough new records. To start from the records the applicatio
 (`ListHistorySpacesAsync`), the ids of a space's history records (`ListHistoryKeysAsync`) and reads the ones asked for
 (`ReadHistoryAsync`). A background pass (`IyuLowlineOptions.HistoryInterval`, five minutes by default; zero turns it off)
 learns, per space, the records the store does not hold yet, at most `HistoryBatchSize` (500) at a time. A record the engine
-refuses is counted and logged and the rest go on. `IyuLowlineHistoryService.RunOnceAsync` runs one pass on demand.
+refuses is counted, named by its id in the report's `Refusals` and in a warning (never by what it held — the engine's message can quote a
+value), and the rest go on. `IyuLowlineHistoryService.RunOnceAsync` runs one pass on demand.
 
 *Implementing it is a declaration:* the records it returns are learned as typed by a person with no suggestion shown, which
 is the only footing on which the engine counts a record as evidence — a record handed over as the application's own doing is
