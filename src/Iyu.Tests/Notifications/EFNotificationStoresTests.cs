@@ -65,9 +65,10 @@ public class NotifTestDb(DbContextOptions<NotifTestDb> options) : DbContext(opti
     public DbSet<WorkOrderRow> WorkOrders => Set<WorkOrderRow>();
 
     // SQLite cannot order or compare a DateTimeOffset column in SQL, which the inbox listing and the purge both do. Hosts on
-    // SQLite map it as a number, as here; SQL Server and PostgreSQL need nothing.
+    // SQLite map it as a number, as here; SQL Server and PostgreSQL need nothing, and the same suite runs on them unmapped.
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
+        if (!Database.IsSqlite()) return;
         configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToBinaryConverter>();
         configurationBuilder.Properties<DateTimeOffset?>().HaveConversion<DateTimeOffsetToBinaryConverter>();
     }
@@ -86,25 +87,43 @@ public class NotifBareDb(DbContextOptions<NotifBareDb> options) : DbContext(opti
     public DbSet<WorkOrderRow> WorkOrders => Set<WorkOrderRow>();
 }
 
-/// <summary>The inbox, the record of unreached events and the target table over the application's own tables.</summary>
-public sealed class EFNotificationStoresTests : IDisposable
+/// <summary>The inbox, the record of unreached events and the target table over the application's own tables, on SQLite.</summary>
+public sealed class EFNotificationStoresTests : EFNotificationStoresContract
 {
     private readonly string _file = Path.Combine(Path.GetTempPath(), $"iyu-notifications-{Guid.NewGuid():N}.db");
-    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero));
-    private readonly MemoryDirectory _directory = new();
 
-    public void Dispose()
+    protected override void UseDatabase(DbContextOptionsBuilder options) => options.UseSqlite($"Data Source={_file}");
+
+    protected override void DropDatabase()
     {
         SqliteConnection.ClearAllPools();
         File.Delete(_file);
     }
+}
+
+/// <summary>
+/// What the stores must do against a real database, written once for the engine to be chosen: a subclass says how to reach an
+/// empty database and how to drop it, and the same facts are then held on each engine.
+/// </summary>
+public abstract class EFNotificationStoresContract : IDisposable
+{
+    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero));
+    private readonly MemoryDirectory _directory = new();
+
+    /// <summary>Points the options at a database of this test's own, empty and not yet created.</summary>
+    protected abstract void UseDatabase(DbContextOptionsBuilder options);
+
+    /// <summary>Removes that database.</summary>
+    protected abstract void DropDatabase();
+
+    public void Dispose() => DropDatabase();
 
     private ServiceProvider Start()
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContext<NotifTestDb>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddDbContext<NotifTestDb>(UseDatabase);
         services.AddSingleton<INotificationIdentityDirectory>(_directory);
         services.AddIyuNotifications<NotifTestDb, NotifInboxRow, NotifUnreachedRow, NotifTargetRow>(o =>
         {
@@ -283,12 +302,50 @@ public sealed class EFNotificationStoresTests : IDisposable
         Assert.Equal(["old-open-request"], (await Read(provider, db => db.Inbox)).Select(r => r.Id).ToArray());
     }
 
+    // What the layer's start-up check does with the real table: the hosted services are the ones a host would start.
+    private static async Task StartHostedServices(ServiceProvider provider)
+    {
+        foreach (var hosted in provider.GetServices<IHostedService>()) await hosted.StartAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_host_starts_when_every_event_the_target_table_names_is_declared()
+    {
+        using var provider = Start();
+        await Seed(provider, db =>
+        {
+            db.Targets.Add(new NotifTargetRow { EventKey = "work-order.delayed", TargetKind = "role", TargetValue = "planner" });
+            db.Targets.Add(new NotifTargetRow { EventKey = "work-order.delayed", TargetKind = "user", TargetValue = "ana" });
+            db.Targets.Add(new NotifTargetRow { EventKey = "quality.hold", TargetKind = "role", TargetValue = "quality" });
+        });
+
+        await StartHostedServices(provider);
+    }
+
+    [Fact]
+    public async Task A_host_does_not_start_when_the_target_table_names_an_event_nothing_declares()
+    {
+        using var provider = Start();
+        await Seed(provider, db =>
+        {
+            db.Targets.Add(new NotifTargetRow { EventKey = "work-order.delayed", TargetKind = "role", TargetValue = "planner" });
+            db.Targets.Add(new NotifTargetRow { EventKey = "work-order.delyed", TargetKind = "user", TargetValue = "secret-user" });
+            db.Targets.Add(new NotifTargetRow { EventKey = "work-order.delyed", TargetKind = "user", TargetValue = "another" });
+        });
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => StartHostedServices(provider));
+
+        Assert.Contains("'work-order.delyed'", failure.Message);
+        Assert.Equal(1, failure.Message.Split("'work-order.delyed'").Length - 1); // named once, though two rows name it
+        Assert.DoesNotContain("secret-user", failure.Message);
+    }
+
     [Fact]
     public async Task A_context_that_does_not_map_the_notification_entities_does_not_start()
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddDbContext<NotifBareDb>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddDbContext<NotifBareDb>(UseDatabase);
         services.AddSingleton<INotificationIdentityDirectory>(_directory);
         // The adapter is typed to a context that must map the entities; a context that maps none is the application's mistake.
         services.AddIyuNotifications<NotifBareDb, NotifInboxRow, NotifUnreachedRow, NotifTargetRow>(o => o.Event("work-order.delayed", NotificationKind.Notice));
