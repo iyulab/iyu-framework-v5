@@ -2233,6 +2233,51 @@ arm64, and (since engine 0.11.0) for `linux-musl`. **This package's tests pass o
 (the engine loads and runs there); the musl library needs `libgcc`, which the .NET images for Alpine have. Alpine on arm64 has
 not been run; a Debian-based image such as `mcr.microsoft.com/dotnet/aspnet` remains the widest-tested choice.
 
+## Telling people what happened (`Iyu.Notifications`)
+
+*Implemented and tested, not yet published: the two packages below are built from this repository and do not ship until their
+first release.*
+
+An application that has to tell the right people when something happens builds the same plumbing each time: a table of who
+should hear about what, an inbox per person, a way to mark an item read, a way to close a request that needs action, and a place
+where an event that reached nobody does not vanish. `Iyu.Notifications` owns that plumbing and knows nothing of your domain;
+`Iyu.Notifications.EntityFrameworkCore` keeps it in tables of your own `DbContext`.
+
+You declare the events in code, with a **kind**: a *notice* informs and is only read; an *action request* is closed by being
+*handled*. A target in the administrators' table is a kind and a value — `user` and `role` are understood from your accounts
+(`INotificationIdentityDirectory`), and any other kind (a department, a device) is yours to resolve with an
+`INotificationTargetResolver`. A resolver you register answers before the package's own, in whatever order you register them.
+
+```csharp
+builder.Services.AddSingleton<INotificationIdentityDirectory, AccountsDirectory>();   // who the users and roles are
+builder.Services.AddIyuNotifications<AppDbContext, InboxRow, UnreachedRow, TargetRow>(o =>
+{
+    o.Event("work-order.delayed", NotificationKind.Notice, "Work order delayed");
+    o.Event("quality.hold", NotificationKind.ActionRequest, "Quality hold");
+    o.InboxRetention = null;   // the default: keep everything. How long is your business's rule, so you say.
+});
+
+// where the event happens, inside the unit of work that changed the data:
+var result = await notifications.RaiseAsync("quality.hold", payload: """{"order":"WO-1"}""");
+// result.Recipients: who got an item; result.Unreached: what could not be delivered (also recorded, never dropped)
+```
+
+The three row types implement `INotificationInboxRow`, `INotificationUnreachedRow` and `INotificationTargetRow`; the tables and
+their migrations are yours, and the packages state only the columns they need. Each call saves what it changed, so inside a
+transaction you began on the same context an item is committed or rolled back with the change that raised it.
+
+- **Nothing is dropped silently.** An event with no targets, a target kind nobody resolves, or targets that resolve to no active
+  user is recorded in the unreached table (the kind is named; the target's value is not) and returned to the caller.
+- **The host does not start** if an event is declared twice or with a blank or too long key or name, if a port is not registered,
+  or if the target table names an event nothing declares. Keys are compared exactly, including case.
+- **Payloads are opaque.** What you attach is stored and returned unchanged; the package never reads it.
+- **Clean-up** runs only when you give a retention. A notice is removed by its creation time and a handled request by the time it
+  was handled; an action request nobody has handled is never removed, whatever the cut-off.
+- **Delivery by mail or push** is an extension point (`INotificationDelivery`) this package only calls after the inbox write; a
+  delivery that fails is logged and never undoes the item.
+- **SQLite** cannot order or compare a `DateTimeOffset` column in SQL, which the inbox listing and the clean-up do: map those
+  columns as a number (`DateTimeOffsetToBinaryConverter`) in a context that runs on SQLite. SQL Server and PostgreSQL need nothing.
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the
