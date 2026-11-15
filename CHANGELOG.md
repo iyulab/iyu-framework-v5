@@ -31,6 +31,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-11-15
+
 **Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.VaultAI`, and — NuGet tags and README only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat` (and `Iyu.Lowline`, which has its own line — see its changelog).
 
 ### Security

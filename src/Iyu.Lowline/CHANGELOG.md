@@ -15,6 +15,8 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-11-15
+
 ### Changed
 
 - **The package page opens on a README about this package** rather than on the repository's README (more than two thousand lines, headed with the repository's name): what the package is, the install command, and a link to its section of the repository README.
