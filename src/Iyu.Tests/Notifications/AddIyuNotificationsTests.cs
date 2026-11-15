@@ -74,6 +74,66 @@ public sealed class AddIyuNotificationsTests
     }
 
     [Fact]
+    public async Task A_target_row_for_a_declared_event_lets_the_host_start()
+    {
+        var builder = Host();
+        Ports(builder.Services, targets: false);
+        builder.Services.AddSingleton<INotificationTargetSource>(new MemoryTargets().Add("work-order.delayed", "role", "planner"));
+        builder.Services.AddIyuNotifications(o => o.Event("work-order.delayed", NotificationKind.Notice));
+        using var app = builder.Build();
+
+        await app.StartAsync();
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_target_row_for_an_event_nothing_declares_stops_the_host_and_names_the_key_but_not_the_target()
+    {
+        var failure = await StartFails(b =>
+        {
+            Ports(b.Services, targets: false);
+            b.Services.AddSingleton<INotificationTargetSource>(
+                new MemoryTargets().Add("work-order.delayed", "role", "planner").Add("work-order.delyed", "user", "secret-user"));
+            b.Services.AddIyuNotifications(o => o.Event("work-order.delayed", NotificationKind.Notice));
+        });
+
+        Assert.Contains("'work-order.delyed'", failure.Message);
+        Assert.DoesNotContain("work-order.delayed'", failure.Message);
+        Assert.DoesNotContain("secret-user", failure.Message);
+    }
+
+    [Fact]
+    public async Task A_key_that_differs_only_in_case_counts_as_undeclared_because_the_lookup_uses_the_declared_spelling()
+    {
+        var failure = await StartFails(b =>
+        {
+            Ports(b.Services, targets: false);
+            b.Services.AddSingleton<INotificationTargetSource>(new MemoryTargets().Add("Work-Order.Delayed", "role", "planner"));
+            b.Services.AddIyuNotifications(o => o.Event("work-order.delayed", NotificationKind.Notice));
+        });
+
+        Assert.Contains("'Work-Order.Delayed'", failure.Message);
+    }
+
+    [Fact]
+    public async Task Many_undeclared_keys_are_named_up_to_ten_and_the_rest_counted()
+    {
+        var failure = await StartFails(b =>
+        {
+            Ports(b.Services, targets: false);
+            var targets = new MemoryTargets();
+            for (var i = 0; i < 13; i++) targets.Add($"missing.{i:00}", "role", "planner");
+            b.Services.AddSingleton<INotificationTargetSource>(targets);
+            b.Services.AddIyuNotifications(o => o.Event("work-order.delayed", NotificationKind.Notice));
+        });
+
+        Assert.Contains("'missing.00'", failure.Message);
+        Assert.Contains("'missing.09'", failure.Message);
+        Assert.DoesNotContain("'missing.10'", failure.Message);
+        Assert.Contains("and 3 more", failure.Message);
+    }
+
+    [Fact]
     public async Task A_host_with_no_event_does_not_start()
     {
         var failure = await StartFails(b =>

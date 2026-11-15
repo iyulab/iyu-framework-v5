@@ -61,6 +61,9 @@ internal sealed class MemoryTargets : INotificationTargetSource
 
     public Task<IReadOnlyList<NotificationTarget>> TargetsAsync(string eventKey, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<NotificationTarget>>(ByEvent.TryGetValue(eventKey, out var list) ? list : []);
+
+    public Task<IReadOnlyList<string>> EventKeysAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<string>>(ByEvent.Where(e => e.Value.Count > 0).Select(e => e.Key).ToList());
 }
 
 internal sealed class MemoryUnreachedLog : INotificationUnreachedLog

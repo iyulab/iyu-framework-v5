@@ -55,14 +55,22 @@ internal sealed class IdentityTargetResolver(INotificationIdentityDirectory dire
 }
 
 /// <summary>
-/// Fails the host's start when what the layer needs was never registered. It works in the constructor because that is the first
-/// moment the host asks for anything of the layer, and a message here names the missing piece where an error from deep inside a
+/// Fails the host's start when what the layer needs was never registered, or when the administrators' table names an event
+/// nothing declares. The ports are checked in the constructor because that is the first moment the host asks for anything of the
+/// layer; the table is read in <see cref="StartAsync"/>. A message here names the missing piece where an error from deep inside a
 /// later request would not.
 /// </summary>
 internal sealed class IyuNotificationsPortsCheck : IHostedService
 {
+    private const int MaxNamedKeys = 10;
+
+    private readonly IServiceProvider _services;
+    private readonly IOptions<IyuNotificationsOptions> _options;
+
     public IyuNotificationsPortsCheck(IServiceProvider services)
     {
+        _services = services;
+        _options = services.GetRequiredService<IOptions<IyuNotificationsOptions>>();
         var problems = new List<string>();
 
         // The stores may depend on scoped services (a DbContext), so they are looked for in a scope, not on the root.
@@ -81,7 +89,26 @@ internal sealed class IyuNotificationsPortsCheck : IHostedService
         throw new InvalidOperationException("AddIyuNotifications needs the host to " + string.Join("; and to ", problems) + ".");
     }
 
-    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    /// <summary>
+    /// Reads the keys the table uses and compares them, exactly (the key an event is looked up by is the declared one), with the
+    /// declared events. Event keys are the application's vocabulary, so they are named; a target's value is not.
+    /// </summary>
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> used;
+        await using (var scope = _services.CreateAsyncScope())
+            used = await scope.ServiceProvider.GetRequiredService<INotificationTargetSource>().EventKeysAsync(cancellationToken);
+
+        var declared = _options.Value.Events.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
+        var undeclared = used.Where(key => !declared.Contains(key)).Order(StringComparer.Ordinal).ToList();
+        if (undeclared.Count == 0) return;
+
+        var named = string.Join(", ", undeclared.Take(MaxNamedKeys).Select(key => $"'{key}'"));
+        var more = undeclared.Count > MaxNamedKeys ? $" and {undeclared.Count - MaxNamedKeys} more" : "";
+        throw new InvalidOperationException(
+            $"The notification target table names {(undeclared.Count == 1 ? "an event" : "events")} that AddIyuNotifications does not declare: {named}{more}. " +
+            "Declare them with IyuNotificationsOptions.Event, or correct or remove the rows (keys are compared exactly, including case).");
+    }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

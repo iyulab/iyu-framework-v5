@@ -145,4 +145,8 @@ public sealed class EFNotificationTargetSource<TContext, TRow>(TContext context)
         var rows = await context.Set<TRow>().AsNoTracking().Where(r => r.EventKey == eventKey).ToListAsync(cancellationToken);
         return rows.Select(r => new NotificationTarget(r.TargetKind, r.TargetValue)).ToList();
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> EventKeysAsync(CancellationToken cancellationToken = default) =>
+        await context.Set<TRow>().AsNoTracking().Select(r => r.EventKey).Distinct().ToListAsync(cancellationToken);
 }

@@ -10,6 +10,13 @@ public interface INotificationTargetSource
     /// <param name="eventKey">A declared event.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     Task<IReadOnlyList<NotificationTarget>> TargetsAsync(string eventKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The distinct event keys the table names, declared or not. The host's start compares them with the declared events, so a
+    /// row that names an event nothing declares (a typo, a removed event) stops the host instead of silently never matching.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<IReadOnlyList<string>> EventKeysAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
