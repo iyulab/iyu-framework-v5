@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out) and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
 
@@ -46,6 +46,15 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **`$search` through a searchable reference no longer reads the referenced row of every candidate.** A `[Searchable]` reference used to
+  be reached as a left join whose text match was ORed with the row's own, so a database that reads a wide view (computed columns,
+  roll-ups) had to evaluate the referenced row for every row before it could filter, order and page — a list search that took a
+  tenth of a second without the reference took over a second with it. When the request's `IyuDbContext` maps the reference as a
+  foreign key, the reference's text is now tested by a correlated `EXISTS` over the related set; the rows selected are the same
+  (a row without a referenced row is still found by its own text only, and a policy-protected reference is still searched only when
+  the request allows it). A reference the model does not map that way keeps the left join. `IyuSearch.CreateFilterAsync` takes an
+  optional `DbContext` for the same shape in an endpoint outside OData; without it the predicate is the left join as before. Nothing to
+  change in a host.
 - **Breaking: the Azure Blob backend of the file gateway is its own package, `Iyu.FileServer.Azure`.** `Iyu.FileServer` used to take
   `Azure.Storage.Blobs` as a dependency, so a host that stores on disk restored and shipped the Azure SDK anyway. The gateway
   package now carries the gateway and the filesystem backend only, and `AzureBlobOptions`, `AzureBlobAttachmentStorage` and the

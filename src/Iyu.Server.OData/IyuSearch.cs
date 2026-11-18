@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.OData;
 using Microsoft.OData.Edm;
 using Microsoft.OData.UriParser;
@@ -35,6 +36,11 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
     /// </summary>
     /// <param name="search">The search text as a list sends it in <c>$search</c>. Empty or blank selects every row.</param>
     /// <param name="user">The caller — decides which policy-protected references are searched.</param>
+    /// <param name="context">
+    /// The context the predicate will run on. Given one whose model maps a searchable reference as a foreign key, the
+    /// reference's text is tested by a correlated <c>EXISTS</c> over the related set instead of a left join — what a list's
+    /// <c>$search</c> does. The predicate then belongs to that context: apply it only to a query of the same instance.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="search"/> is not a valid search expression.</exception>
     /// <exception cref="UnauthorizedAccessException">
     /// The search has text and <paramref name="user"/> does not satisfy a property read policy of
@@ -42,7 +48,7 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
     /// rows it matches, so the rows it selects would say whether a guess at a restricted value is right. The list's
     /// <c>$search</c> refuses the same caller. The set's own read policy is the endpoint's to enforce, as before.
     /// </exception>
-    public async Task<IyuSearchFilter<TRead>> CreateFilterAsync<TRead>(string? search, ClaimsPrincipal user)
+    public async Task<IyuSearchFilter<TRead>> CreateFilterAsync<TRead>(string? search, ClaimsPrincipal user, DbContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(user);
 
@@ -55,7 +61,7 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
         var node = Parse(search);
         var allowed = await AllowedNavigationsAsync(typeof(TRead), user);
         var (followed, excluded) = IyuStringSearchBinder.Partition(registry, typeof(TRead), allowed);
-        var body = IyuStringSearchBinder.BindNode(node, parameter, typeof(TRead), followed);
+        var body = IyuStringSearchBinder.BindNode(node, parameter, typeof(TRead), followed, context);
         return new(Expression.Lambda<Func<TRead, bool>>(body, parameter), excluded);
     }
 
@@ -131,7 +137,8 @@ public sealed class IyuSearch(IyuEntityPairRegistry registry, IAuthorizationServ
 /// <summary>What <see cref="IyuSearch.CreateFilterAsync{TRead}"/> selects.</summary>
 /// <param name="Predicate">
 /// The rows the search selects — apply it with <c>Where</c>. Translatable by EF Core: a searchable reference becomes a
-/// left join, and a row without the referenced row is matched by its own text only.
+/// left join — or a correlated <c>EXISTS</c> when the filter was created with the context it runs on — and a row without
+/// the referenced row is matched by its own text only.
 /// </param>
 /// <param name="ExcludedNavigations">
 /// The searchable references left out for this caller, in ordinal order — what a list names in its
