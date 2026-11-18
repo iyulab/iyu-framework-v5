@@ -64,10 +64,12 @@ onward; earlier entries state the same consequence in prose where it applies.
   `$apply` is met with the closest names the type does have (`Did you mean: Name?`), and nothing when none is close. The status and
   the `InvalidQuery` code are unchanged; a client that matched the old sentence must stop matching it. A host reaches this refusal
   when it declares a read policy or sets `ComputeODataReach`.
-- **`$search` through a searchable reference no longer reads the referenced row of every candidate.** A `[Searchable]` reference used to
-  be reached as a left join whose text match was ORed with the row's own, so a database that reads a wide view (computed columns,
-  roll-ups) had to evaluate the referenced row for every row before it could filter, order and page — a list search that took a
-  tenth of a second without the reference took over a second with it. When the request's `IyuDbContext` maps the reference as a
+- **`$search` through a searchable reference is tested with `EXISTS`, not a left join.** A `[Searchable]` reference used to be reached
+  as a left join whose text match was ORed with the row's own. On a wide read model (many columns, roll-ups) that shape was reported to
+  make the database evaluate the referenced row — and the view's computed columns — for every candidate before it could filter, order
+  and page: a list search measured at about a tenth of a second without the reference took over a second with it. (The statement
+  rewrite is the one that report found fast; on synthetic read models of our own the two shapes timed the same, so how much a given
+  model gains depends on how its database plans the view.) When the request's `IyuDbContext` maps the reference as a
   foreign key, the reference's text is now tested by a correlated `EXISTS` over the related set; the rows selected are the same
   (a row without a referenced row is still found by its own text only, and a policy-protected reference is still searched only when
   the request allows it). A reference the model does not map that way keeps the left join. `IyuSearch.CreateFilterAsync` takes an
