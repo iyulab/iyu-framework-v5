@@ -316,11 +316,12 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             : new ODataQueryOptionParser(model, entitySet.EntityType, entitySet, options, routeServices);
 
         var reach = new Reach();
-        Interpret("$apply", () => reach.Walk(parser.ParseApply()));
-        Interpret("$compute", () => reach.Walk(parser.ParseCompute()));
-        Interpret("$filter", () => reach.Walk(parser.ParseFilter()));
-        Interpret("$orderby", () => reach.Walk(parser.ParseOrderBy()));
-        Interpret(options.ContainsKey("$expand") ? "$expand" : "$select", () => reach.Walk(parser.ParseSelectAndExpand(), entitySet));
+        Interpret("$apply", () => reach.Walk(parser.ParseApply()), entitySet.EntityType);
+        Interpret("$compute", () => reach.Walk(parser.ParseCompute()), entitySet.EntityType);
+        Interpret("$filter", () => reach.Walk(parser.ParseFilter()), entitySet.EntityType);
+        Interpret("$orderby", () => reach.Walk(parser.ParseOrderBy()), entitySet.EntityType);
+        Interpret(options.ContainsKey("$expand") ? "$expand" : "$select", () => reach.Walk(parser.ParseSelectAndExpand(), entitySet),
+            entitySet.EntityType);
         // Whatever an alias stands for was bound while the options above were parsed.
         Interpret("parameter alias", () =>
         {
@@ -329,21 +330,16 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         return reach;
     }
 
-    private static void Interpret(string option, Action parse)
+    private static void Interpret(string option, Action parse, IEdmEntityType? addressed = null)
     {
         try
         {
             parse();
         }
-        catch (ODataException) when (option == "$expand")
-        {
-            throw new UninterpretedQueryException(
-                "The $expand expression could not be interpreted and was refused. Expand each navigation property "
-                + "by name, without a nested option this server does not accept.");
-        }
         catch (ODataException e)
         {
-            throw new UninterpretedQueryException($"The {option} expression could not be interpreted and was refused: {e.Message}");
+            throw new UninterpretedQueryException(
+                $"The {option} expression could not be interpreted and was refused: {e.Message}{Hint(option, e, addressed)}");
         }
         catch (NotImplementedException)
         {
@@ -351,6 +347,57 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
             throw new UninterpretedQueryException(
                 $"The {option} expression uses a construct this server does not check for access and was refused.");
         }
+    }
+
+    /// <summary>
+    /// What a caller needs to correct a name the addressed type does not have — what <c>$metadata</c> already publishes for the
+    /// type, said where the caller is looking. For an <c>$expand</c>, the navigation properties the type does have; for any
+    /// other option, the property names closest to what was written. Said only when the parser's message is about the addressed
+    /// type itself: a name wrong inside a nested expand belongs to another type, and offering this one's names there would point
+    /// at the wrong set.
+    /// </summary>
+    private static string Hint(string option, ODataException error, IEdmEntityType? addressed)
+    {
+        if (addressed is not IEdmSchemaType type) return "";
+        var typeName = type.FullName();
+
+        if (option == "$expand")
+        {
+            if (!error.Message.Contains($"'{typeName}'", StringComparison.Ordinal)) return "";
+            var names = addressed.NavigationProperties().Select(n => n.Name).Order(StringComparer.Ordinal).ToArray();
+            return names.Length == 0
+                ? $" '{typeName}' has no navigation properties."
+                : $" The navigation properties of '{typeName}' are: {string.Join(", ", names)}.";
+        }
+
+        var unknown = UnknownProperty.Match(error.Message);
+        if (!unknown.Success || unknown.Groups["type"].Value != typeName) return "";
+        var written = unknown.Groups["name"].Value;
+        var close = addressed.Properties().Select(p => p.Name)
+            .Select(name => (name, distance: EditDistance(written.ToLowerInvariant(), name.ToLowerInvariant())))
+            .Where(c => c.distance <= Math.Max(2, written.Length / 3))
+            .OrderBy(c => c.distance).ThenBy(c => c.name, StringComparer.Ordinal)
+            .Take(3).Select(c => c.name).ToArray();
+        return close.Length == 0 ? "" : $" Did you mean: {string.Join(", ", close)}?";
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex UnknownProperty = new(
+        @"Could not find a property named '(?<name>[^']*)' on type '(?<type>[^']*)'",
+        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static int EditDistance(string a, string b)
+    {
+        var previous = new int[b.Length + 1];
+        var current = new int[b.Length + 1];
+        for (var j = 0; j <= b.Length; j++) previous[j] = j;
+        for (var i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+                current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+            (previous, current) = (current, previous);
+        }
+        return previous[b.Length];
     }
 
     /// <summary>

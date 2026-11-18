@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
 
@@ -46,6 +46,13 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Changed
 
+- **A query the server refuses before running says what to correct.** An `$expand` it could not interpret used to be answered with
+  one fixed sentence about nested options, whatever was wrong; it now carries the query library's own words (the name written and
+  the type it was looked up on) and, when the name is the addressed type's, the navigation properties that type has — the same
+  names `$metadata` publishes. A property the addressed type does not have in `$filter`, `$orderby`, `$select`, `$compute` or
+  `$apply` is met with the closest names the type does have (`Did you mean: Name?`), and nothing when none is close. The status and
+  the `InvalidQuery` code are unchanged; a client that matched the old sentence must stop matching it. A host reaches this refusal
+  when it declares a read policy or sets `ComputeODataReach`.
 - **`$search` through a searchable reference no longer reads the referenced row of every candidate.** A `[Searchable]` reference used to
   be reached as a left join whose text match was ORed with the row's own, so a database that reads a wide view (computed columns,
   roll-ups) had to evaluate the referenced row for every row before it could filter, order and page — a list search that took a
