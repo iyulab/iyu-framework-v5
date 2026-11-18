@@ -318,7 +318,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         var reach = new Reach();
         Interpret("$apply", () => reach.Walk(parser.ParseApply()), entitySet.EntityType);
         Interpret("$compute", () => reach.Walk(parser.ParseCompute()), entitySet.EntityType);
-        Interpret("$filter", () => reach.Walk(parser.ParseFilter()), entitySet.EntityType);
+        Interpret("$filter", () => reach.Walk(parser.ParseFilter()), entitySet.EntityType, options.GetValueOrDefault("$filter"));
         Interpret("$orderby", () => reach.Walk(parser.ParseOrderBy()), entitySet.EntityType);
         Interpret(options.ContainsKey("$expand") ? "$expand" : "$select", () => reach.Walk(parser.ParseSelectAndExpand(), entitySet),
             entitySet.EntityType);
@@ -330,7 +330,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         return reach;
     }
 
-    private static void Interpret(string option, Action parse, IEdmEntityType? addressed = null)
+    private static void Interpret(string option, Action parse, IEdmEntityType? addressed = null, string? rawOption = null)
     {
         try
         {
@@ -339,7 +339,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
         catch (ODataException e)
         {
             throw new UninterpretedQueryException(
-                $"The {option} expression could not be interpreted and was refused: {e.Message}{Hint(option, e, addressed)}");
+                $"The {option} expression could not be interpreted and was refused: {e.Message}{Hint(option, e, addressed, rawOption)}");
         }
         catch (NotImplementedException)
         {
@@ -356,7 +356,7 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
     /// type itself: a name wrong inside a nested expand belongs to another type, and offering this one's names there would point
     /// at the wrong set.
     /// </summary>
-    private static string Hint(string option, ODataException error, IEdmEntityType? addressed)
+    private static string Hint(string option, ODataException error, IEdmEntityType? addressed, string? rawOption = null)
     {
         if (addressed is not IEdmSchemaType type) return "";
         var typeName = type.FullName();
@@ -369,6 +369,8 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
                 ? $" '{typeName}' has no navigation properties."
                 : $" The navigation properties of '{typeName}' are: {string.Join(", ", names)}.";
         }
+
+        if (EnumValueHint(error, addressed, rawOption) is { Length: > 0 } values) return values;
 
         var unknown = UnknownProperty.Match(error.Message);
         if (!unknown.Success || unknown.Groups["type"].Value != typeName) return "";
@@ -383,6 +385,35 @@ internal sealed class IyuNavigationAuthorizationFilter(string setName) : IAsyncR
 
     private static readonly System.Text.RegularExpressions.Regex UnknownProperty = new(
         @"Could not find a property named '(?<name>[^']*)' on type '(?<type>[^']*)'",
+        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// For a text that is not a member of an enumeration, the members it could have been. The library's message names the text
+    /// and nothing else, so the property is read from what the caller wrote: a comparison of the text with exactly one
+    /// enumeration-typed property of the addressed type. Anything less certain says nothing — no guess about which property.
+    /// </summary>
+    private static string EnumValueHint(ODataException error, IEdmEntityType addressed, string? rawOption)
+    {
+        var bad = NotAnEnumMember.Match(error.Message);
+        if (!bad.Success || string.IsNullOrEmpty(rawOption)) return "";
+        var text = System.Text.RegularExpressions.Regex.Escape(bad.Groups["text"].Value);
+        var comparison = new System.Text.RegularExpressions.Regex(
+            $@"(?<![\w/])(?<name>[A-Za-z_]\w*)\s+(?:eq|ne)\s+'{text}'|'{text}'\s+(?:eq|ne)\s+(?<name2>[A-Za-z_]\w*)",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        var compared = comparison.Matches(rawOption)
+            .Select(m => m.Groups["name"].Success ? m.Groups["name"].Value : m.Groups["name2"].Value)
+            .Distinct(StringComparer.Ordinal)
+            .Select(name => addressed.FindProperty(name))
+            .OfType<IEdmStructuralProperty>()
+            .Where(p => p.Type.Definition is IEdmEnumType)
+            .ToArray();
+        if (compared.Length != 1) return "";
+        var members = ((IEdmEnumType)compared[0].Type.Definition).Members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray();
+        return $" The values of '{compared[0].Name}' are: {string.Join(", ", members)}.";
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex NotAnEnumMember = new(
+        @"The string '(?<text>[^']*)' is not a valid enumeration type constant",
         System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static int EditDistance(string a, string b)

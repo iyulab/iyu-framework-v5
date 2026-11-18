@@ -61,7 +61,10 @@ onward; earlier entries state the same consequence in prose where it applies.
   one fixed sentence about nested options, whatever was wrong; it now carries the query library's own words (the name written and
   the type it was looked up on) and, when the name is the addressed type's, the navigation properties that type has — the same
   names `$metadata` publishes. A property the addressed type does not have in `$filter`, `$orderby`, `$select`, `$compute` or
-  `$apply` is met with the closest names the type does have (`Did you mean: Name?`), and nothing when none is close. The status and
+  `$apply` is met with the closest names the type does have (`Did you mean: Name?`), and nothing when none is close; a text in
+  `$filter` that is not a member of an enumeration is met with that enumeration's members when what the caller wrote compares it
+  to exactly one enumeration property of the type (`The values of 'Status' are: closed, draft, open.`), and with nothing extra when
+  it could be either of several. The status and
   the `InvalidQuery` code are unchanged; a client that matched the old sentence must stop matching it. A host reaches this refusal
   when it declares a read policy or sets `ComputeODataReach`.
 - **`$search` through a searchable reference is tested with `EXISTS`, not a left join.** A `[Searchable]` reference used to be reached
