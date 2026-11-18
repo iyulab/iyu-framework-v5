@@ -199,6 +199,20 @@ public sealed class IyuMainServerOptions
     public bool? IncludeODataErrorDetails { get; set; }
 
     /// <summary>
+    /// Whether the <c>403</c> an OData route answers names the policy the caller did not satisfy — «Forbidden. Requires policy
+    /// 'x'» — so a caller (or a tool acting for one) can tell what to ask for instead of guessing. Off by default: a policy's
+    /// name is a fact about how the host is protected, and saying it is the host's choice, not the framework's.
+    /// </summary>
+    /// <remarks>
+    /// Said only for a caller who is signed in and refused (<c>403</c>); a request that is not signed in is answered
+    /// <c>401</c> and the policy is not named. The name comes from where the policy was evaluated
+    /// (<see cref="IIyuAuthorizationFailureFeature"/>), so it is the policy that failed — for a request that reaches another set
+    /// through a navigation, that set's — never the addressed set's by default. A host that words its own refusals reads the same
+    /// feature and needs no setting.
+    /// </remarks>
+    public bool NamePolicyInForbidden { get; set; }
+
+    /// <summary>
     /// Whether every OData read works out which entity sets it reaches, and publishes them as
     /// <see cref="IIyuODataReachFeature"/>, on a host where no entity set has a read policy. A host with one does this on
     /// every read already — its read authorization is built on that answer — so for it this setting changes nothing.

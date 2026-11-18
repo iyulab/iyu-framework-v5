@@ -58,7 +58,7 @@ public static class MainServerExtensions
         services.AddExceptionHandler<IyuWriteExceptionHandler>();
         // A problem answered under the OData route is written as an OData error, like every refusal the
         // controller makes there (see IyuODataProblemDetailsWriter).
-        AddODataProblemDetailsWriter(services, new IyuODataProblemDetailsWriter(options.ODataRoutePrefix));
+        AddODataProblemDetailsWriter(services, new IyuODataProblemDetailsWriter(options.ODataRoutePrefix, options));
         services.AddProblemDetails();
 
         // The write-rule interceptor is attached here rather than in IyuDbContext.OnConfiguring

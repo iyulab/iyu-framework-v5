@@ -35,6 +35,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ### Added
 
+- **A `403` can name the policy the caller did not satisfy (`IyuMainServerOptions.NamePolicyInForbidden`, off by default).** The
+  answer to a signed-in caller who is refused reads `Forbidden. Requires policy 'x' (set 'y').` — for a request that reaches another
+  set through a navigation, or a property with its own policy, the policy that actually failed, with the property named — so a person
+  or a tool acting for one can tell what to ask for. A caller who is not signed in is answered `401` and told nothing about the
+  policy; with the option off nothing changes. The set-level refusal now also hands on the failed policy through
+  `IIyuAuthorizationFailureFeature`, as the navigation check already did, for a host that words its own `403`.
 - **GraphQL connections carry `totalCount`.** Every query field and every collection field is a cursor connection; it now has a
   selectable `totalCount` — how many rows the caller may read, as OData's `$count` answers — so a client can tell the size of a set
   without walking its pages. The page size bounds the page, never the total. For a collection it counts that one parent's children.

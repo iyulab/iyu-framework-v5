@@ -1,6 +1,8 @@
 using System.Reflection;
 using Iyu.Server.OData;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Authorization;
 
 namespace Iyu.MainServer;
@@ -39,7 +41,7 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
                 _ => null,
             };
             if (policy is not null)
-                action.Filters.Add(new AuthorizeFilter(policy));
+                action.Filters.Add(new IyuAuthorizeFilter(policy, pair.SetName));
 
             // Every GET, including one on a set with no policy of its own. A policy applies to the
             // data, and $expand reaches another set's data through this action without entering
@@ -65,5 +67,42 @@ internal sealed class IyuODataAuthorizationConvention(IyuEntityPairRegistry regi
                 return t.GetGenericArguments()[0];
         }
         return null;
+    }
+}
+
+/// <summary>
+/// The framework's <see cref="AuthorizeFilter"/> for a set's policy — the same refusal, and it hands on which policy failed
+/// (<see cref="IIyuAuthorizationFailureFeature"/>), as the navigation check does, so a host that words its own <c>403</c> reads
+/// one place whichever of the two refused.
+/// </summary>
+/// <summary>The policy a set's action requires, readable from the endpoint — where the authorization middleware, not the filter, refused.</summary>
+internal interface IIyuSetPolicyMetadata
+{
+    string Policy { get; }
+
+    string EntitySet { get; }
+}
+
+internal sealed class IyuAuthorizeFilter : AuthorizeFilter, IIyuSetPolicyMetadata
+{
+    private readonly string _policy;
+    private readonly string _setName;
+
+    public IyuAuthorizeFilter(string policy, string setName) : base(policy)
+    {
+        _policy = policy;
+        _setName = setName;
+    }
+
+    string IIyuSetPolicyMetadata.Policy => _policy;
+
+    string IIyuSetPolicyMetadata.EntitySet => _setName;
+
+    public override async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+    {
+        await base.OnAuthorizationAsync(context);
+        // Only a signed-in caller who was refused: a caller who is not signed in is challenged, and told nothing about the policy.
+        if (context.Result is ForbidResult)
+            context.HttpContext.Features.Set<IIyuAuthorizationFailureFeature>(new IyuAuthorizationFailureFeature(_policy, _setName));
     }
 }

@@ -29,7 +29,7 @@ namespace Iyu.MainServer;
 /// request in the server's logs; nothing about the exception is written.
 /// </para>
 /// </remarks>
-internal sealed class IyuODataProblemDetailsWriter(string routePrefix) : IProblemDetailsWriter
+internal sealed class IyuODataProblemDetailsWriter(string routePrefix, IyuMainServerOptions? options = null) : IProblemDetailsWriter
 {
     private readonly string _routePrefix = routePrefix;
 
@@ -38,6 +38,20 @@ internal sealed class IyuODataProblemDetailsWriter(string routePrefix) : IProble
     /// <summary>Whether <paramref name="request"/> is under the OData route — the whole application when the prefix is empty.</summary>
     internal static bool IsUnderRoute(HttpRequest request, string routePrefix)
         => string.IsNullOrEmpty(routePrefix) || request.Path.StartsWithSegments("/" + routePrefix);
+
+    /// <summary>
+    /// The policy that was not satisfied, where it was evaluated: the framework's own check says which (it may be another set's
+    /// than the addressed one — a navigation, a property), otherwise the addressed action's policy — the authorization
+    /// middleware refused it and the endpoint is where it is written.
+    /// </summary>
+    private static (string Policy, string EntitySet, string? Property)? FailedPolicy(HttpContext http)
+    {
+        if (http.Features.Get<IIyuAuthorizationFailureFeature>() is { } failure)
+            return (failure.Policy, failure.EntitySet, failure.Property);
+        return http.GetEndpoint()?.Metadata.GetMetadata<IIyuSetPolicyMetadata>() is { } required
+            ? (required.Policy, required.EntitySet, null)
+            : null;
+    }
 
     public async ValueTask WriteAsync(ProblemDetailsContext context)
     {
@@ -52,6 +66,14 @@ internal sealed class IyuODataProblemDetailsWriter(string routePrefix) : IProble
             ? s
             : reason.Replace(" ", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal);
         var message = problem.Detail ?? problem.Title ?? reason;
+        // Opt-in, and only for a refusal of someone who is signed in: the policy is named where it was evaluated.
+        if (status == StatusCodes.Status403Forbidden && options is { NamePolicyInForbidden: true }
+            && FailedPolicy(http) is var (policy, entitySet, property))
+        {
+            message = message.TrimEnd('.') + (property is not null
+                ? $". Requires policy '{policy}' (property '{property}' of '{entitySet}')."
+                : $". Requires policy '{policy}' (set '{entitySet}').");
+        }
         var traceId = Activity.Current?.Id ?? http.TraceIdentifier;
 
         http.Response.StatusCode = status;
