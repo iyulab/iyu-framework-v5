@@ -215,9 +215,9 @@ public class ErrorResponseShapeTests
     }
 
     /// <summary>
-    /// An unknown navigation is refused by the query layer. The authorization filter's own refusal of
-    /// an <c>$expand</c> it cannot parse carries the same code; no request is known that reaches it
-    /// before the query layer does, so it is not pinned here.
+    /// An unknown navigation is refused by the query layer — this host declares no read policy, so the navigation
+    /// check is not attached. A host that does (or asks for the reach) has the check's own refusal answer first, with the
+    /// same code and the parser's words; that is pinned in <c>ExpandRefusalWordsEndToEndTests</c>.
     /// </summary>
     [Fact]
     public async Task An_expand_naming_no_navigation()
