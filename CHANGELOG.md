@@ -81,6 +81,16 @@ onward; earlier entries state the same consequence in prose where it applies.
 - **`AddIyuFileGateway(services, configureGateway)` registers the gateway and no storage**, for a host that registers an
   `IAttachmentStorage` of its own and for backend packages.
 
+### Fixed
+
+- **A restricted collection reached through a readable parent no longer answers what a connection says without returning a row.**
+  A set's read policy was applied to the rows of a GraphQL collection field (the row type carries it) but not to the field itself, so
+  a caller who could read the parent and not the collection's set could still select that collection's `pageInfo` — whether another
+  page exists, one bit about the set — and, with the new `totalCount`, its size. The policy of the collection's set is now on the
+  collection field, so the request is refused before the field is resolved; and a request that selects only such a field is now
+  recorded as reaching the set (`IIyuGraphQLReachFeature`), as one that selects its `nodes` was. A caller who may read the set sees no
+  change.
+
 ## [0.49.0] - 2026-11-15
 
 **Packages affected:** `Iyu.Core`, `Iyu.Server.OData`, `Iyu.Server.GraphQL`, `Iyu.MainServer`, `Iyu.Lowline.EntityFrameworkCore`, `Iyu.VaultAI`, and — NuGet tags and README only, no code change — `Iyu.Data`, `Iyu.Data.SqlServer`, `Iyu.DocConvert`, `Iyu.FileServer`, `Iyu.MainServer.GraphQL`, `Iyu.MainServer.OpenIdConnect`, `Iyu.Report`, `Iyu.Server.Chat` (and `Iyu.Lowline`, which has its own line — see its changelog).

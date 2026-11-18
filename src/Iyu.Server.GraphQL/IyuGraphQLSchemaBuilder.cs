@@ -324,12 +324,17 @@ public sealed class IyuGraphQLSchemaBuilder
         var (maxPageSize, defaultPageSize) = _pages.TryGetValue(targetQuery, out var own)
             ? own
             : (MaxPageSize, DefaultPageSize);
-        descriptor.Field(property)
+        var field = descriptor.Field(property)
             .IsProjected(false)
             .UsePaging(
                 typeof(ObjectType<>).MakeGenericType(target),
                 options: new PagingOptions { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize, IncludeTotalCount = true })
             .Resolve(ctx => ResolveCollection(ctx, property, defaultPageSize));
+        // The target's read policy sits on the collection field itself, not only on the row type: a connection answers things
+        // that return no row — how many there are (`totalCount`), whether another page exists (`pageInfo`) — and a selection
+        // of only those never reaches the row type's policy. Read at schema construction (this runs inside the type's
+        // configuration callback), so a Restrict made after registration still counts.
+        if (_authorizePolicies[targetQuery] is { } targetPolicy) field.Authorize(targetPolicy);
     }
 
     /// <summary>

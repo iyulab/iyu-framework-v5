@@ -161,6 +161,20 @@ public sealed class GraphQLReachFeatureEndToEndTests : IAsyncLifetime
         _ = response;
     }
 
+    /// <summary>A connection says things without returning a row — how many, whether there are more. Reading either reads the set.</summary>
+    [Theory]
+    [InlineData("totalCount")]
+    [InlineData("pageInfo { hasNextPage }")]
+    public async Task A_collection_selected_without_any_of_its_rows_still_reaches_its_entity(string selection)
+    {
+        var (client, seen) = await Host(computeReach: true);
+
+        using var response = await Post(client, "{ shelves { nodes { name books { " + selection + " } } } }");
+
+        Assert.Equal(["shelves"], seen.Reach!.AddressedQueries);
+        Assert.Equal(["books"], seen.Reach.ReachedQueries);
+    }
+
     [Fact]
     public async Task Edges_nodes_aliases_and_a_single_valued_navigation_are_followed()
     {

@@ -46,6 +46,7 @@ public sealed class GraphQLTotalCountTests : IDisposable
     }
 
     private const string VaultPolicy = "vault.read";
+    private const string EntryPolicy = "entry.read";
     private readonly SharedMemorySqlite _db = new();
 
     public void Dispose() => _db.Dispose();
@@ -88,19 +89,24 @@ public sealed class GraphQLTotalCountTests : IDisposable
 
     private readonly CountingReads _counting = new();
 
-    private async Task<ServiceProvider> BuildAsync(int maxPageSize = 3, int defaultPageSize = 2)
+    private async Task<ServiceProvider> BuildAsync(int maxPageSize = 3, int defaultPageSize = 2, bool restrictEntries = false)
     {
         var graphql = new IyuGraphQLSchemaBuilder { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize };
         graphql.AddEntityPair<Ledger, Ledger>("ledgers", "ledger");
         graphql.AddEntityPair<Entry, Entry>("entries", "entry");
         graphql.AddEntityPair<Vault, Vault>("vaults", "vault").Restrict("vaults", VaultPolicy);
+        if (restrictEntries) graphql.Restrict("entries", EntryPolicy);
 
         var services = new ServiceCollection();
         services.AddDbContext<TotalContext>(o => o.UseSqlite(_db.ConnectionString).AddInterceptors(_counting));
         services.AddScoped<IyuDbContext>(sp => sp.GetRequiredService<TotalContext>());
         services.AddLogging();
         services.AddHttpContextAccessor();
-        services.AddAuthorization(o => o.AddPolicy(VaultPolicy, p => p.RequireClaim("perm", VaultPolicy)));
+        services.AddAuthorization(o =>
+        {
+            o.AddPolicy(VaultPolicy, p => p.RequireClaim("perm", VaultPolicy));
+            o.AddPolicy(EntryPolicy, p => p.RequireClaim("perm", EntryPolicy));
+        });
         graphql.ApplyTo(services.AddGraphQLServer().ModifyRequestOptions(o => o.IncludeExceptionDetails = true));
         var sp = services.BuildServiceProvider();
 
@@ -210,5 +216,34 @@ public sealed class GraphQLTotalCountTests : IDisposable
         SetCurrentUser(sp, VaultPolicy);
         var allowed = (await executor.ExecuteAsync("{ vaults { totalCount } }")).ToJson();
         Assert.Equal(2, Root(allowed).GetProperty("data").GetProperty("vaults").GetProperty("totalCount").GetInt32());
+    }
+
+    /// <summary>
+    /// A set's policy protects it wherever it is reached. A parent the caller may read leads to a restricted collection: the
+    /// rows are refused by the type's policy, and so are the things a connection says without returning a row — how many
+    /// there are, whether another page exists.
+    /// </summary>
+    [Theory]
+    [InlineData("totalCount")]
+    [InlineData("pageInfo { hasNextPage }")]
+    public async Task A_restricted_collection_reached_through_a_readable_parent_is_not_counted_or_probed(string selection)
+    {
+        await using var sp = await BuildAsync(restrictEntries: true);
+        var executor = await sp.GetRequestExecutorAsync(schemaName: null!, CancellationToken.None);
+        var query = "{ ledgers(first: 3) { nodes { name entries { " + selection + " } } } }";
+
+        SetCurrentUser(sp);
+        _counting.Counts = 0;
+        var refused = (await executor.ExecuteAsync(query)).ToJson();
+
+        Assert.Contains("\"errors\"", refused, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"totalCount\":5", refused, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"hasNextPage\"", refused, StringComparison.Ordinal);
+        Assert.Equal(0, _counting.Counts);
+
+        // The contrast that makes the refusal mean something: a caller holding the collection's policy gets the answer.
+        SetCurrentUser(sp, EntryPolicy);
+        var allowed = (await executor.ExecuteAsync(query)).ToJson();
+        Assert.DoesNotContain("\"errors\"", allowed, StringComparison.Ordinal);
     }
 }

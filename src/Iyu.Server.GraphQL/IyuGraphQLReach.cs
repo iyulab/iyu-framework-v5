@@ -81,6 +81,14 @@ internal static class IyuGraphQLReach
                             if (!string.Equals(query, ignore, StringComparison.Ordinal)) reached.Add(query);
                             childIgnore = null;
                         }
+                        else if (ConnectionTarget(named, queryNameOf) is { } connected)
+                        {
+                            // A collection is a connection: what it says without returning a row (`totalCount`, `pageInfo`)
+                            // reads the set as much as `nodes` does. Reached here, whatever the selection beneath it — and the
+                            // row type under `nodes` is then this same entity, not another one reached.
+                            reached.Add(connected);
+                            childIgnore = connected;
+                        }
                         if (field.SelectionSet is { } nested) Walk(nested, named, atRoot: false, childIgnore, depth + 1);
                         break;
 
@@ -101,6 +109,13 @@ internal static class IyuGraphQLReach
                 }
             }
         }
+
+        static string? ConnectionTarget(ITypeDefinition type, Func<Type, string?> queryNameOf)
+            => type is IComplexTypeDefinition connection
+               && connection.Fields.TryGetField("nodes", out var nodes)
+               && nodes.Type.NamedType() is IObjectTypeDefinition row
+                ? queryNameOf(row.RuntimeType)
+                : null;
 
         if (schema.QueryType is { } root) Walk(operation.SelectionSet, root, atRoot: true, ignore: null, depth: 0);
         return exhausted ? null : (addressed.ToList(), reached.ToList());
