@@ -246,6 +246,9 @@ public sealed class IyuGraphQLSchemaBuilder
                 {
                     MaxPageSize = maxPageSize,
                     DefaultPageSize = defaultPageSize,
+                    // `totalCount`: how many rows the caller may read, as OData's `$count` answers. A selected field
+                    // only — the count query is not run for a request that does not ask for it.
+                    IncludeTotalCount = true,
                 })
                 // The selection becomes the query's projection: requested columns only, and a
                 // navigation in the selection is loaded by the same query instead of answering null.
@@ -325,7 +328,7 @@ public sealed class IyuGraphQLSchemaBuilder
             .IsProjected(false)
             .UsePaging(
                 typeof(ObjectType<>).MakeGenericType(target),
-                options: new PagingOptions { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize })
+                options: new PagingOptions { MaxPageSize = maxPageSize, DefaultPageSize = defaultPageSize, IncludeTotalCount = true })
             .Resolve(ctx => ResolveCollection(ctx, property, defaultPageSize));
     }
 
@@ -368,7 +371,11 @@ public sealed class IyuGraphQLSchemaBuilder
             first is null && last is null ? defaultPageSize : first,
             ctx.ArgumentValue<string?>("after"),
             last,
-            ctx.ArgumentValue<string?>("before"));
+            ctx.ArgumentValue<string?>("before"))
+        {
+            // This parent's children, counted — and only when the selection asks (the batch adds its count query then).
+            IncludeTotalCount = ctx.IsSelected("totalCount"),
+        };
         var selection = new QueryContext<T>(ctx.Selection.AsSelector<T>(ctx.IncludeConditionFlags));
 
         var fk = foreignKey.Properties[0];

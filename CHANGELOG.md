@@ -31,10 +31,15 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
 
+- **GraphQL connections carry `totalCount`.** Every query field and every collection field is a cursor connection; it now has a
+  selectable `totalCount` — how many rows the caller may read, as OData's `$count` answers — so a client can tell the size of a set
+  without walking its pages. The page size bounds the page, never the total. For a collection it counts that one parent's children.
+  The count is computed only when the selection asks for it, and it sits behind the same read policy as the rows: a caller refused
+  the set is refused the count too. No change for a request that does not select it.
 - **`Iyu.Notifications.EntityFrameworkCore` — the Entity Framework Core stores behind `Iyu.Notifications`.** The inbox, the record of
   unreached events and the administrators' target table, over tables of the application's own `DbContext`: the package states
   the columns it needs (`INotificationInboxRow`, `INotificationUnreachedRow`, `INotificationTargetRow`) and the application owns
