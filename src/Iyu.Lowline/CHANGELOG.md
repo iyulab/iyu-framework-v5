@@ -15,6 +15,10 @@ Releases up to 0.47.0 are recorded in the repository's `CHANGELOG.md`; this file
 
 ## [Unreleased]
 
+### Changed
+
+- **The Lowline engine is now 0.12.2.** A form definition that is not JSON now stops the host as it starts with an `ArgumentException` that names the form (`Form 'order' is refused: its definition is not JSON (…)`), where 0.12.1 let the parser's `JsonException` through with no form name. A definition that is JSON but not an object is refused the same way. A host that matched the old message text (`A form's definition is a JSON object.`) must match the new one; the exception type to catch is `ArgumentException`, with the parser's exception as its inner exception. The engine's own dependencies moved to `Microsoft.Data.Sqlite` 11.0.0 and `Microsoft.Extensions.AI.Abstractions` 11.0.0 (both still `net10.0`).
+
 ### Added
 
 - **A history record the engine refuses is now named.** A pass over an `ILowlineHistorySource` used to report only how many records the engine refused, so a host could not tell which row to fix. `IyuLowlineHistoryReport.Refusals` now lists them (`IyuLowlineRefusal`: form, space, record id; the first `IyuLowlineHistoryReport.RefusalsListedLimit` = 50 of a pass, `Refused` still counts them all), and the warning the pass logs carries the same ids (with "and N more" beyond the limit). Only the id is reported: the engine's own refusal message can quote a value the record held, so it is not logged or reported — read the record from your source by its id and compare it with the form's definition. Additive; `Learned`, `Refused` and `Skipped` are unchanged.

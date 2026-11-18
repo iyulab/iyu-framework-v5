@@ -96,6 +96,29 @@ public sealed class AddIyuLowlineTests : IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync());
     }
 
+    // The engine's documented refusal for a definition that is not JSON is an ArgumentException that names the form
+    // (Lowline 0.12.2). Earlier engines let the parser's JsonException through with no form name, so an operator reading the
+    // start-up failure could not tell which form was wrong. Pinned here because the host surfaces that message as it starts.
+    [Fact]
+    public async Task A_form_whose_definition_is_not_json_is_refused_by_name()
+    {
+        var builder = Host();
+        builder.Services.AddIyuLowline<LowlineTestDb, LowlineTestRecord, LowlineTestTuning>(
+            o => o.Engine.Form("order", "this is not a definition"));
+        await using var app = builder.Build();
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync());
+
+        var refusal = Flatten(failure).OfType<ArgumentException>().FirstOrDefault();
+        Assert.NotNull(refusal);
+        Assert.Contains("order", refusal.Message);
+
+        static IEnumerable<Exception> Flatten(Exception? exception)
+        {
+            for (; exception is not null; exception = exception.InnerException) yield return exception;
+        }
+    }
+
     [Fact]
     public async Task A_host_with_a_form_starts_and_serves_one_set_of_forms_over_the_application_tables()
     {
