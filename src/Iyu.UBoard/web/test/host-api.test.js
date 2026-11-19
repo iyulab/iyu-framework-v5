@@ -40,6 +40,16 @@ test('a board that is not there is null, and a refused publish is told with its 
   assert.deepEqual(await api.publish('b', 2), { status: 403, line: null });
 });
 
+test('a list is asked for a page at a time, a rename and a delete carry the board as one path segment, and a refusal is told with its status', async () => {
+  const endpoints = endpointsFor('/uboard');
+  const asked = [];
+  const api = makeApi(async (url, init) => { asked.push(`${init?.method ?? 'GET'} ${url}`); return init?.method === 'DELETE' ? json(204, null) : init?.method === 'PUT' ? json(403, {}) : json(200, []); }, endpoints);
+  await api.list({ skip: 50, take: 50 });
+  assert.deepEqual(await api.rename('a b/c', 'New name?'), { status: 403, board: null });
+  assert.deepEqual(await api.remove('a b/c'), { status: 204 });
+  assert.deepEqual(asked, ['GET /uboard/boards?skip=50&take=50', 'PUT /uboard/boards/a%20b%2Fc/name?name=New%20name%3F', 'DELETE /uboard/boards/a%20b%2Fc']);
+});
+
 test('the data root is the host\'s to name, and every query is written under it', () => {
   try {
     setDataRoot('/odata/');

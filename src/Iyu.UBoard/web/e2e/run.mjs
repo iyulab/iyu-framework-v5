@@ -916,6 +916,106 @@ async function main() {
       await shot(page, 'missing');
     });
 
+    // ------------------------------------------------------------------------------------------------- rename, delete, paging
+    const as = (user, init = {}) => ({ ...init, headers: { 'X-Sample-User': user, 'content-type': 'application/json', ...init.headers } });
+    const makeBoard = (id, name, user = 'analyst') => fetch(`${origin}/uboard/boards/${id}?name=${encodeURIComponent(name)}`, as(user, { method: 'POST', body: JSON.stringify(emptyBoard('grid')) }));
+    const boardStatus = (id, user = 'analyst') => fetch(`${origin}/uboard/boards/${id}`, as(user)).then(response => response.status);
+    const rowOf = id => page.locator(`tr[data-board="${id}"]`);
+    const openMenu = async id => {
+      await rowOf(id).locator('[data-act=rowmenu]').click();
+      await page.waitForSelector('[data-testid=row-menu]');
+    };
+
+    await step('rename: a row menu offers it, the dialog changes the name only, and the row opens nothing', async () => {
+      await page.goto(`${origin}${SCREEN}`);
+      await page.waitForSelector('[data-testid=board-list] tr[data-board]');
+      await openMenu('render-feedback');
+      equal(new URL(page.url()).pathname, SCREEN, 'opening the menu does not open the board');
+      equal(await page.locator('[data-testid=row-menu] [data-act=rename]').count(), 1, 'rename is offered');
+      equal(await page.locator('[data-testid=row-menu] [data-act=delete]').count(), 1, 'delete is offered');
+      await page.keyboard.press('Escape');
+      equal(await page.locator('[data-testid=row-menu]').count(), 0, 'Escape closes the menu');
+      await openMenu('render-feedback');
+      await page.click('[data-testid=row-menu] [data-act=rename]');
+      await page.waitForSelector('[data-testid=rename-board-dialog]');
+      equal(await page.inputValue('[data-testid=rename-board-dialog] input'), 'Render feedback', 'the dialog starts with the name');
+      equal(await page.locator('[data-act=renameboard]').isDisabled(), true, 'nothing to rename until the name differs');
+      await page.fill('[data-testid=rename-board-dialog] input', 'Render feedback, kept');
+      await shot(page, 'rename').catch(() => {});
+      await page.click('[data-act=renameboard]');
+      await page.waitForSelector('[data-testid=rename-board-dialog]', { state: 'detached' });
+      check((await rowOf('render-feedback').textContent()).includes('Render feedback, kept'), 'the row has the new name');
+      const kept = (await fetch(`${origin}/uboard/boards/render-feedback`, as('analyst')).then(response => response.json()));
+      equal(kept.name, 'Render feedback, kept', 'the host holds the new name');
+      equal(kept.revision, 3, 'the revisions are the same');
+    });
+
+    await step('delete: it asks first and says what goes; cancelling keeps the board, confirming removes it from the host and the list', async () => {
+      equal((await makeBoard('scratch', 'Scratch')).status, 201, 'a board to delete');
+      await page.reload();
+      await page.waitForSelector('tr[data-board="scratch"]');
+      await openMenu('scratch');
+      await page.click('[data-testid=row-menu] [data-act=delete]');
+      await page.waitForSelector('[data-testid=delete-board-dialog]');
+      check((await page.textContent('[data-testid=delete-board-dialog]')).includes('Delete “Scratch”?') && (await page.textContent('[data-testid=delete-board-dialog]')).includes('cannot be undone'), 'the dialog names the board and says it is final');
+      await shot(page, 'delete').catch(() => {});
+      await page.click('[data-testid=delete-board-dialog] [data-act=closedialog]');
+      equal(await page.locator('[data-testid=delete-board-dialog]').count(), 0, 'cancel closes it');
+      equal(await boardStatus('scratch'), 200, 'cancelling deleted nothing');
+      await openMenu('scratch');
+      await page.click('[data-testid=row-menu] [data-act=delete]');
+      await page.click('[data-act=deleteboard]');
+      await page.waitForSelector('tr[data-board="scratch"]', { state: 'detached' });
+      equal(await boardStatus('scratch'), 404, 'the host no longer has it');
+      equal(await boardStatus('render-feedback'), 200, 'the other board is untouched');
+    });
+
+    await step('what the host says a person may do decides the menu: rename without delete, no menu at all, and a person who may only read has none — and the routes refuse them anyway', async () => {
+      await page.route('**/uboard/boards?*', async route => {
+        const response = await route.fetch();
+        const rows = await response.json();
+        const changed = rows.map(row => (row.id === 'render-feedback' ? { ...row, can: { ...row.can, edit: true, delete: false } } : row.id === boardId ? { ...row, can: { ...row.can, edit: false, delete: false } } : row));
+        await route.fulfill({ response, json: changed });
+      });
+      await page.reload();
+      await page.waitForSelector('tr[data-board="render-feedback"]');
+      await openMenu('render-feedback');
+      equal(await page.locator('[data-testid=row-menu] [data-act=rename]').count(), 1, 'rename is offered');
+      equal(await page.locator('[data-testid=row-menu] [data-act=delete]').count(), 0, 'delete is not offered when the host says no');
+      equal(await rowOf(boardId).locator('[data-act=rowmenu]').count(), 0, 'a board that may be neither renamed nor deleted has no menu');
+      await page.keyboard.press('Escape');
+      await page.unroute('**/uboard/boards?*');
+
+      const readOnly = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'viewer' } });
+      await watch(readOnly);
+      const viewer = await readOnly.newPage();
+      watchConsole(viewer);
+      await viewer.goto(`${origin}${SCREEN}`);
+      await viewer.waitForSelector('tr[data-board]');
+      equal(await viewer.locator('[data-act=rowmenu]').count(), 0, 'a person who may only read has no menu on any row');
+      equal((await fetch(`${origin}/uboard/boards/render-feedback/name?name=Mine`, as('viewer', { method: 'PUT' }))).status, 403, 'the host refuses a rename by that person');
+      equal((await fetch(`${origin}/uboard/boards/render-feedback`, as('viewer', { method: 'DELETE' }))).status, 403, 'and a delete');
+      equal(await boardStatus('render-feedback'), 200, 'the board is still there');
+      await readOnly.close();
+    });
+
+    await step('a long list is read a page at a time: the first 50, a note saying so, and the rest on request', async () => {
+      const made = await Promise.all(Array.from({ length: 52 }, (_, n) => makeBoard(`bulk-${String(n).padStart(2, '0')}`, `Bulk ${n}`)));
+      check(made.every(response => response.status === 201), 'the boards were made');
+      const total = (await (await fetch(`${origin}/uboard/boards?take=500`, as('analyst'))).json()).length;
+      check(total >= 54, `the host holds ${total} boards`);
+      await page.goto(`${origin}${SCREEN}`);
+      await page.waitForSelector('[data-testid=list-more]');
+      equal(await page.locator('tr[data-board]').count(), 50, 'a page of 50');
+      check((await page.textContent('[data-testid=list-more]')).includes('Showing the first 50 boards'), 'the list says it is the first 50');
+      await shot(page, 'list-more').catch(() => {});
+      await page.click('[data-act=moreboards]');
+      await page.waitForFunction(() => !document.querySelector('[data-testid=list-more]'));
+      equal(await page.locator('tr[data-board]').count(), total, 'every board is listed once the rest is asked for');
+      await Promise.all(Array.from({ length: 52 }, (_, n) => fetch(`${origin}/uboard/boards/bulk-${String(n).padStart(2, '0')}`, as('analyst', { method: 'DELETE' }))));
+      equal((await (await fetch(`${origin}/uboard/boards?take=500`, as('analyst'))).json()).length, total - 52, 'the boards made for this step are gone');
+    });
+
     await step('the files the page loads are the library\'s: hashed, kept for good, with the notices beside them', async () => {
       const html = await (await fetch(`${origin}${SCREEN}`, { headers: { 'X-Sample-User': 'analyst' } })).text();
       const files = [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+)"/g)].map(m => m[1]);

@@ -36,7 +36,15 @@ export function makeApi(fetcher, endpoints) {
       const answer = await read(await fetcher(endpoints.access));
       return { create: Boolean(pick(answer, 'create')), assistant: Boolean(pick(answer, 'assistant')), catalog: Boolean(pick(answer, 'catalog')), dataRoot: pick(answer, 'dataRoot') };
     },
-    list: async () => (await read(await fetcher(endpoints.boards))) ?? [],
+    /** One page of the boards the person may open. The host cuts the page before it hides what the person may not see, so a short page is not proof of the end. */
+    list: async ({ skip = 0, take = 100 } = {}) => (await read(await fetcher(`${endpoints.boards}?skip=${skip}&take=${take}`))) ?? [],
+    /** Renames a board: `{ status, board }` — 200 with the board, 403 when the person may not edit it, 404 when it is gone, 400 for a name the host refuses. */
+    rename: async (id, name) => {
+      const response = await fetcher(`${board(id)}/name?name=${encodeURIComponent(name)}`, { method: 'PUT' });
+      return { status: response.status, board: response.ok ? await response.json() : null };
+    },
+    /** Deletes a board with its whole history: `{ status }` — 204 when it is gone, 403 when the person may not delete it, 404 when it was not there. */
+    remove: async id => ({ status: (await fetcher(board(id), { method: 'DELETE' })).status }),
     board: async id => {
       const response = await fetcher(board(id));
       return response.status === 404 ? null : read(response);

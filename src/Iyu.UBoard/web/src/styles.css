@@ -151,6 +151,14 @@ select.btn{padding:5px 8px}
 .btbl td{padding:11px 14px;border-top:1px solid var(--line)}
 .btbl a{color:inherit;text-decoration:none}
 .btbl tr[data-board]{cursor:pointer}.btbl tr[data-board]:hover td{background:var(--surface2)}
+.btbl .rowact{width:1%;white-space:nowrap;text-align:right}
+.rowmenu{position:relative;display:inline-block}
+.menu{position:absolute;right:0;top:calc(100% + 4px);z-index:10;min-width:150px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:4px;text-align:left}
+.menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:7px 10px;border-radius:7px;font:inherit;color:var(--ink)}
+.menu button:hover,.menu button:focus-visible{background:var(--surface2)}
+.menu button.danger{color:var(--bad)}
+.more{display:flex;align-items:center;gap:12px;justify-content:center;margin-top:12px;color:var(--muted);font-size:13px}
+.btn.danger{border-color:var(--bad);background:var(--bad-soft)}
 .acc{font-size:12px}.acc.edit{color:var(--ok)}.acc.read{color:var(--muted)}
 .hint{border:1px dashed var(--line);border-radius:10px;padding:10px 12px;color:var(--muted);font-size:13px;margin-top:14px}
 .field{display:block;margin:0 0 12px;font-size:13px;color:var(--muted)}
