@@ -18,6 +18,7 @@ import { applyJsonPatch } from '@iyulab/u-board/domain';
 import { DATA_SOURCE_ID, buildSystemPrompt, workflowRules } from './prompt.js';
 import { changedParts, partsTouched, removedParts } from './board-diff.js';
 import { BoardMovedOn, newBoard, openBoardSession } from './session.js';
+import { fillVariables, variableDefaults, variablesMentioned } from './variables.js';
 import {
   DATA_ROOT, MAX_ROWS, TABLE_PAGE, buildODataUrl, bulkProblem, catalogForModel, closest, parseODataUrl, permissionProblem,
 } from './odata.js';
@@ -133,11 +134,20 @@ function suggestionFor(issues, catalog) {
   return 'Tell me what to change and I will try a different approach.';
 }
 
-/** Problems with the reads a board would hold: the same two rules as query_data, applied to what is about to be saved. */
-function boardReadProblem(document, catalog) {
+/** Problems with the reads a board would hold: the same rules as query_data, applied to what is about to be saved. A read may
+ *  mention a board variable (`{{$status}}`, `$skip={{$skip}}`); it is judged with each variable at its default, and a mention of a
+ *  variable the board does not declare, or one that has no default to stand in, is refused. */
+export function boardReadProblem(document, catalog) {
+  const defaults = variableDefaults(document.variables);
   for (const [name, read] of Object.entries(document.data ?? {})) {
     if (read?.from !== DATA_SOURCE_ID) continue;
-    const query = parseODataUrl(read.path ?? '');
+    for (const variable of variablesMentioned(read.path)) {
+      const spec = document.variables?.[variable];
+      if (!spec) return { read: name, message: `read "${name}" mentions {{$${variable}}} but the board declares no variable "${variable}" — declare it under "variables" with its "options" and a "default".` };
+      if (defaults[variable] === undefined) return { read: name, message: `variable "${variable}" needs a "default" (or "options" to take the first of) to stand in read "${name}".` };
+      if (Array.isArray(spec.options) && !spec.options.map(String).includes(defaults[variable])) return { read: name, message: `the default of variable "${variable}" is ${defaults[variable]}, which is not one of its options.` };
+    }
+    const query = parseODataUrl(fillVariables(read.path ?? '', defaults));
     if (!query) return { read: name, message: `the path of read "${name}" must start with ${DATA_ROOT}/<Entity>.` };
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(query.entity)) return { read: name, message: `read "${name}" does not name an entity set.` };
     const bulk = bulkProblem(query);

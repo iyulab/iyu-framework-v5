@@ -41,7 +41,12 @@ as that person — so you can only use what they can read. The board is shown to
 - Months: this server groups by a computed field — "$apply=compute(year(OrderDate) as Y,month(OrderDate) as M)/groupby((Y,M),aggregate(Total with sum as Revenue))&$orderby=Y,M" (functions go in compute, not in groupby).
 - A chart can stack several fields of one row ("stack": true with "y": [fieldA, fieldB]). Rows cannot be turned into such columns on the server, so
   do not stack groups of rows; show one category per bar and say what you left out.
-- A "filter for the whole board" is not a board setting: write the same $filter into each read it applies to.
+- A filter for the whole board is a board variable: declare it once, e.g. "variables": { "status": { "label": "Status", "options": ["Paid", "Pending"], "default": "Paid" } },
+  and write it into the $filter of every read it applies to as '{{$status}}' (inside the quotes of the literal). The person changes the value above the board and
+  every read that mentions it is asked again. Use the exact options the data has (look at them with query_data first); never invent one.
+- A table can be walked on the server: a variable "skip" with options ["0", "${TABLE_PAGE}", "${TABLE_PAGE * 2}", …] as far as the count you saw allows,
+  and the read ends "$top=${TABLE_PAGE}&$skip={{$skip}}&$count=true". Order by a unique field last ("$orderby=OrderDate desc,Id desc") so pages do not overlap. The person moves between pages above the board; a table's own paging only
+  pages the rows already read, so do not rely on it for more than one page.
 
 ## When the board check refuses a change
 The answer names each issue and its path. Fix exactly those and try once more. If it is refused again, stop: say what was refused
