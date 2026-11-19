@@ -27,7 +27,7 @@ const short = value => {
   return JSON.stringify(value);
 };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const fieldNames = rows => [...new Set(rows.slice(0, 20).flatMap(row => (row && typeof row === 'object' ? Object.keys(row) : [])))];
+const fieldNames = rows => [...new Set(rows.slice(0, 20).flatMap(row => (row && typeof row === 'object' ? Object.keys(row) : [])))].filter(name => !name.startsWith('@')); // an annotation of the answer is not a field
 const fieldsOf = value => (Array.isArray(value) ? value : [value]).filter(item => typeof item === 'string');
 
 /** One read answered once per inspection, however many parts draw from it: the answers are kept as the page's fetch gave them. */

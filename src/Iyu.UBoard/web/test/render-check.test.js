@@ -10,7 +10,7 @@ import { FIRST_PATCH, calls, json, makeWorld, recorder, say } from '../testkit/w
 const read = (name, extra = {}) => ({ from: 'odata', path: `/$data/${name}`, ...extra });
 const answers = {
   total: { value: [{ Total: 1234.5, Discount: 0, Orders: 7 }] },
-  months: { value: [{ Month: '2026-01', Revenue: 10, Orders: 3 }, { Month: '2026-02', Revenue: 20, Orders: 4 }, { Month: '2026-03', Revenue: 40, Orders: 5 }] },
+  months: { value: [{ '@odata.id': 'Orders(1)', Month: '2026-01', Revenue: 10, Orders: 3 }, { Month: '2026-02', Revenue: 20, Orders: 4 }, { Month: '2026-03', Revenue: 40, Orders: 5 }] },
   zeros: { value: [{ Month: '2026-01', Revenue: 0 }, { Month: '2026-02', Revenue: 0 }] },
   words: { value: [{ Month: '2026-01', Revenue: 'n/a' }] },
   none: { value: [] },

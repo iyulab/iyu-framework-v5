@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
+import { emptyBoard } from '@iyulab/u-board/check';
 import { calls, say } from '../testkit/world.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,12 +32,15 @@ const SCREEN = '/uboard/ui';
 
 let steps = 0;
 let stepStarted = Date.now();
+// What a failing step leaves behind besides its message: set by main once there is a page to look at (a picture and what the chat said).
+let diagnose = async () => {};
 const step = async (name, run) => {
   stepStarted = Date.now();
   try {
     await run();
   } catch (error) {
     console.error(`E2E-FAIL at step ${steps + 1}: ${name}\n${error.stack ?? error}`);
+    await diagnose(steps + 1).catch(() => {});
     throw error;
   }
   steps += 1;
@@ -223,6 +227,46 @@ const NODATA = [
 const badKind = (id, kind) => ({ patch: [{ op: 'add', path: `/parts/${id}`, value: { as: kind, of: 'month', title: 'Cumulative revenue' } }, { op: 'add', path: '/layout/items/-', value: [id, 12] }] });
 const ERROR = [calls(['patch_board', badKind('cum', 'chart.cumulative-line')]), calls(['patch_board', badKind('cum', 'chart.running-total')])];
 
+// What the model has just been shown by its tools: the JSON of each tool message that follows its last answer.
+const toolResultsOf = body => {
+  const results = [];
+  for (let i = body.messages.length - 1; i >= 0 && body.messages[i].role === 'tool'; i--) {
+    const text = typeof body.messages[i].content === 'string' ? body.messages[i].content : (body.messages[i].content ?? []).map(part => part.text ?? '').join('');
+    try {
+      results.unshift(JSON.parse(text));
+    } catch {
+      results.unshift(text);
+    }
+  }
+  return results;
+};
+const renderedIn = body => toolResultsOf(body).find(told => told?.rendered)?.rendered;
+
+// A first edit that saves cleanly and draws wrong: the total is read at a name the aggregate did not return, and the chart plots a field the rows do not have.
+const DRAWS_WRONG = [
+  calls(['patch_board', { patch: [
+    { op: 'add', path: '/data', value: {
+      kpi: { from: 'odata', path: `${P}aggregate(Total with sum as Revenue)`, fields: { Revenue: { at: '/value/0/Total', label: 'Revenue' } } },
+      month: { from: 'odata', path: paths.month(FROM_2026), list: '/value', key: 'M' },
+    } },
+    { op: 'add', path: '/parts/total', value: stat('Revenue', 'Revenue') },
+    { op: 'add', path: '/parts/trend', value: { as: 'chart.bar', of: 'month', title: 'Revenue by month', x: 'M', y: 'Total' } },
+    { op: 'add', path: '/layout/items/-', value: ['total', 4] },
+    { op: 'add', path: '/layout/items/-', value: ['trend', 8] },
+  ] }]),
+  // The second answer is slow, so the board the person sees after the first save can be looked at before the correction lands.
+  body => (renderedIn(body)?.problems?.length
+    ? {
+      ...calls(['patch_board', { patch: [
+        { op: 'replace', path: '/data/kpi/fields/Revenue/at', value: '/value/0/Revenue' },
+        { op: 'replace', path: '/parts/trend/y', value: 'Revenue' },
+      ] }]),
+      delay: 3000,
+    }
+    : say('The board is saved.')),
+  body => say(renderedIn(body)?.problems?.length ? 'Still wrong.' : `Both tiles draw now: ${renderedIn(body)?.drew?.join('; ')}.`),
+];
+
 const redLine = { patch: [{ op: 'replace', path: '/parts/rev/referenceLines/0/color', value: '#d92d20' }] };
 const CONFLICT = [calls(['patch_board', redLine])];
 const RETRY = [calls(['patch_board', redLine]), say('Done — the target line is red, on top of the other session\'s change.')];
@@ -253,7 +297,8 @@ class ScriptedModel {
         const body = raw ? JSON.parse(raw) : {};
         if (request.method !== 'POST') return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: [{ id: MODEL_NAME }] }));
         this.requests.push({ body, headers: request.headers });
-        const reply = this.queue.shift();
+        const next = this.queue.shift();
+        const reply = typeof next === 'function' ? next(body) : next; // a reply may answer what the tools just said
         if (!reply) return response.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'the scripted model has nothing left to say' }));
         const answer = () => (body.stream ? response.writeHead(200, { 'content-type': 'text/event-stream' }).end(asStream(reply)) : response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply)));
         return reply.delay ? setTimeout(() => answer(), reply.delay) : answer();
@@ -315,6 +360,10 @@ async function main() {
       if (request.url().includes('/$data/')) odata.push(decodeURI(request.url().slice(origin.length)));
     });
 
+    diagnose = async number => {
+      await page.screenshot({ path: join(imagesDir, `failed-step-${number}.png`) });
+      console.error(`the chat at the failure: ${(await page.locator('#msgs').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(-1200)}`);
+    };
     let boardId = BOARD;
     const api = async (path, init = {}) => {
       const response = await fetch(`${origin}/uboard/boards/${boardId}${path}`, { ...init, headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...init.headers } });
@@ -712,9 +761,10 @@ async function main() {
       await viewer.click('[data-testid=drawer] [data-act=closehist]');
       model.load([say('The board shows revenue by month, and I cannot change it for you.')]);
       const before = model.requests.length;
+      const repliesBefore = await viewer.locator('[data-role=assistant] [data-testid=reply]').count(); // the opening message counts as one
       await viewer.locator('u-prompt textarea').fill('What does this show?');
       await viewer.locator('u-prompt textarea').press('Enter');
-      await viewer.waitForFunction(() => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > 0 && !document.querySelector('u-prompt').loading, null, { timeout: 30000 });
+      await viewer.waitForFunction(n => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > n && !document.querySelector('u-prompt').loading, repliesBefore, { timeout: 30000 });
       const sent = model.requests.slice(before);
       equal(sent.length, 1, 'the model was asked once');
       check(!sent[0].body.tools.some(tool => tool.function.name === 'patch_board'), 'the model was offered no tool that edits');
@@ -810,6 +860,49 @@ async function main() {
       check(model.requests.at(-1).body.tools.some(tool => tool.function.name === 'patch_board'), 'an editor is offered the edit tool, a question just does not use it');
     });
 
+
+    await step('what a saved edit drew goes back to the model: a total and a chart that draw wrong are told with why, the model corrects them in the same turn, and the screen agrees with what it was told', async () => {
+      const made = await fetch(`${origin}/uboard/boards/render-feedback?name=${encodeURIComponent('Render feedback')}`, { method: 'POST', headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json' }, body: JSON.stringify(emptyBoard('grid')) });
+      equal(made.status, 201, 'the board is made');
+      const earlier = boardId;
+      boardId = 'render-feedback';
+      await page.goto(`${origin}${SCREEN}/boards/${boardId}`);
+      await page.waitForSelector('[data-testid=empty-board]');
+      model.load(DRAWS_WRONG);
+      const asked = model.requests.length;
+      const before = await replies();
+      await page.locator('u-prompt textarea').fill('Show revenue, in total and by month.');
+      await page.locator('u-prompt textarea').press('Enter');
+      // The first save is on the board while the model is still thinking about what it was told: look at it as the person does.
+      await page.waitForSelector('.tile[data-id=trend][data-mark=new]');
+      await page.waitForFunction(() => document.querySelector('#msgs [data-role=assistant]:last-of-type .step[data-outcome=drew-wrong]'));
+      await sleep(600);
+      const drawnWrong = await tileText('total');
+      check(drawnWrong.includes('not found') && drawnWrong.includes('/value/0/Total'), `the viewer itself says the total has no value, as the model was told: ${drawnWrong}`);
+      const first = (await lastSteps()).find(row => row.kind === 'board');
+      equal(first.outcome, 'drew-wrong', 'the step says a tile did not draw as intended');
+      equal(await page.locator('#msgs [data-role=assistant]:last-of-type .step.warn').count(), 1, 'and is marked as something to look at');
+      await shot(page, 'drew-wrong');
+      await settle(before);
+      // What the model was told about the first save is what the screen showed, and the second save drew what the model then said.
+      const told = renderedIn(model.requests[asked + 1].body);
+      check(told, 'the second request carries what the board drew');
+      equal(told.problems.map(problem => problem.id).sort().join(), 'total,trend', 'both parts are told');
+      check(/could not be read/.test(told.problems.find(problem => problem.id === 'total').problem), `why the total is empty: ${JSON.stringify(told.problems)}`);
+      check(/y "Total" is not in the rows \(they have: M, Revenue\)/.test(told.problems.find(problem => problem.id === 'trend').problem), `why the chart is empty: ${JSON.stringify(told.problems)}`);
+      const after = renderedIn(model.requests[asked + 2].body);
+      equal(after.problems, undefined, 'the corrected board draws as read');
+      const totalLine = after.drew.find(entry => entry.startsWith('total: '));
+      check(totalLine && Number(totalLine.slice(7)) > 0 && after.drew.some(entry => /^trend: \d+ points/.test(entry)), `what was drawn: ${after.drew}`);
+      for (let i = 0; i < 40 && /not found/.test(await tileText('total')); i++) await sleep(250);
+      check(!/not found/.test(await tileText('total')) && /\d+(\.\d)?K/.test(await tileText('total')), `the tile shows a value now: ${await tileText('total')}`);
+      equal(await hostRevision(), 3, 'r1 the empty board, r2 the first edit, r3 the correction');
+      check(await page.locator('.tile[data-id=trend] canvas, .tile[data-id=trend] svg').count() > 0, 'the chart drew');
+      equal((await lastSteps()).filter(row => row.kind === 'board').map(row => row.outcome).join('|'), 'drew-wrong|', 'the first save is flagged, the correction is not');
+      check((await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]')).includes('Both tiles draw now'), 'the model says what it was shown');
+      await shot(page, 'drew-right');
+      boardId = earlier;
+    });
 
     await step('the list shows the board with what this person may do to it; a board the host does not hold is not there', async () => {
       await page.goto(`${origin}${SCREEN}`);
