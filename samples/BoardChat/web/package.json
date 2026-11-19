@@ -7,6 +7,9 @@
     "test": "node --test test/"
   },
   "dependencies": {
+    "@iyulab/chat-components": "0.30.0",
+    "@iyulab/components": "3.2.0",
+    "@iyulab/house-style": "0.14.0",
     "@iyulab/u-board": "0.45.0",
     "@iyulab/u-board-mcp": "0.30.0",
     "react": "19.2.0",

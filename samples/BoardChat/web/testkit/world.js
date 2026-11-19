@@ -79,6 +79,7 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
   };
 
   const fetch = async (url, init = {}) => {
+    if (init.signal?.aborted) throw new DOMException('This operation was aborted', 'AbortError'); // a request made after stop never leaves the page
     const request = { url, method: init.method ?? 'GET', headers: init.headers ?? {}, body: init.body === undefined ? undefined : JSON.parse(init.body) };
     requests.push(request);
     if (url === '/assistant/turn') {

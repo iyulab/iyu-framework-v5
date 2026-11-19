@@ -252,8 +252,8 @@ class ScriptedModel {
         this.requests.push({ body, headers: request.headers });
         const reply = this.queue.shift();
         if (!reply) return response.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'the scripted model has nothing left to say' }));
-        if (body.stream) return response.writeHead(200, { 'content-type': 'text/event-stream' }).end(asStream(reply));
-        return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
+        const answer = () => (body.stream ? response.writeHead(200, { 'content-type': 'text/event-stream' }).end(asStream(reply)) : response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply)));
+        return reply.delay ? setTimeout(() => answer(), reply.delay) : answer();
       });
     });
     await new Promise(done => this.server.listen(port, '127.0.0.1', done));
@@ -301,13 +301,13 @@ async function main() {
     const hostRevision = async () => (await api('')).body.revision;
     const replies = () => page.locator('[data-role=assistant] [data-testid=reply]').count();
     const settle = async before => {
-      await page.waitForFunction(n => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > n && !document.querySelector('#inp').disabled, before, { timeout: 30000 });
+      await page.waitForFunction(n => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > n && !document.querySelector('u-prompt').loading, before, { timeout: 30000 });
       await page.waitForTimeout(400); // the tiles read their data after the board is drawn
     };
     const say_ = async text => {
       const before = await replies();
-      await page.fill('#inp', text);
-      await page.click('[data-act=send]');
+      await page.locator('u-prompt textarea').fill(text); // the chat components keep the input inside shadow roots
+      await page.locator('u-prompt textarea').press('Enter');
       await settle(before);
     };
     const chip = async label => {
@@ -412,7 +412,7 @@ async function main() {
       check(held, 'the save was held');
       for (const id of ['k1', 'k2', 'k3', 'rev', 'region', 'top']) equal(await mark(id), 'edited', `${id} edited`);
       equal(await hostRevision(), 3, 'host at r3');
-      check((await page.textContent('#msgs')).includes('paid orders only'), 'the reply says paid only');
+      check((await deepTextOf('#msgs')).includes('paid orders only'), 'the reply says paid only');
       await shot(page, 'turn3');
     });
 
@@ -427,7 +427,7 @@ async function main() {
       const rows = await lastSteps();
       equal(rows.at(-1).label, 'Stopped before querying', 'stop step');
       equal(rows.at(-1).outcome, 'blocked', 'blocked outcome');
-      const reply = await page.textContent('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
+      const reply = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
       check(reply.includes('Orders.Margin is hidden by a read policy for your role'), reply);
       check(/Orders\.Total/.test(reply), 'an alternative is offered');
       check(await page.locator('.f.flash[data-field="Orders.Margin"]').count() === 1, 'the locked field flashes in the catalog');
@@ -479,6 +479,22 @@ async function main() {
       await shot(page, 'nodata');
     });
 
+    // 7b ------------------------------------------------------------------------------------------------- stop
+    await step('stop: the prompt turns into a stop button while the assistant works; pressing it ends the turn and the next message still works', async () => {
+      model.load([{ ...say('too late'), delay: 5000 }, say('Back again — nothing was lost.')]);
+      const before = await replies();
+      await page.locator('u-prompt textarea').fill('Think about the whole year.');
+      await page.locator('u-prompt textarea').press('Enter');
+      await page.waitForFunction(() => document.querySelector('u-prompt').loading);
+      await page.getByRole('button', { name: 'Stop generating' }).click();
+      await settle(before);
+      const stopped = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
+      check(stopped.startsWith('Stopped. The board is at r5'), stopped);
+      await say_('Are you still there?');
+      check((await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]')).includes('Back again'), 'the conversation goes on after a stop');
+      equal(await hostRevision(), 5, 'host still at r5');
+    });
+
     // 8 -------------------------------------------------------------------------------------------------- error
     await step('check refusal: one retry with the reason, then nothing is saved and the person is told where', async () => {
       model.load(ERROR);
@@ -488,7 +504,7 @@ async function main() {
       const rows = await lastSteps();
       equal(rows.map(r => r.label).join(' | '), 'Edited the board | Retried once | Nothing was saved', 'step labels');
       check(rows[0].outcome === 'rejected' && rows[1].outcome === 'rejected', 'both attempts rejected');
-      const reply = await page.textContent('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
+      const reply = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
       check(reply.includes('Nothing was saved') && reply.includes('/parts/cum/as'), reply);
       equal(await page.locator('[data-testid=banner-rejected]').count(), 1, 'the banner says the edit was rejected');
       equal(await hostRevision(), 5, 'the host still holds r5');
@@ -512,7 +528,7 @@ async function main() {
       const board = rows.find(r => r.kind === 'board');
       equal(board.outcome, 'conflict', 'conflict outcome');
       check(/^PUT \/uboard\/boards\/revenue\?expected=5 → 409 Conflict$/.test(board.raw), board.raw);
-      const reply = await page.textContent('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
+      const reply = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
       check(reply.includes("wasn't saved") && reply.includes('r6'), reply);
       equal(await hostRevision(), 6, 'the other session\'s r6 stands');
       equal((await api('')).body.document.parts.rev.referenceLines[0].color, '#c92a2a', 'the refused change did not land');
@@ -525,7 +541,7 @@ async function main() {
       const before = await replies();
       await page.click('.chip[data-chip="Reload r6 and retry"]');
       await settle(before + 0);
-      await page.waitForFunction(() => !document.querySelector('#inp').disabled);
+      await page.waitForFunction(() => !document.querySelector('u-prompt').loading);
       await page.waitForFunction(() => document.querySelector('[data-testid=pill-draft]').textContent === 'Draft r7');
       const saved = (await api('')).body;
       equal(saved.revision, 7, 'host at r7');
@@ -627,7 +643,7 @@ async function main() {
       await page.click('header [data-act=history]');
       await publishFromDrawer(3);
       equal((await api('/published')).body.revision, 3, 'published r3');
-      check((await page.textContent('#msgs')).includes('r2 is one click away if you need to roll back'), 'the chat says how to roll back');
+      check((await deepTextOf('#msgs')).includes('r2 is one click away if you need to roll back'), 'the chat says how to roll back');
       await page.click('header [data-act=history]');
       await publishFromDrawer(2);
       equal((await api('/published')).body.revision, 2, 'rolled back to r2');

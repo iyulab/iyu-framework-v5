@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { UMarkedBlock, UMessage, UPrompt, UTextBlock } from '@iyulab/chat-components/react';
+import { setAllowedImagePrefixes } from '@iyulab/chat-components';
 import '@iyulab/u-board/styles.css';
 import { checkBoard } from '@iyulab/u-board/check';
 import { changedParts, createAssistant, newBoard } from './agent-loop.js';
@@ -56,11 +58,22 @@ function Step({ step }) {
   );
 }
 
-function Chat({ thread, revision, busy, onSend, onChip, text, setText, pointing = [], onClearPointing }) {
+// What the model writes is shown as the person's chat components show it: markdown, with the components' own rules for links and
+// images. A reply may quote data the host holds, so a picture may come from this host and from nowhere else.
+setAllowedImagePrefixes([`${location.origin}/`]);
+
+function Chat({ thread, revision, busy, onSend, onStop, onChip, pointing = [], onClearPointing }) {
   const ref = useRef(null);
+  const prompt = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [thread]);
+  const submit = () => {
+    const value = prompt.current?.value ?? '';
+    if (!value.trim() || busy) return;
+    prompt.current.value = '';
+    onSend(value);
+  };
   return (
     <aside className="chat">
       <div className="chead">
@@ -71,18 +84,24 @@ function Chat({ thread, revision, busy, onSend, onChip, text, setText, pointing 
       </div>
       <div className="msgs" id="msgs" ref={ref}>
         {thread.map((m, i) => {
-          if (m.role === 'u') return <div key={i} className="m u" data-role="user">{m.text}{m.on?.length ? <span className="on" data-testid="user-on">on {m.on.map(o => o.title ?? o.id).join(', ')}</span> : null}</div>;
+          if (m.role === 'u')
+            return (
+              <UMessage key={i} data-role="user" author="user" position="right" variant="bubble">
+                <UTextBlock value={m.text} />
+                {m.on?.length ? <span className="on" data-testid="user-on">on {m.on.map(o => o.title ?? o.id).join(', ')}</span> : null}
+              </UMessage>
+            );
           const last = i === thread.length - 1;
           return (
             <div key={i} className="m a" data-role="assistant">
               <div className="av">✦</div>
-              <div className="ab">
+              <UMessage author="assistant" position="left" loading={busy && last && !m.text}>
                 {m.steps?.length ? <div className="steps">{m.steps.map(step => <Step key={step.id} step={step} />)}</div> : null}
-                {m.text ? <div data-testid="reply">{m.text}</div> : null}
+                {m.text ? <UMarkedBlock data-testid="reply" value={m.text} /> : null}
                 {last && m.chips?.length ? (
                   <div className="chips">{m.chips.map(chip => <button key={chip} className="chip" data-chip={chip} disabled={busy} onClick={() => onChip(chip)}>{chip}</button>)}</div>
                 ) : null}
-              </div>
+              </UMessage>
             </div>
           );
         })}
@@ -92,12 +111,8 @@ function Chat({ thread, revision, busy, onSend, onChip, text, setText, pointing 
         {pointing.length ? (
           <div className="pointing" data-testid="selection-chip"><span>Pointing at</span><b>{pointing.map(p => p.title ?? p.id).join(', ')}</b><button aria-label="Clear selection" data-act="clear-selection" onClick={onClearPointing}>×</button></div>
         ) : null}
-        <div className="box">
-          <textarea id="inp" rows={1} placeholder={pointing.length ? 'Say what to change about this…' : 'Ask for a chart, a filter, a change…'} aria-label="Message the assistant" value={text} disabled={busy}
-            onChange={event => setText(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSend(); } }} />
-          <button className="btn primary" data-act="send" aria-label="Send" disabled={busy || !text.trim()} onClick={onSend}>Send</button>
-        </div>
+        <UPrompt ref={prompt} id="inp" loading={busy} minRows={1} maxRows={6} aria-label="Message the assistant"
+          placeholder={pointing.length ? 'Say what to change about this…' : 'Ask for a chart, a filter, a change…'} onSend={submit} onStop={onStop} />
       </div>
     </aside>
   );
@@ -203,7 +218,6 @@ export function App() {
   const [answers, setAnswers] = useState({});
   const [thread, setThread] = useState([{ role: 'hello', text: 'Hi — I can build a board from your data. Ask for what you want to see, and refine it as you go.', chips: ['Monthly revenue with KPIs', 'Top products this year', 'Customers by signup month', 'Orders needing attention'] }]);
   const [busy, setBusy] = useState(false);
-  const [text, setText] = useState('');
   const [selected, setSelected] = useState([]);
   const [view, setView] = useState('editor');
   const [drawer, setDrawer] = useState(false);
@@ -215,6 +229,7 @@ export function App() {
   const [flash, setFlash] = useState('');
   const [compare, setCompare] = useState(null);
   const assistant = useRef(null);
+  const stopping = useRef(null);
   const successes = useRef(0);
   const adaptersRef = useRef(null);
   if (!adaptersRef.current) adaptersRef.current = [makeODataAdapter((path, rows, count) => setAnswers(prev => ({ ...prev, [path]: { rows, count } })))];
@@ -273,10 +288,10 @@ export function App() {
 
   const send = useCallback(async message => {
     if (!message.trim() || !assistant.current) return;
-    setText('');
     const selection = selected;
     setSelected([]);
-    const result = await assistant.current.send(message, { selection });
+    stopping.current = new AbortController();
+    const result = await assistant.current.send(message, { selection, signal: stopping.current.signal });
     if (result.revision.to !== result.revision.from) successes.current += 1;
     setLoadIds([]);
     setThread(t => {
@@ -414,7 +429,7 @@ export function App() {
               </div>
             </div>
           )}
-          {reader ? null : <Chat thread={thread} revision={live.revision} busy={busy} onSend={() => send(text)} onChip={onChip} text={text} setText={setText} pointing={selected.filter(id => live.document.parts?.[id]).map(id => ({ id, title: live.document.parts[id].title }))} onClearPointing={() => setSelected([])} />}
+          {reader ? null : <Chat thread={thread} revision={live.revision} busy={busy} onSend={send} onStop={() => stopping.current?.abort()} onChip={onChip} pointing={selected.filter(id => live.document.parts?.[id]).map(id => ({ id, title: live.document.parts[id].title }))} onClearPointing={() => setSelected([])} />}
         </div>
       </div>
       {modal ? (

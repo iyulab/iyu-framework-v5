@@ -130,6 +130,25 @@ test('a turn the page ends itself is closed on the host, so the next turn starts
   assert.match(world.modelRequests().at(-1).body.messages.at(-2).content, /stopped after 2 steps/);
 });
 
+test('pressing stop ends the turn where it stands, says so, and leaves the conversation whole', async () => {
+  const world = makeWorld({ model: [calls(['read_catalog', {}], ['query_data', QUERY]), calls(['patch_board', { patch: FIRST_PATCH }]), say('Done.'), say('Here you are.')] });
+  const stop = new AbortController();
+  const rec = recorder();
+  // the person presses stop while the first read is running
+  const deps = world.assistantDeps({ emit: event => { rec.emit(event); if (event.type === 'step' && event.step.kind === 'catalog' && event.step.state === 'running') stop.abort(); } });
+  const assistant = createAssistant(deps);
+  const first = await assistant.send('Show monthly revenue.', { signal: stop.signal });
+
+  assert.equal(first.outcome, 'stopped');
+  assert.match(first.reply, /^Stopped\. The board is at r0 — nothing was saved\./);
+  assert.deepEqual(first.steps.map(s => s.outcome), [null, 'skipped'], 'the step that was running ends, the next is not started');
+  assert.equal(world.boardWrites().length, 0, 'nothing was saved');
+  assert.equal(world.modelRequests().length, 1, 'the model is not asked again');
+
+  const second = await assistant.send('Try again.'); // the host would refuse a conversation that held a call without its result
+  assert.equal(second.outcome, 'done');
+});
+
 test('a read that matches no rows is an empty result, not an error', async () => {
   const world = makeWorld({
     odata: () => json(200, { value: [], '@odata.count': 0 }),

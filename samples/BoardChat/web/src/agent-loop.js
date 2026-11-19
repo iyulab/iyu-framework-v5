@@ -175,7 +175,7 @@ export function boardReadProblem(document, catalog) {
  *   emit       (event) => void — what the screen listens to
  *   now        () => ms        — the clock
  *   maxRounds  most model calls in one turn (default 10)
- *   signal     an AbortSignal for the requests
+ *   signal     an AbortSignal for the requests (a turn may bring its own: `send(text, { signal })` — the person pressed stop)
  */
 export function createAssistant(deps) {
   const endpoints = { ...DEFAULT_ENDPOINTS, ...deps.endpoints };
@@ -183,11 +183,12 @@ export function createAssistant(deps) {
   const now = deps.now ?? (() => Date.now());
   const maxRounds = deps.maxRounds ?? 10;
 
+  let signal = deps.signal; // the turn's own when it brings one
   const host = (url, init = {}) =>
     deps.fetch(url, {
       ...init,
       headers: { ...(deps.userName ? { [USER_HEADER]: deps.userName } : {}), ...init.headers },
-      ...(deps.signal ? { signal: deps.signal } : {}),
+      ...(signal ? { signal } : {}),
     });
 
   const messages = []; // the conversation as the host last returned it: opaque to the page, handed back with the next request
@@ -209,6 +210,7 @@ export function createAssistant(deps) {
   /** `options.selection`: the ids of the parts the person is pointing at; the ones the board has go to the model as an edit context. */
   async function send(userText, options = {}) {
     turnNumber += 1;
+    signal = options.signal ?? deps.signal;
     const turn = { steps: [], rejections: 0, order: 0, emptyResults: [], failure: undefined, halted: false };
 
     const startDocument = await session.document();
@@ -461,6 +463,10 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
 
       for (const item of planned) {
         const { call, step } = item;
+        if (!turn.halted && signal?.aborted) {
+          turn.failure = { kind: 'stopped', message: 'Stopped.' };
+          turn.halted = true;
+        }
         if (turn.halted) {
           step.state = 'error';
           step.outcome = 'skipped';
@@ -508,7 +514,7 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
     // The tools the last answer asked for were run and the model will not read their results: close the turn on the host's side with the words
     // the person is about to read, so the conversation it keeps stays whole.
     if (pending?.results) await closeTurn(endDocument, pending.results, reply);
-    const outcome = turn.failure ? ({ permission: 'blocked', rejected: 'rejected', conflict: 'conflict', limit: 'limit' }[turn.failure.kind] ?? 'error') : turn.emptyResults.length > 0 ? 'empty' : 'done';
+    const outcome = turn.failure ? ({ permission: 'blocked', rejected: 'rejected', conflict: 'conflict', limit: 'limit', stopped: 'stopped' }[turn.failure.kind] ?? 'error') : turn.emptyResults.length > 0 ? 'empty' : 'done';
     const summary = {
       outcome,
       reply,
@@ -540,6 +546,7 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
     try {
       response = await turnRequest(document, body);
     } catch (error) {
+      if (signal?.aborted) return { failure: { kind: 'stopped', message: 'Stopped.' } };
       return { failure: { kind: 'model', status: 0, message: `The assistant could not be reached (${error instanceof Error ? error.message : error}).` } };
     }
     if (!response.ok) {
@@ -553,6 +560,7 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
   }
 
   async function closeTurn(document, results, final) {
+    signal = deps.signal; // pressing stop ends the work, not the housekeeping: the host's record must still be closed
     const response = await turnRequest(document, { results, final }).catch(() => null);
     const answer = response?.ok ? await response.json().catch(() => null) : null;
     if (answer?.history) messages.splice(0, messages.length, ...answer.history);
@@ -619,6 +627,8 @@ function composeFailure(failure, startRevision, revision) {
       return `Your change wasn't saved: another session saved r${failure.serverRevision} first, and I worked from r${failure.workedFrom}. Reload r${failure.serverRevision} and I'll apply the edit again on top of it.`;
     case 'save-failed':
       return failure.message;
+    case 'stopped':
+      return `Stopped. The board is at r${revision}${revision === startRevision ? ' — nothing was saved' : ''}.`;
     case 'limit':
       return `${failure.message} The board is at r${revision}. Ask me to carry on and I'll continue from there.`;
     default:
