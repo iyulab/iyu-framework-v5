@@ -18,6 +18,7 @@ import { applyJsonPatch } from '@iyulab/u-board/domain';
 import { DATA_SOURCE_ID, buildSystemPrompt, workflowRules } from './prompt.js';
 import { changedParts, partsTouched, removedParts } from './board-diff.js';
 import { BoardMovedOn, newBoard, openBoardSession } from './session.js';
+import { contextBlock, editContext } from './edit-context.js';
 import { fillVariables, variableDefaults, variablesMentioned } from './variables.js';
 import {
   DATA_ROOT, MAX_ROWS, TABLE_PAGE, buildODataUrl, bulkProblem, catalogForModel, closest, parseODataUrl, permissionProblem,
@@ -202,14 +203,18 @@ export function createAssistant(deps) {
   }
 
   // ---- one turn
-  async function send(userText) {
+  /** `options.selection`: the ids of the parts the person is pointing at; the ones the board has go to the model as an edit context. */
+  async function send(userText, options = {}) {
     turnNumber += 1;
     const turn = { steps: [], rejections: 0, order: 0, emptyResults: [], failure: undefined, halted: false };
-    emit({ type: 'turn-start', turn: turnNumber, text: userText });
-    messages.push({ role: 'user', content: userText });
 
     const startDocument = await session.document();
     const startRevision = session.known.revision;
+    const context = editContext(startDocument, options.selection, { name: deps.board.loaded?.name, revision: startRevision });
+    emit({ type: 'turn-start', turn: turnNumber, text: userText, ...(context && { selection: context.selection.map(s => s.id) }) });
+    messages.push({ role: 'user', content: context ? `${userText}
+
+${contextBlock(context)}` : userText });
     let lastDocument = startDocument;
     let finalText;
     let rounds = 0;
