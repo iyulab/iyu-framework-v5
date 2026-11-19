@@ -93,6 +93,51 @@ public class ExcelTemplateRulesTests
         Assert.Equal("", sheet.Cell("A5").GetString());
     }
 
+    [Theory]
+    [InlineData(XLScope.Worksheet)]
+    [InlineData(XLScope.Workbook)]
+    public void A_range_one_row_high_runs_sideways_and_its_scope_changes_nothing(XLScope scope)
+    {
+        using var template = new XLWorkbook();
+        var ws = template.AddWorksheet("S");
+        ws.Cell("A4").Value = "{{item.Name}}";
+        ws.Cell("B4").Value = "{{item.Qty}}";
+        ws.Range("A4:D4").AddToNamed("Items", scope);
+
+        using var dish = Fill(template, ("Items", new[]
+        {
+            new { Name = "a", Qty = 1 }, new { Name = "b", Qty = 2 }, new { Name = "c", Qty = 3 },
+        }));
+        using var result = Reopen(dish);
+        var sheet = result.Worksheet("S");
+
+        Assert.Equal("a", sheet.Cell("A4").GetString());
+        Assert.True(sheet.Cell("A5").IsEmpty(), "a one-row range has no row to grow into");
+        Assert.True(sheet.LastColumnUsed()!.ColumnNumber() > 4, "the other records went to the right of the range");
+    }
+
+    [Theory]
+    [InlineData(XLScope.Worksheet)]
+    [InlineData(XLScope.Workbook)]
+    public void A_two_row_range_repeats_downwards_the_same_way_in_either_scope(XLScope scope)
+    {
+        using var template = new XLWorkbook();
+        var ws = template.AddWorksheet("S");
+        ws.Cell("A4").Value = "{{item.Name}}";
+        ws.Cell("B4").Value = "{{item.Qty}}";
+        ws.Range("A4:B5").AddToNamed("Items", scope);
+
+        using var dish = Fill(template, ("Items", new[]
+        {
+            new { Name = "a", Qty = 1 }, new { Name = "b", Qty = 2 }, new { Name = "c", Qty = 3 },
+        }));
+        using var result = Reopen(dish);
+        var sheet = result.Worksheet("S");
+
+        Assert.Equal(new[] { "a", "b", "c" }, Enumerable.Range(4, 3).Select(r => sheet.Cell(r, 1).GetString()).ToArray());
+        Assert.Equal(2, sheet.LastColumnUsed()!.ColumnNumber());
+    }
+
     [Fact]
     public void Template_formulas_are_repeated_per_record_and_a_total_follows_the_rows()
     {

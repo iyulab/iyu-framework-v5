@@ -1914,6 +1914,12 @@ fills small templates and pins them:
   tail.
 - **A range one column wide runs sideways.** For a list that grows downwards, make the range at
   least two columns wide.
+- **So does a range one row high.** It has no tail row to tell the records apart, so the first
+  record lands in the range and the rest go to its right. A list that grows downwards wants a
+  range at least two rows high (the repeated row and the tail) and two columns wide.
+- **The scope of the name changes nothing.** A named range made for the whole workbook repeats
+  the same way as one made for a worksheet; what decides the direction is the range's shape.
+  Inside the repeated row the cells read the record as `{{item.Property}}`.
 - **Formulas in the template are repeated with their row** (`=B4*C4` becomes `=B5*C5`, …) and a
   total over the range (`SUM(D4:D5)`) follows the records (`SUM(D4:D6)`).
 - **A saved file holds the formulas but not their values, unless you ask.** To put the computed
