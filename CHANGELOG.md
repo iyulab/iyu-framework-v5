@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), `Iyu.VaultAI` (a second policy for editing reports, an off switch for the schedule), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), `Iyu.VaultAI` (a second policy for editing reports, an off switch for the schedule, an allow list of embed channels), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
 
@@ -44,6 +44,14 @@ onward; earlier entries state the same consequence in prose where it applies.
 - **The report schedule can be turned off on a host (`VaultAI:ScheduleReports`, `true` by default).** Several servers over one
   report folder each generated every scheduled report. With `false` the scheduler starts nothing, not even its first pass, and
   logs once that it is off; the viewer, the API and manual generation keep working. Nothing changes while it is `true`.
+- **The chat widget's embed can offer several channels (`VaultAI:EmbedChannels`, empty by default).** `MapVaultAIEmbed()` served one
+  channel, `VaultAI:ChannelId`. Listing channels (`{ Id, Label }`, the label optional) adds two routes under the same path:
+  `GET …/channels` returns the list for a channel picker and `POST …/channels/{id}/token` issues a token for a listed channel
+  with the same authorization, cross-site refusal and failure answers as `token`. The list is the trust boundary: an id that is
+  not on it is `404` before the chat service is asked anything. A blank or padded id, or an id listed twice, fails when the routes
+  are mapped. `config` and `token` and `ChannelId` are unchanged, and with the list empty the two new routes answer "not enabled".
+  A host that moves from a hand-written channel page to this one maps its picker to `channels` (`id`, `label`) and the token call
+  to `channels/{id}/token`; the route prefix is whatever the host passes to `MapVaultAIEmbed`.
 
 - **A `403` can name the policy the caller did not satisfy (`IyuMainServerOptions.NamePolicyInForbidden`, off by default).** The
   answer to a signed-in caller who is refused reads `Forbidden. Requires policy 'x' (set 'y').` — for a request that reaches another
