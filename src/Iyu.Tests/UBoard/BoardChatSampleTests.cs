@@ -235,6 +235,29 @@ public sealed class BoardChatSampleTests(BoardChatSampleHost host) : IClassFixtu
     }
 
     [Fact]
+    public async Task The_screen_is_the_librarys_and_the_sample_serves_it_under_its_own_policy_or_says_this_build_has_none()
+    {
+        using var list = await host.Client.SendAsync(Get("/uboard/ui"));
+        var words = await list.Content.ReadAsStringAsync();
+
+        // A build with Node.js carries the screen and serves it with its policy; one without says so with 503 (what the machine built the tests with decides which).
+        if (list.StatusCode == HttpStatusCode.OK)
+        {
+            Assert.Contains("name=\"uboard-prefix\" content=\"/uboard\"", words, StringComparison.Ordinal);
+            Assert.Contains("script-src 'self'", list.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, list.StatusCode);
+            Assert.Contains("not part of this build", words, StringComparison.Ordinal);
+        }
+
+        // Either way the sample wrote no page: the library's routes are the only ones there.
+        using var board = await host.Client.SendAsync(Get("/uboard/ui/boards/nothing-here"));
+        Assert.Contains(board.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.ServiceUnavailable });
+    }
+
+    [Fact]
     public async Task A_request_from_another_site_is_refused_on_the_board_and_catalog_routes()
     {
         foreach (var url in new[] { "/uboard/boards", "/uboard/catalog" })

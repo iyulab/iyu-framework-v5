@@ -10,6 +10,7 @@ using Iyu.UBoard.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -119,7 +120,7 @@ public sealed class ScreenRoutesTests
         }
     }
 
-    private static async Task<Host> StartAsync(IScreenAssets? screen = null, Action<IyuUBoardOptions>? configure = null, string? pathBase = null, bool assistant = false, bool makePlan = true)
+    private static async Task<Host> StartAsync(IScreenAssets? screen = null, Action<IyuUBoardOptions>? configure = null, string? pathBase = null, bool assistant = false, bool makePlan = true, string? group = null)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -142,13 +143,13 @@ public sealed class ScreenRoutesTests
         if (pathBase is not null) app.UsePathBase(pathBase);
         app.UseAuthentication();
         app.UseAuthorization();
-        app.MapIyuUBoard();
+        ((IEndpointRouteBuilder)(group is null ? app : app.MapGroup(group))).MapIyuUBoard();
         await app.StartAsync();
 
         var host = new Host(app, connection, recording);
         if (makePlan)
         {
-            var make = new HttpRequestMessage(HttpMethod.Post, $"{pathBase}/uboard/boards/plan?name=Plan") { Content = new StringContent(Doc, Encoding.UTF8, "application/json") };
+            var make = new HttpRequestMessage(HttpMethod.Post, $"{pathBase}{group}/uboard/boards/plan?name=Plan") { Content = new StringContent(Doc, Encoding.UTF8, "application/json") };
             make.Headers.Add("X-Test-User", "ann");
             using var made = await host.Client.SendAsync(make);
             Assert.Equal(HttpStatusCode.Created, made.StatusCode);
@@ -157,8 +158,8 @@ public sealed class ScreenRoutesTests
         return host;
     }
 
-    private static Task<Host> StartWithScreenAsync(IScreenAssets? screen = null, string? pathBase = null, bool assistant = false, bool makePlan = true) =>
-        StartAsync(screen ?? Screen(), o => o.Screen(), pathBase, assistant, makePlan);
+    private static Task<Host> StartWithScreenAsync(IScreenAssets? screen = null, string? pathBase = null, bool assistant = false, bool makePlan = true, string? group = null) =>
+        StartAsync(screen ?? Screen(), o => o.Screen(), pathBase, assistant, makePlan, group);
 
     [Fact]
     public async Task A_board_page_is_the_built_page_with_the_hosts_settings_first_in_its_head_and_a_restrictive_policy()
@@ -339,6 +340,53 @@ public sealed class ScreenRoutesTests
     }
 
     [Fact]
+    public async Task A_person_arriving_from_another_site_reaches_a_page_as_a_navigation_and_nothing_else_of_the_layer()
+    {
+        await using var host = await StartWithScreenAsync();
+        static Action<HttpRequestMessage> From(string site, string mode, string dest) => request =>
+        {
+            request.Headers.Add("Sec-Fetch-Site", site);
+            request.Headers.Add("Sec-Fetch-Mode", mode);
+            request.Headers.Add("Sec-Fetch-Dest", dest);
+        };
+
+        // A link in a mail, or the identity provider sending the person back after they signed in: a top-level navigation to a page.
+        using var list = await host.GetAsync("/uboard/ui", "ann", From("cross-site", "navigate", "document"));
+        using var board = await host.GetAsync("/uboard/ui/boards/plan", "ann", From("cross-site", "navigate", "document"));
+        // Not a navigation to a document, or not to a page: refused as before.
+        using var framed = await host.GetAsync("/uboard/ui/boards/plan", "ann", From("cross-site", "navigate", "iframe"));
+        using var fetched = await host.GetAsync("/uboard/ui/boards/plan", "ann", From("cross-site", "cors", "empty"));
+        using var script = await host.GetAsync("/uboard/ui/assets/app-1a2b3c.js", "ann", From("cross-site", "navigate", "document"));
+        using var data = await host.GetAsync("/uboard/boards/plan", "ann", From("cross-site", "navigate", "document"));
+        using var asked = await host.GetAsync("/uboard/access", "ann", From("cross-site", "navigate", "document"));
+
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, board.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, framed.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, fetched.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, script.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, data.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, asked.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_layer_may_be_mapped_under_a_group_of_the_hosts_own_and_the_page_says_where_it_is_and_finds_its_files()
+    {
+        await using var host = await StartWithScreenAsync(group: "/api");
+
+        using var board = await host.GetAsync("/api/uboard/ui/boards/plan");
+        using var list = await host.GetAsync("/api/uboard/ui");
+        using var data = await host.GetAsync("/api/uboard/boards/plan");
+        var html = await board.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, board.StatusCode);
+        Assert.Contains("<base href=\"/api/uboard/ui/\">", html, StringComparison.Ordinal);
+        Assert.Contains("name=\"uboard-prefix\" content=\"/api/uboard\"", html, StringComparison.Ordinal);
+        Assert.Contains("name=\"uboard-prefix\" content=\"/api/uboard\"", await list.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.OK, data.StatusCode);
+    }
+
+    [Fact]
     public async Task With_the_screen_not_switched_on_its_routes_are_not_there_though_the_boards_are()
     {
         await using var host = await StartAsync(Screen(), configure: null);
@@ -397,5 +445,6 @@ public sealed class ScreenRoutesTests
         Assert.Contains("SIL OPEN FONT LICENSE", notices, StringComparison.Ordinal);
         foreach (Match asset in Regex.Matches(index, "(?:src|href)=\"\\./(assets/[^\"]+)\""))
             Assert.NotNull(assets.Find(asset.Groups[1].Value)); // every file the page names is in the package
+        Assert.All(assets.Paths, path => Assert.True(assets.Find(path) is not null, $"{path} is embedded but not a kind of file the screen serves")); // a new kind of file in the build is a test failure, not a runtime 404
     }
 }

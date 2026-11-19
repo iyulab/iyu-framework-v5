@@ -14,7 +14,7 @@ internal static class IyuUBoardRequestRules
     {
         var request = invocation.HttpContext.Request;
         var site = request.Headers["Sec-Fetch-Site"].ToString();
-        if (site.Length > 0 && site is not ("same-origin" or "none"))
+        if (site.Length > 0 && site is not ("same-origin" or "none") && !IsPageNavigation(invocation.HttpContext))
             return new(Results.StatusCode(StatusCodes.Status403Forbidden));
         var origin = request.Headers.Origin.ToString();
         if (origin.Length > 0 && !string.Equals(origin, $"{request.Scheme}://{request.Host}", StringComparison.OrdinalIgnoreCase))
@@ -22,6 +22,18 @@ internal static class IyuUBoardRequestRules
 
         return next(invocation);
     }
+
+    /// <summary>
+    /// A person arriving at a page of the screen from another site — a link in a mail, or the identity provider sending them back after sign-in — is
+    /// a top-level navigation the browser marks <c>Sec-Fetch-Site: cross-site</c>. Only that, only for a page route (<see cref="ScreenPageMetadata"/>),
+    /// only a GET that is a navigation to a document (so not a frame, a script or a fetch), is let through: the page has no state to change, it is
+    /// framed by nobody (its policy), and what it asks of the host afterwards is same-origin like every other request.
+    /// </summary>
+    private static bool IsPageNavigation(HttpContext http) =>
+        HttpMethods.IsGet(http.Request.Method)
+        && http.Request.Headers["Sec-Fetch-Mode"].ToString() == "navigate"
+        && http.Request.Headers["Sec-Fetch-Dest"].ToString() == "document"
+        && http.GetEndpoint()?.Metadata.GetMetadata<ScreenPageMetadata>() is not null;
 
     /// <summary>A form post (a request another site can send without asking) is not JSON: a request that carries a body must say it is.</summary>
     internal static ValueTask<object?> RequireJson(EndpointFilterInvocationContext invocation, EndpointFilterDelegate next) =>

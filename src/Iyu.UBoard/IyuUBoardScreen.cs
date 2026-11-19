@@ -59,6 +59,9 @@ internal sealed class EmbeddedScreenAssets : IScreenAssets
 
     public bool Available => _resources.ContainsKey("index.html");
 
+    /// <summary>The path of every file the build embedded.</summary>
+    internal IEnumerable<string> Paths => _resources.Keys;
+
     public ScreenAsset? Find(string path)
     {
         if (!_resources.TryGetValue(path, out var resource)) return null;
@@ -71,6 +74,12 @@ internal sealed class EmbeddedScreenAssets : IScreenAssets
             return new ScreenAsset(buffer.ToArray(), type);
         });
     }
+}
+
+/// <summary>Marks the routes that are pages of the screen: the only ones a navigation from another site may reach.</summary>
+internal sealed class ScreenPageMetadata
+{
+    internal static readonly ScreenPageMetadata Instance = new();
 }
 
 /// <summary>Says at the host's start, in its log, that the screen is switched on and this build carries none.</summary>
@@ -111,13 +120,14 @@ internal static class IyuUBoardScreenRoutes
     {
         var ui = group.MapGroup("ui");
 
-        ui.MapGet("", (HttpContext http, IScreenAssets assets) => Page(http, assets, prefix, board: null));
+        ui.MapGet("", (HttpContext http, IScreenAssets assets) => Page(http, assets, prefix, "/ui", board: null)).WithMetadata(ScreenPageMetadata.Instance);
 
         // A board's page. Who may see it is asked of the application like any other board route, and answered with the same 404 — a page does
         // not tell a person which boards exist, so a board that is not there and one the person may not view look the same. (A new board is
         // made first, by the list's dialog, and then opened: the application records its owner when it is made.)
         ui.MapGet("boards/{id}", async (string id, HttpContext http, IBoardAccess access, IScreenAssets assets) =>
-            await access.AllowsAsync(http.User, BoardAction.View, id, http.RequestAborted) ? Page(http, assets, prefix, id) : Results.NotFound());
+            await access.AllowsAsync(http.User, BoardAction.View, id, http.RequestAborted) ? Page(http, assets, prefix, "/ui/boards/{id}", id) : Results.NotFound())
+            .WithMetadata(ScreenPageMetadata.Instance);
 
         // The files a page loads. Their names carry a hash of their content, so a browser may keep them for good.
         ui.MapGet("assets/{**path}", (string path, HttpContext http, IScreenAssets assets) =>
@@ -141,12 +151,12 @@ internal static class IyuUBoardScreenRoutes
     private static IResult Absent() => Results.Text(AbsentMessage, "text/plain; charset=utf-8", Encoding.UTF8, StatusCodes.Status503ServiceUnavailable);
 
     // The page: the built page with what the server knows written at the top of its head, where the browser reads it before anything else.
-    private static IResult Page(HttpContext http, IScreenAssets assets, string prefix, string? board)
+    private static IResult Page(HttpContext http, IScreenAssets assets, string prefix, string pagePattern, string? board)
     {
         if (!assets.Available) return Absent();
         if (assets.Find("index.html") is not { } index) return Absent();
 
-        var html = Render(Encoding.UTF8.GetString(index.Content), http.Request.PathBase + prefix, board);
+        var html = Render(Encoding.UTF8.GetString(index.Content), http.Request.PathBase + MountedPrefix(http, prefix, pagePattern), board);
         if (html is null)
             return Results.Problem("The screen's page has no <head> to write the host's settings into.", statusCode: StatusCodes.Status500InternalServerError);
 
@@ -157,6 +167,27 @@ internal static class IyuUBoardScreenRoutes
         headers.XFrameOptions = "DENY";
         headers.CacheControl = "no-store";
         return Results.Content(html, "text/html; charset=utf-8", Encoding.UTF8);
+    }
+
+    // Where the routes are mounted, read from the route the request matched: a host may map the layer under a group of its own
+    // (app.MapGroup("/api").MapIyuUBoard()), and then the prefix it passed is not the whole of it. The matched pattern is the whole path.
+    private static string MountedPrefix(HttpContext http, string prefix, string pagePattern)
+    {
+        if (http.GetEndpoint() is not RouteEndpoint endpoint) return prefix;
+
+        // A group's prefix is combined into the pattern without keeping its text, so the path is read back from the pattern's segments.
+        var path = new StringBuilder();
+        foreach (var segment in endpoint.RoutePattern.PathSegments)
+        {
+            path.Append('/');
+            foreach (var part in segment.Parts)
+                path.Append(part is Microsoft.AspNetCore.Routing.Patterns.RoutePatternLiteralPart literal ? literal.Content
+                    : part is Microsoft.AspNetCore.Routing.Patterns.RoutePatternParameterPart parameter ? "{" + parameter.Name + "}"
+                    : string.Empty);
+        }
+
+        var whole = path.ToString();
+        return whole.EndsWith(pagePattern, StringComparison.Ordinal) ? whole[..^pagePattern.Length] : prefix;
     }
 
     /// <summary>
