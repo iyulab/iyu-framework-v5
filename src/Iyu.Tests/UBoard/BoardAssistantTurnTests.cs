@@ -358,6 +358,17 @@ public sealed class BoardAssistantTurnTests
     }
 
     [Fact]
+    public async Task A_request_with_no_body_at_all_is_refused_with_400()
+    {
+        await using var host = await StartAsync();
+
+        using var response = await host.SendAsync(HttpMethod.Post, "/boards/plan/turn", "eve");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(host.Assistant.Turns);
+    }
+
+    [Fact]
     public async Task A_request_from_another_site_is_refused_with_403()
     {
         await using var host = await StartAsync();

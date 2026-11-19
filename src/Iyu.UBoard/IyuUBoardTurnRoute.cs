@@ -35,6 +35,7 @@ internal static partial class IyuUBoardTurnRoute
 
     private sealed record Result(string? CallId, string? Output);
 
+    // The boards group already holds a request that has a body to be JSON (415), so a turn is not asked twice.
     internal static void Map(RouteGroupBuilder one) =>
         one.MapPost("turn", async (string id, HttpRequest request, ClaimsPrincipal user, IBoardAccess access, IyuBoardService boards, IBoardAssistant assistant, ILoggerFactory logs) =>
         {
@@ -93,8 +94,7 @@ internal static partial class IyuUBoardTurnRoute
                         _ => StatusCodes.Status502BadGateway,
                     });
             }
-        })
-        .AddEndpointFilter(IyuUBoardRequestRules.RequireJson);
+        });
 
     // The request is counted as it is read: a size the server reports for itself is not the same on every host.
     private static async Task<(byte[]? Body, IResult? Refusal)> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
