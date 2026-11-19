@@ -1903,7 +1903,31 @@ your data (above), save the result as an attachment, insert the history row.
 
 For everything past `AddIyuReport()` — template syntax, binding rules, supported formats —
 see [DocuChef's own documentation](https://github.com/iyulab/DocuChef); this package
-does not wrap or re-document that surface.
+does not wrap or re-document that surface. The few behaviours of a filled Excel template
+below are the ones that decide whether an existing template can be ported, so the test suite
+fills small templates and pins them:
+
+- **A named range repeats per record, and its last row is a tail.** Give the list variable the
+  range's name and write `{{item.Property}}` in the cells; every row of the range but the last
+  is repeated for each record — formatting, row heights, merged cells and number formats come
+  along — and the last row follows the records once. A two-row range is one template row plus a
+  tail.
+- **A range one column wide runs sideways.** For a list that grows downwards, make the range at
+  least two columns wide.
+- **Formulas in the template are repeated with their row** (`=B4*C4` becomes `=B5*C5`, …) and a
+  total over the range (`SUM(D4:D5)`) follows the records (`SUM(D4:D6)`).
+- **A saved file holds the formulas but not their values, unless you ask.** To put the computed
+  values in the file — for a viewer or a converter that does not calculate — save through the
+  dish's workbook: `((ExcelDocument)dish).Workbook.SaveAs(stream, new SaveOptions { EvaluateFormulasBeforeSaving = true })`
+  (`ExcelDocument` is in `DocuChef.Excel`; the workbook is a ClosedXML `XLWorkbook`, which is also
+  where to add what the template cannot say, such as a page break every N rows).
+- **The template's view and page settings stay** — hidden gridlines and headings, sheet
+  protection, fit-to-width and orientation.
+- **A function registered with `recipe.RegisterFunction(name, (cell, value, parameters) => …)`
+  is called once per record** with the cell the value goes to — a place to put an image, say a
+  barcode your application generates. The cell is a working cell, not the final one, so size
+  an image to a merged cell after the fill, from the workbook. `Iyu.Report` generates no
+  barcodes and brings no library for it.
 
 ## Document conversion (`Iyu.DocConvert`)
 
