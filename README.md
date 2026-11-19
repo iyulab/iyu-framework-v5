@@ -20,6 +20,41 @@ matter what the model looks like (extension points, cross-cutting mechanisms, wi
 consumer app doesn't reimplement them per project; mdd-booster owns the parts that depend on
 the model itself. Neither side assumes anything about which app is consuming it.
 
+## What this stack does and does not do
+
+The stack covers an application's **data layer and the server surface in front of it**: you describe your
+data in a model, and it produces the database schema, the entity code, and an OData/GraphQL API over them.
+Around that sit optional server modules (identity, file transfer, chat, scheduled reports, notifications,
+boards) that a host adds one by one. It is a set of four parts, each published on its own:
+
+- **[M3L](https://github.com/iyulab/m3l)** — the model language and its parser: a `.m3l.md` file in, a JSON
+  syntax tree out.
+- **[mdd-booster](https://github.com/iyulab/mdd-booster)** (`mdd`) — reads the model and writes SQL, C#
+  entities and API registrations, and optionally TypeScript types and forms.
+- **[Schemorph](https://github.com/iyulab/Schemorph)** (`schemorph`) — compares a folder of SQL files that
+  describe the schema you want with a live database (SQL Server or PostgreSQL) and applies the difference.
+- **iyu-framework-v5** (the `Iyu.*` packages, this repository) — the runtime the generated C# runs on, and the
+  optional server modules.
+
+What it does not do:
+
+- **It does not build your application.** There is no host project, deployment, or front-end application:
+  you write the host, choose the database, and own the business rules. The stack generates the wiring from
+  the model to the places those rules plug in, not the rules.
+- **It does not ship a general UI component library.** The TypeScript output imports the components you name.
+- **The parser does not generate anything.** M3L turns a model into a syntax tree and stops there.
+- **The generator does not emit runtime mechanisms** that do not depend on the model — policy evaluation,
+  middleware, dependency-injection wiring. Those live in the runtime.
+- **The schema tool does not read models.** Schemorph takes ordinary SQL, whoever wrote it.
+- **The runtime is a library, not an application.** It has no command line; it is added to a host you write.
+- **It has no domain of its own.** There is no industry vocabulary or domain model in any part; the model
+  is yours.
+
+The parts exchange plain files or a standard package, so each can be used without the others: parse models
+with M3L alone, run Schemorph on SQL you wrote yourself, run `mdd` and apply its SQL with another tool, or
+reference only the `Iyu.*` packages a host needs. The one hard dependency is that mdd-booster reads models
+through the published `M3L.Native` NuGet package. Each part's README links here for this overview.
+
 ## From a model to a database
 
 Three tools, each reading the previous one's output as plain files:
