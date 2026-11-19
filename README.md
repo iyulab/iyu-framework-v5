@@ -1141,10 +1141,10 @@ search» — an export, a template download, a report, a bulk action — takes t
 host's `IyuSearch` for the same selection, instead of writing a second search that drifts from the declarations:
 
 ```csharp
-app.MapGet("/api/assets/export", async (string? search, ClaimsPrincipal user, IyuSearch iyuSearch, AppDbContext db) =>
+app.MapGet("/api/customers/export", async (string? search, ClaimsPrincipal user, IyuSearch iyuSearch, AppDbContext db) =>
 {
-    var filter = await iyuSearch.CreateFilterAsync<AssetExt>(search, user);   // ArgumentException if not valid $search
-    var rows = await db.Set<AssetExt>().Where(filter.Predicate).ToListAsync();
+    var filter = await iyuSearch.CreateFilterAsync<CustomerExt>(search, user);   // ArgumentException if not valid $search
+    var rows = await db.Set<CustomerExt>().Where(filter.Predicate).ToListAsync();
     // filter.ExcludedNavigations: the references left out for this caller — what the list names in Iyu-Search-Excluded
     ...
 });
@@ -1504,7 +1504,7 @@ in key order, and a client walks the rest with `after`. Each parent's page is re
 so a selection that names a collection costs one query per parent on the page — keep such pages small.
 The executor's cost analysis counts the nesting the same way: with both pages left at their defaults a
 nested selection usually exceeds the maximum cost and is refused (`HC0047`), so a client names `first`
-on both levels (`states(first: 10) { nodes { assets(first: 5) { … } } }`).
+on both levels (`customers(first: 10) { nodes { orders(first: 5) { … } } }`).
 
 A connection always has a page, so neither value can be `null`; a small list is served whole by a
 page at least as large as the list. HotChocolate's cost analysis applies on top of these bounds — a
@@ -1580,15 +1580,15 @@ keyed model that no field serves is left out of the schema, as one to an unserve
 ### A set whose key is not its own
 
 Some types hold optional extra facts about *one* row of another type rather than a collection of
-them: a maintenance profile for an asset, a verification record for a document. The natural key
+them: a billing profile for a customer, a verification record for a document. The natural key
 for such a row is the other row's key, and declaring that changes exactly one thing — who chooses
 it.
 
 ```csharp
-options.ODataModel.AddEntityPair<AssetExt, Asset>("Assets");
-options.ODataModel.AddEntityPair<MaintenanceProfileExt, MaintenanceProfile>("MaintenanceProfiles");
+options.ODataModel.AddEntityPair<CustomerExt, Customer>("Customers");
+options.ODataModel.AddEntityPair<BillingProfileExt, BillingProfile>("BillingProfiles");
 
-options.ODataModel.DeclareSharedKey("MaintenanceProfiles", "Assets");
+options.ODataModel.DeclareSharedKey("BillingProfiles", "Customers");
 ```
 
 Reads are untouched — the pair is already expressible and `$expand` already reaches it. What the
@@ -1597,7 +1597,7 @@ declaration changes is the generic `POST`:
 | Request | Without the declaration | With it |
 |---|---|---|
 | No key in the body | `201`, key invented by the server | **`400`** — the key is not the server's to choose |
-| A key naming no `Assets` row | `201`, a row belonging to nothing | **`409`** |
+| A key naming no `Customers` row | `201`, a row belonging to nothing | **`409`** |
 | A key whose row already exists | whatever a key collision surfaces as | **`409`** — at most one row per principal |
 | Everything else | unchanged | unchanged |
 
