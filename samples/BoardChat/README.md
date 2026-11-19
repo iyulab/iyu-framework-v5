@@ -36,6 +36,17 @@ Model__ApiKey=...
 Model__Name=the-model-to-use
 ```
 
+Two more settings matter for a model that **reasons before it answers**. It spends the reply's tokens thinking first, so a board
+can run out of room before any answer arrives, and a long think can pass the time a gateway in front of the service will wait (a
+`524` or `504`, which the host reports as `502`). Give it room, and turn the thinking off where the service has a switch for it:
+
+```
+Model__MaxOutputTokens=8192                                                        # default 4096
+Model__ExtraBody={"chat_template_kwargs":{"enable_thinking":false}}                # fields the host adds to every request
+```
+
+`ExtraBody` is the host's, not the page's: the page cannot send those fields and cannot change them.
+
 The key stays on the server: the page talks to `/uboard/model/chat/completions`, which sends the request on with the server's key
 and model.
 

@@ -6,6 +6,7 @@ using Iyu.UBoard.EntityFrameworkCore;
 using Iyu.UBoard.MainServer;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Nodes;
 
 // A host that serves dummy sales over OData and lets people build boards from them by talking to a model. Everything below is
 // switched on, not written: the entities are generated from model/tables.m3l.md, the routes are the libraries'.
@@ -25,10 +26,16 @@ builder.Services.AddIyuMainServer<SalesDb>(
 builder.Services.AddIyuUBoard<SalesDb>(boards =>
 {
     boards.Catalog(showUnreadable: true);
-    // The assistant's model is any OpenAI-compatible service, named in configuration (Model__BaseUrl, Model__ApiKey, Model__Name).
+    // The assistant's model is any OpenAI-compatible service, named in configuration (Model__BaseUrl, Model__ApiKey, Model__Name; see the
+    // README for Model__MaxOutputTokens and Model__ExtraBody, which a model that reasons before it answers needs).
     var model = builder.Configuration.GetSection("Model");
     if (model["BaseUrl"] is { Length: > 0 } baseUrl)
-        boards.Model(m => (m.BaseUrl, m.ApiKey, m.ModelName) = (new Uri(baseUrl), model["ApiKey"], model["Name"]));
+        boards.Model(m =>
+        {
+            (m.BaseUrl, m.ApiKey, m.ModelName) = (new Uri(baseUrl), model["ApiKey"], model["Name"]);
+            m.MaxOutputTokens = model.GetValue("MaxOutputTokens", m.MaxOutputTokens);
+            if (model["ExtraBody"] is { Length: > 0 } extra) m.ExtraBody = JsonNode.Parse(extra)!.AsObject();
+        });
 });
 builder.Services.AddIyuUBoardMainServerCatalog();
 
