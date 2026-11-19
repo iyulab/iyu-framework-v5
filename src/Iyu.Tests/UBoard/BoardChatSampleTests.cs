@@ -214,6 +214,27 @@ public sealed class BoardChatSampleTests(BoardChatSampleHost host) : IClassFixtu
     }
 
     [Fact]
+    public async Task A_viewer_may_open_and_list_boards_but_not_make_or_change_one()
+    {
+        using var viewerMakes = new HttpRequestMessage(HttpMethod.Post, "/uboard/boards/viewer-1?name=Mine")
+        {
+            Content = new StringContent("""{"title":"Mine"}""", Encoding.UTF8, "application/json"),
+        };
+        viewerMakes.Headers.Add("X-Sample-User", "viewer");
+        using var refused = await host.Client.SendAsync(viewerMakes);
+        using var viewerList = Get("/uboard/boards");
+        viewerList.Headers.Add("X-Sample-User", "viewer");
+        using var listed = await host.Client.SendAsync(viewerList);
+        using var viewerAccess = Get("/uboard/access");
+        viewerAccess.Headers.Add("X-Sample-User", "viewer");
+        var access = JsonNode.Parse(await (await host.Client.SendAsync(viewerAccess)).Content.ReadAsStringAsync())!;
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
+        Assert.False((bool?)access["create"]);
+    }
+
+    [Fact]
     public async Task A_request_from_another_site_is_refused_on_the_board_and_catalog_routes()
     {
         foreach (var url in new[] { "/uboard/boards", "/uboard/catalog" })

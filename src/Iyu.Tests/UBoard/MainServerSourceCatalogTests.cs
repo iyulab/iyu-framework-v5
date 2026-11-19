@@ -325,6 +325,7 @@ public sealed class MainServerSourceCatalogTests
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderClaimAuthHandler>("Test", null);
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<IBoardStore, NoBoards>();
+        builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         builder.Services.AddIyuUBoard(o => o.Boards()); // another part is on; the catalog is not
         var app = builder.Build();
         app.UseAuthentication();

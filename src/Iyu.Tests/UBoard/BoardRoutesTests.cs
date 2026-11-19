@@ -85,6 +85,7 @@ public sealed class BoardRoutesTests
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, UserHeaderHandler>("Test", null);
         builder.Services.AddAuthorization(o => o.AddPolicy("boards.use", p => p.RequireClaim("perm", "boards")));
         builder.Services.AddDbContext<UBoardTestDb>(o => o.UseSqlite(connection));
+        builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         builder.Services.AddIyuUBoard<UBoardTestDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>(o => o.Policy = policy);
 
         var app = builder.Build();

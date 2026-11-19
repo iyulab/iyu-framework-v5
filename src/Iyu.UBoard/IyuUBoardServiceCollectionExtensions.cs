@@ -73,7 +73,7 @@ public static class IyuUBoardServiceCollectionExtensions
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Names the parts: <see cref="IyuUBoardOptions.Boards"/>, <see cref="IyuUBoardOptions.Catalog"/>.</param>
     /// <remarks>
-    /// <see cref="IyuUBoardOptions.Boards"/> needs an <see cref="IBoardStore"/>. The Entity Framework adapter provides one over the
+    /// <see cref="IyuUBoardOptions.Boards"/> needs an <see cref="IBoardAccess"/> (the application's rules for who may do what to which board; the layer fails closed without one) and an <see cref="IBoardStore"/>. The Entity Framework adapter provides one over the
     /// application's own tables; a host that keeps boards some other way registers its own.
     /// </remarks>
     public static IServiceCollection AddIyuUBoard(this IServiceCollection services, Action<IyuUBoardOptions> configure)
@@ -111,10 +111,15 @@ internal sealed class IyuUBoardPortsCheck : IHostedService
     {
         // The store may depend on scoped services (a DbContext), so it is looked for in a scope, not on the root.
         using var scope = services.CreateScope();
-        if (scope.ServiceProvider.GetService<IBoardStore>() is not null) return;
+        if (scope.ServiceProvider.GetService<IBoardStore>() is null)
+            throw new InvalidOperationException(
+                "AddIyuUBoard with Boards() needs the host to register an IBoardStore (the Entity Framework adapter keeps boards in the application's own tables).");
 
-        throw new InvalidOperationException(
-            "AddIyuUBoard with Boards() needs the host to register an IBoardStore (the Entity Framework adapter keeps boards in the application's own tables).");
+        // Who may do what to which board is the application's to say, and silence is not permission: the layer fails closed.
+        if (scope.ServiceProvider.GetService<IBoardAccess>() is null)
+            throw new InvalidOperationException(
+                "AddIyuUBoard with Boards() needs the host to register an IBoardAccess — who may view, make, edit, publish and delete which board. "
+                + "A host with no board-level rules registers EveryoneSignedInBoardAccess by name.");
     }
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;

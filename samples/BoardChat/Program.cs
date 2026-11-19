@@ -22,6 +22,7 @@ builder.Services.AddIyuMainServer<SalesDb>(
         options.AuthorizeProperty<OrderExt>(x => x.Margin, "finance");
         options.AuthorizeProperty<CustomerExt>(x => x.Email, "finance");
     });
+builder.Services.AddSingleton<Iyu.UBoard.IBoardAccess, SampleBoardAccess>();   // who may make and change boards is the application's to say
 builder.Services.AddIyuUBoard<SalesDb>(boards => boards.Catalog(showUnreadable: true));
 // The assistant's model is any OpenAI-compatible service, named in configuration (Model__BaseUrl, Model__ApiKey, Model__Name, and
 // Model__MaxOutputTokens for the reply limit); without a BaseUrl the page opens and the assistant is off.

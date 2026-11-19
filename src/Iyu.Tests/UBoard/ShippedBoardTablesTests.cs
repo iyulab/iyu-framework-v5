@@ -49,6 +49,7 @@ public sealed class ShippedBoardTablesTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<ShippedTablesOwnDb>(o => o.UseSqlite(_connection));
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<ShippedTablesOwnDb>();
         return Created<ShippedTablesOwnDb>(services);
     }
@@ -58,6 +59,7 @@ public sealed class ShippedBoardTablesTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<ShippedTablesGeneratedDb>(o => o.UseSqlite(_connection).UseIyuBoardTables());
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<ShippedTablesGeneratedDb>();
         return Created<ShippedTablesGeneratedDb>(services);
     }
@@ -110,6 +112,7 @@ public sealed class ShippedBoardTablesTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<ShippedTablesGeneratedDb>(o => o.UseSqlite(_connection));
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<ShippedTablesGeneratedDb>();
         using var provider = services.BuildServiceProvider();
 
@@ -164,6 +167,7 @@ public sealed class ShippedBoardTablesTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<ShippedTablesOwnDb>(o => o.UseSqlite(_connection).UseIyuBoardTables());
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<ShippedTablesOwnDb>();
         using var provider = Created<ShippedTablesOwnDb>(services);
 

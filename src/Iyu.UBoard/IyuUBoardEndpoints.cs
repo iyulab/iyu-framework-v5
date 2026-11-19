@@ -18,6 +18,9 @@ public static class IyuUBoardEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
+    /// Each board route also asks the host's <see cref="IBoardAccess"/> — who may view, make, edit, publish and delete which board is the application's to say (a board the caller may not view is 404, a thing they may not do to a board they can view is 403, and a list holds only viewable boards). <c>GET {prefix}/access</c> answers whether the caller may make boards at all.
+    /// </para>
+    /// <para>
     /// The routes require a signed-in caller (or <see cref="IyuUBoardOptions.Policy"/>); there is no anonymous mode. A request
     /// must be same-origin: a browser's <c>Sec-Fetch-Site</c> other than <c>same-origin</c>, or an <c>Origin</c> that is not this
     /// host, is refused with 403, so a page on another site cannot act with the caller's cookie.
@@ -32,7 +35,11 @@ public static class IyuUBoardEndpoints
         if (settings.Policy is { Length: > 0 } policy) group.RequireAuthorization(policy);
         else group.RequireAuthorization();
         group.AddEndpointFilter(IyuUBoardRequestRules.SameOrigin);
-        if (settings.BoardsEnabled) IyuUBoardBoardRoutes.Map(group);
+        if (settings.BoardsEnabled)
+        {
+            IyuUBoardBoardRoutes.Map(group);
+            IyuUBoardBoardRoutes.MapAccess(group);
+        }
         if (settings.CatalogEnabled) IyuUBoardCatalogRoute.Map(group);
         return group;
     }

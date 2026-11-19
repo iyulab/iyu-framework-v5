@@ -242,6 +242,7 @@ public abstract class EFBoardStoreContract : IDisposable
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContext<UBoardTestDb>(UseDatabase);
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<UBoardTestDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>();
         var provider = services.BuildServiceProvider(validateScopes: true);
         using var scope = provider.CreateScope();
@@ -640,6 +641,7 @@ public abstract class EFBoardStoreContract : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<UBoardBareDb>(UseDatabase);
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<UBoardBareDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>();
         using var provider = services.BuildServiceProvider();
 
@@ -657,6 +659,7 @@ public abstract class EFBoardStoreContract : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<UBoardWrongKeyDb>(UseDatabase);
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<UBoardWrongKeyDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>();
         using var provider = services.BuildServiceProvider();
 
@@ -690,6 +693,7 @@ public sealed class EFBoardStoreSurrogateKeyTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<TContext>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<TContext, UBoardRow, UBoardSurrogateRevisionRow, UBoardSurrogatePublicationRow>();
         var provider = services.BuildServiceProvider(validateScopes: true);
         using var scope = provider.CreateScope();
@@ -729,6 +733,7 @@ public sealed class EFBoardStoreSurrogateKeyTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<UBoardNonUniquePairDb>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<UBoardNonUniquePairDb, UBoardRow, UBoardSurrogateRevisionRow, UBoardSurrogatePublicationRow>();
         using var provider = services.BuildServiceProvider();
 
@@ -758,6 +763,7 @@ public sealed class EFBoardStoreForeignKeyTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<UBoardForeignKeyDb>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         services.AddIyuUBoard<UBoardForeignKeyDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>();
         using var provider = services.BuildServiceProvider(validateScopes: true);
         using (var scope = provider.CreateScope())
