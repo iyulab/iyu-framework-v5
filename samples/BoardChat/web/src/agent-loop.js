@@ -100,6 +100,8 @@ function queryFromArguments(args) {
 // ---------------------------------------------------------------- helpers
 
 const clip = text => (text.length > MAX_TOOL_TEXT ? `${text.slice(0, MAX_TOOL_TEXT)}… (cut: ${text.length - MAX_TOOL_TEXT} more characters)` : text);
+/** A long message cut for a line of chat. */
+const short = (text, n = 140) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
 const asText = value => (typeof value === 'string' ? value : JSON.stringify(value));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const result = (value, isError = false, extra = {}) => ({ text: clip(asText(value)), isError, ...extra });
@@ -176,7 +178,7 @@ export function createAssistant(deps) {
 
   const messages = []; // the conversation: what the model sees, and the log the page keeps
   let session = openBoardSession({ id: deps.board.id, loaded: deps.board.loaded, host, boards: endpoints.boards });
-  let catalog; // read at most once a turn
+  let catalog; // kept for the session (a new sign-in is a new assistant); a read_catalog step always asks the host again
   let turnNumber = 0;
 
   // One GET per catalog step: a step that says it read the catalog did.
@@ -192,7 +194,6 @@ export function createAssistant(deps) {
   // ---- one turn
   async function send(userText) {
     turnNumber += 1;
-    catalog = undefined;
     const turn = { steps: [], rejections: 0, order: 0, emptyResults: [], failure: undefined, halted: false };
     emit({ type: 'turn-start', turn: turnNumber, text: userText });
     messages.push({ role: 'user', content: userText });
@@ -352,7 +353,7 @@ export function createAssistant(deps) {
           turn.rejections += 1;
           step.outcome = 'rejected';
           const issues = body.issues ?? [{ path: `operation ${body.operation}`, message: body.message }];
-          step.detail = `the board check rejected the edit — ${issues[0].path}: ${issues[0].message}`;
+          step.detail = `the board check rejected the edit — ${issues[0].path}: ${short(issues[0].message)}`;
           if (turn.rejections >= 2) {
             turn.failure = {
               kind: 'rejected',
@@ -571,7 +572,7 @@ function composeFailure(failure, startRevision, revision) {
     case 'permission':
       return `I can't do that: ${failure.message} Nothing was read or changed. ${failure.alternatives.length ? `You can ask me for: ${failure.alternatives.slice(0, 5).join(', ')}.` : ''}`.trim();
     case 'rejected':
-      return `I couldn't make that edit safely: the board check rejected it at ${failure.path} — ${failure.issues[0].message}. Nothing was saved; the board is still r${revision}. ${failure.suggestion}`;
+      return `I couldn't make that edit safely: the board check rejected it at ${failure.path} — ${short(failure.issues[0].message, 160)}. Nothing was saved; the board is still r${revision}. ${failure.suggestion}`;
     case 'conflict':
       return `Your change wasn't saved: another session saved r${failure.serverRevision} first, and I worked from r${failure.workedFrom}. Reload r${failure.serverRevision} and I'll apply the edit again on top of it.`;
     case 'save-failed':

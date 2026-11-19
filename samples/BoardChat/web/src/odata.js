@@ -218,7 +218,16 @@ export function permissionProblem(catalog, query) {
 
 function withAlternatives(problem, catalog) {
   const where = problem.in;
-  const alternatives = problem.reason === 'entity-absent' ? readableNames(catalog) : readableFields(where).slice(0, 8);
+  let alternatives;
+  if (problem.reason === 'entity-absent') alternatives = readableNames(catalog);
+  else {
+    // What the person could use instead: fields of the same kind as the one they asked for first (a number for a number).
+    const wanted = where.properties.find(property => property.name === problem.field.split('/').at(-1).split('.').at(-1));
+    const readable = where.properties.filter(property => property.readable !== false);
+    const same = wanted ? readable.filter(property => property.type === wanted.type && property.name !== 'Id') : [];
+    const rest = readable.filter(property => !same.includes(property));
+    alternatives = [...same, ...rest].map(property => `${where.name}.${property.name}`).slice(0, 8);
+  }
   const why = problem.reason === 'locked' ? 'is hidden by a read policy for your role' : problem.reason === 'absent' ? 'is not a field you can read' : 'is not a data set you can read';
   return { field: problem.field, reason: problem.reason, alternatives, message: `${problem.field} ${why}.` };
 }
@@ -252,7 +261,7 @@ export function closest(word, candidates) {
       bestDistance = distance;
     }
   }
-  return best !== undefined && bestDistance <= Math.max(2, Math.floor(word.length / 2)) ? best : undefined;
+  return best !== undefined && bestDistance <= 3 && bestDistance / word.length <= 0.4 ? best : undefined;
 }
 
 function editDistance(a, b) {

@@ -35,6 +35,12 @@ as that person — so you can only use what they can read. The board is shown to
   "key": "<a field that is unique per row>" } and parts draw from it with "of". Use the exact query you looked at with query_data;
   a board read that returns rows (a table) must carry $top=${TABLE_PAGE}&$count=true, and one that aggregates carries its $apply.
 - The board is refused if a read names a field this person cannot read, or returns rows without $top (at most ${MAX_ROWS}) — fix it once and retry.
+- One row of totals (a KPI) is a read with no "list": fields read it by pointer, e.g. { "from": "odata", "path": "/$data/Orders?$apply=aggregate(Total with sum as Revenue,$count as Orders)",
+  "fields": { "Revenue": { "at": "/value/0/Revenue", "label": "Revenue" }, "Orders": { "at": "/value/0/Orders" } } }, and a "stat" part shows one field: { "as": "stat", "of": "kpi", "show": "Revenue" }.
+  Rows (groups, a page) are a read with "list": "/value"; a chart gets "x" and "y" fields of those rows.
+- Months: this server groups by a computed field — "$apply=compute(year(OrderDate) as Y,month(OrderDate) as M)/groupby((Y,M),aggregate(Total with sum as Revenue))&$orderby=Y,M" (functions go in compute, not in groupby).
+- A chart can stack several fields of one row ("stack": true with "y": [fieldA, fieldB]). Rows cannot be turned into such columns on the server, so
+  do not stack groups of rows; show one category per bar and say what you left out.
 - A "filter for the whole board" is not a board setting: write the same $filter into each read it applies to.
 
 ## When the board check refuses a change

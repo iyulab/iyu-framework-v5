@@ -38,10 +38,10 @@ test('the board check refuses an edit twice: one retry with the reason, then not
   assert.equal(world.modelRequests().length, 2 + 2); // two for the first turn, two for this one
   assert.equal(world.queue.length, 2);
   const labels = result.steps.map(s => s.label);
-  assert.deepEqual(labels, ['Read the catalog', 'Edited the board', 'Retried once', 'Nothing was saved']);
+  assert.deepEqual(labels, ['Edited the board', 'Retried once', 'Nothing was saved']); // the catalog was read in the session's first turn and is kept
+  assert.equal(result.steps[0].outcome, 'rejected');
   assert.equal(result.steps[1].outcome, 'rejected');
-  assert.equal(result.steps[2].outcome, 'rejected');
-  assert.equal(result.steps[2].state, 'error');
+  assert.equal(result.steps[1].state, 'error');
 });
 
 test('the reason of the first refusal is what the model reads before its single retry', async () => {
@@ -61,8 +61,8 @@ test('the reason of the first refusal is what the model reads before its single 
   assert.match(retry.content, /INVALID_DOCUMENT/);
   assert.match(retry.content, /unknown kind/);
   assert.deepEqual(result.changed, { mix: 'new' });
-  assert.equal(result.steps[1].outcome, 'rejected');
-  assert.equal(result.steps[2].label, 'Edited the board · r2'); // the retry that was kept is named by the revision it made
+  assert.equal(result.steps[0].outcome, 'rejected');
+  assert.equal(result.steps[1].label, 'Edited the board · r2'); // the retry that was kept is named by the revision it made
 });
 
 test('a patch that is not a patch counts as a refusal too, and also gets only one retry', async () => {

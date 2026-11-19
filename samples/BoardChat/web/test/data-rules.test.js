@@ -49,7 +49,7 @@ test('a field behind a link is checked too, and so is an entity that is not in t
   const through = permissionProblem(CATALOG, { entity: 'Orders', apply: 'groupby((Customer/Email),aggregate($count as N))' });
   assert.equal(through.field, 'Orders.Customer/Email');
   assert.equal(through.reason, 'locked');
-  assert.deepEqual(through.alternatives.slice(0, 2), ['Customers.Id', 'Customers.Name']);
+  assert.deepEqual(through.alternatives.slice(0, 2), ['Customers.Name', 'Customers.Id']); // the same kind of field first (text for text)
   assert.equal(permissionProblem(CATALOG, { entity: 'Orders', apply: 'groupby((Customer/Name),aggregate(Total with sum as T))' }), undefined);
   const missing = permissionProblem(CATALOG, { entity: 'Salaries', top: 5 });
   assert.deepEqual({ field: missing.field, reason: missing.reason }, { field: 'Salaries', reason: 'entity-absent' });
