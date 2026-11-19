@@ -31,7 +31,6 @@ export { DATA_SOURCE_ID, buildSystemPrompt, workflowRules, changedParts, removed
 export { buildODataUrl, parseODataUrl, bulkProblem, permissionProblem, DATA_ROOT, MAX_ROWS, TABLE_PAGE };
 
 export const DEFAULT_ENDPOINTS = {
-  turn: '/assistant/turn',
   catalog: '/uboard/catalog',
   boards: '/uboard/boards',
 };
@@ -171,7 +170,7 @@ export function boardReadProblem(document, catalog) {
  *   fetch      (url, init) => Response — the page's fetch. Every request to the host goes through it.
  *   userName   the signed-in person; sent as X-Sample-User on every request to the host.
  *   board      { id, loaded }  loaded is the host's board { name, revision, document } or newBoard(name)
- *   endpoints  { model, catalog, boards } — where the host serves them (defaults: DEFAULT_ENDPOINTS)
+ *   endpoints  { catalog, boards } — where the host serves them (defaults: DEFAULT_ENDPOINTS)
  *   emit       (event) => void — what the screen listens to
  *   now        () => ms        — the clock
  *   maxRounds  most model calls in one turn (default 10)
@@ -533,9 +532,9 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
   }
 
   // ---- the host's turn route
-  const declared = () => toolDefinitions(session).map(tool => ({ name: tool.function.name, description: tool.function.description, schema: tool.function.parameters }));
+  const declared = () => toolDefinitions(session).map(tool => ({ name: tool.function.name, description: tool.function.description, schema: tool.function.parameters, edits: MUTATING.has(tool.function.name) })); // the host offers a person who may only view just the ones that do not edit
   const turnRequest = (document, body) =>
-    host(endpoints.turn, {
+    host(`${endpoints.boards}/${deps.board.id}/turn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ system: buildSystemPrompt({ board: { revision: session.known.revision, document } }), history: messages, tools: declared(), ...body }),

@@ -3,6 +3,7 @@ using BoardChat.Entities;
 using BoardChat.Server;
 using Iyu.UBoard;
 using Iyu.UBoard.EntityFrameworkCore;
+using Iyu.UBoard.IronHive;
 using Iyu.UBoard.MainServer;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +28,15 @@ builder.Services.AddIyuUBoard<SalesDb>(boards => boards.Catalog(showUnreadable: 
 // The assistant's model is any OpenAI-compatible service, named in configuration (Model__BaseUrl, Model__ApiKey, Model__Name, and
 // Model__MaxOutputTokens for the reply limit); without a BaseUrl the page opens and the assistant is off.
 var model = builder.Configuration.GetSection("Model");
-if (model["BaseUrl"] is { Length: > 0 }) builder.Services.AddAssistant(model);
+if (model["BaseUrl"] is { Length: > 0 })
+    builder.Services.AddIyuUBoardIronHive(o =>
+    {
+        o.BaseUrl = model["BaseUrl"];
+        o.ApiKey = model["ApiKey"];
+        o.Model = model["Name"] ?? "model";
+        o.MaxOutputTokens = model.GetValue("MaxOutputTokens", 4096);
+        o.UserAgent = "iyu-boardchat-sample/0.1";
+    });
 builder.Services.AddIyuUBoardMainServerCatalog();
 
 var app = builder.Build();
@@ -38,5 +47,4 @@ app.UseAuthentication();
 app.UseIyuMainServer();
 app.UseAuthorization();
 app.MapIyuUBoard();
-if (model["BaseUrl"] is { Length: > 0 }) app.MapAssistant();
 app.Run();

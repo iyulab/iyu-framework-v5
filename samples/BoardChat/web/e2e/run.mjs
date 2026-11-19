@@ -687,7 +687,7 @@ async function main() {
 
     await step('the route turns away what a page may not send, and the model is not asked', async () => {
       const asked = model.requests.length;
-      const turn = (headers, body) => fetch(`${origin}/assistant/turn`, { method: 'POST', headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }).then(r => r.status);
+      const turn = (headers, body) => fetch(`${origin}/uboard/boards/revenue/turn`, { method: 'POST', headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }).then(r => r.status);
       const ok = { message: 'hi', tools: [] };
       equal(await turn({ 'Sec-Fetch-Site': 'cross-site' }, ok), 403, 'another site');
       equal(await turn({ Origin: 'http://elsewhere.example' }, ok), 403, 'another origin');

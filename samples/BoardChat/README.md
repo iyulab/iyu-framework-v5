@@ -3,10 +3,11 @@
 A host that serves dummy sales data over OData, keeps the boards people build from it, and lets an assistant — any OpenAI-compatible
 model — build them from a conversation. It is thin on purpose: the data model is `model/tables.m3l.md`, the entities, context and
 controllers are generated from it (`Entities_gen`, `Server_gen`), and the routes come from libraries — `Iyu.MainServer` (OData at
-`/$data`), `Iyu.UBoard` (boards at `/uboard/boards`, the source catalog at `/uboard/catalog`). `Program.cs` only switches those on.
-The one route the sample writes is the assistant's, `/assistant/turn` (`Assistant.cs`): the loop and the model service behind it
-are [IronHive.Agent](https://github.com/iyulab/ironhive-agent) and [IronProw](https://github.com/iyulab/iron-prow), and the page's
-tools — the ones that check, save and read as the signed-in person — run in the page.
+`/$data`), `Iyu.UBoard` (boards at `/uboard/boards`, the source catalog at `/uboard/catalog`, one assistant turn at `/uboard/boards/{id}/turn`).
+`Program.cs` only switches those on, and the sample writes no route of its own. The assistant is `Iyu.UBoard.IronHive`: the loop and the
+model service behind it are [IronHive.Agent](https://github.com/iyulab/ironhive-agent) and
+[IronProw](https://github.com/iyulab/iron-prow), and the page's tools — the ones that check, save and read as the signed-in person —
+run in the page.
 
 **This is a sample, not a template for production.** The sign-in is a stand-in: a request is made by the user named in the
 `X-Sample-User` header, or by `analyst` when there is none. `finance` may read the protected columns (an order's `Margin`, a customer's
@@ -30,7 +31,8 @@ over.
 
 ## The model
 
-The assistant's model is named in configuration; without it the host still runs and the assistant's route is simply not there:
+The assistant's model is named in configuration, which `Program.cs` reads and hands to `AddIyuUBoardIronHive` (the library reads none
+itself); without it the host still runs, the turn route is not there, and `GET /uboard/access` says `assistant: false`:
 
 ```
 Model__BaseUrl=https://your-service.example/v1   # any OpenAI-compatible service
@@ -44,8 +46,9 @@ service understands): a model that reasons first spends the reply's tokens on it
 front of the service will wait.
 
 The key, the model and the limits are the host's: a request from the page carries the conversation, the rules text and the page's
-tools, and nothing else. The route turns away another site, anything that is not JSON, a body over 1 MiB and a tool that is not a
-plain name.
+tools (each saying whether it edits), and nothing else. The route turns away another site, anything that is not JSON, a body over
+1 MiB and a tool that is not a plain name; a board the person may not view is not there, and a person who may view a board but not
+edit it is answered by an assistant that is offered none of the page's editing tools.
 
 ## What is generated, and how
 

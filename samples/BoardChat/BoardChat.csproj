@@ -11,16 +11,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
-    <!-- The assistant's loop and the model service behind it. -->
-    <PackageReference Include="IronHive.Agent" Version="0.83.0" />
-    <PackageReference Include="IronProw.Core" Version="0.20.0" />
-    <PackageReference Include="IronProw.IronHive" Version="0.20.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Iyu.MainServer\Iyu.MainServer.csproj" />
     <ProjectReference Include="..\..\src\Iyu.UBoard\Iyu.UBoard.csproj" />
     <ProjectReference Include="..\..\src\Iyu.UBoard.EntityFrameworkCore\Iyu.UBoard.EntityFrameworkCore.csproj" />
+    <!-- The assistant: IronHive.Agent over a model service, behind the library's own turn route. -->
+    <ProjectReference Include="..\..\src\Iyu.UBoard.IronHive\Iyu.UBoard.IronHive.csproj" />
     <ProjectReference Include="..\..\src\Iyu.UBoard.MainServer\Iyu.UBoard.MainServer.csproj" />
   </ItemGroup>
 

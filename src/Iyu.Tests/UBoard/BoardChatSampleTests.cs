@@ -247,13 +247,22 @@ public sealed class BoardChatSampleTests(BoardChatSampleHost host) : IClassFixtu
     }
 
     [Fact]
-    public async Task With_no_model_configured_the_assistants_route_is_not_there()
+    public async Task With_no_model_configured_the_assistant_is_off_there_is_no_turn_route_and_the_access_answer_says_so()
     {
-        using var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/assistant/turn")
+        // A board that exists, so a missing route is not mistaken for a missing board.
+        using var made = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/uboard/boards/assistant-off?name=Off")
         {
-            Content = new StringContent("""{"messages":[]}""", Encoding.UTF8, "application/json"),
+            Content = new StringContent("""{"title":"Off"}""", Encoding.UTF8, "application/json"),
         });
+        using var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/uboard/boards/assistant-off/turn")
+        {
+            Content = new StringContent("""{"message":"hi","tools":[]}""", Encoding.UTF8, "application/json"),
+        });
+        var access = await Json("/uboard/access");
 
+        Assert.Equal(HttpStatusCode.Created, made.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.False((bool?)access["assistant"]);
+        Assert.True((bool?)access["create"]);
     }
 }

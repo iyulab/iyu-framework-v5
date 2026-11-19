@@ -82,7 +82,7 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
     if (init.signal?.aborted) throw new DOMException('This operation was aborted', 'AbortError'); // a request made after stop never leaves the page
     const request = { url, method: init.method ?? 'GET', headers: init.headers ?? {}, body: init.body === undefined ? undefined : JSON.parse(init.body) };
     requests.push(request);
-    if (url === '/assistant/turn') {
+    if (url === '/uboard/boards/revenue/turn') {
       if (modelStatus) return json(modelStatus, { error: modelStatus === 429 ? 'ratelimit' : 'unknown' });
       return json(200, answerTurn(request));
     }
@@ -112,7 +112,7 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
     /** The calls that reached the model: each as the model's own request (the system rules, the messages, the tools). */
     modelRequests: () => requests.filter(r => r.model).map(r => ({ ...r, body: r.model })),
     dataRequests: () => requests.filter(r => r.url.startsWith('/$data/')),
-    boardWrites: () => requests.filter(r => r.url.startsWith('/uboard/boards/')),
+    boardWrites: () => requests.filter(r => r.url.startsWith('/uboard/boards/') && !r.url.endsWith('/turn')),
     /** Another session saves the board: the host moves on without this page knowing. */
     moveOn() {
       host.revision += 1;
