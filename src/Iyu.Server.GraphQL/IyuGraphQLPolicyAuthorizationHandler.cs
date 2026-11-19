@@ -34,7 +34,7 @@ internal sealed class IyuGraphQLPolicyAuthorizationHandler : HotChocolate.Author
         return AuthorizeResult.Allowed;
     }
 
-    private static async ValueTask<AuthorizeResult> EvaluateAsync(IServiceProvider services, AuthorizeDirective directive)
+    internal static async ValueTask<AuthorizeResult> EvaluateAsync(IServiceProvider services, AuthorizeDirective directive)
     {
         var user = services.GetRequiredService<IHttpContextAccessor>().HttpContext?.User
             ?? new ClaimsPrincipal(new ClaimsIdentity());
