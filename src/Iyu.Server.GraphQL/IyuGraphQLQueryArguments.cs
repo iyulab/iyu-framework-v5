@@ -64,9 +64,14 @@ internal static class IyuGraphQLQueryArguments
     {
         if (type == typeof(string)) return null;
         if (type.IsArray) return type.GetElementType();
-        return type.GetInterfaces().Append(type)
-            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
-            ?.GetGenericArguments()[0];
+        // A type that is a sequence of two different things has no one element type to name - it is not offered, rather than
+        // offered under whichever of the two an enumeration order happens to put first.
+        var elements = type.GetInterfaces().Append(type)
+            .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            .Select(i => i.GetGenericArguments()[0])
+            .Distinct()
+            .ToList();
+        return elements.Count == 1 ? elements[0] : null;
     }
 
     private static bool IsScalar(Type type)

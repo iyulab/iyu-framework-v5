@@ -359,6 +359,29 @@ public sealed class GraphQLWhereOrderCrossingTests : IDisposable
 
     // ---- the request's reach ----
 
+    // ---- what is a collection ----
+
+    private sealed class TwoThings : List<Purchase>, IEnumerable<Customer>
+    {
+        IEnumerator<Customer> IEnumerable<Customer>.GetEnumerator() => Enumerable.Empty<Customer>().GetEnumerator();
+    }
+
+    public static TheoryData<Type, Type?> ElementTypes => new()
+    {
+        { typeof(List<Purchase>), typeof(Purchase) },
+        { typeof(Purchase[]), typeof(Purchase) },
+        { typeof(IEnumerable<Purchase>), typeof(Purchase) },
+        { typeof(ICollection<Customer>), typeof(Customer) },
+        { typeof(string), null },
+        { typeof(Purchase), null },
+        { typeof(TwoThings), null },   // a sequence of two different things names no one element type
+    };
+
+    [Theory]
+    [MemberData(nameof(ElementTypes))]
+    public void A_collection_has_one_element_type_or_none(Type collection, Type? expected)
+        => Assert.Equal(expected, IyuGraphQLQueryArguments.ElementTypeOf(collection));
+
     // ---- a collection: some / all / none / any ----
 
     private static JsonElement Customers(string json) => JsonDocument.Parse(json).RootElement.GetProperty("data").GetProperty("customers");

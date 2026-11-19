@@ -140,6 +140,14 @@ public sealed class IyuGraphQLSchemaBuilder
             entered.UnionWith(reads.Entered);
         }
 
+        // What the reader collected as crossed must be models this surface serves: an unknown type would read as "no policy" below,
+        // and a check that passes what it does not know is not a check. It cannot happen while the input types list only served
+        // models - which is why it fails loudly, not quietly, if it ever does.
+        foreach (var model in entered)
+            if (QueryNameOf(model) is null)
+                throw new InvalidOperationException(
+                    $"A condition on query field '{context.Selection.Field.Name}' crossed into '{model.Name}', which no query field serves, so its read policy cannot be found.");
+
         // A condition that crosses into another model reads that model, so the request has reached it - recorded before the
         // checks, as the rest of the reach is, so a refused request carries it too.
         RecordCrossing(context, entered);
