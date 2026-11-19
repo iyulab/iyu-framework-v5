@@ -816,7 +816,7 @@ async function main() {
       await page.waitForSelector('[data-testid=board-list] tr[data-board]');
       const row = page.locator(`tr[data-board="${boardId}"]`);
       check((await row.textContent()).includes('Revenue overview') && (await row.textContent()).includes('Can edit'), await row.textContent());
-      check((await row.textContent()).includes('r11') && (await row.textContent()).includes('r3'), 'latest and published revisions');
+      equal(((await row.textContent()).match(/r12/g) ?? []).length, 2, 'latest and published revisions (the one saved and published by the fallback step is r12)');
       await page.goto(`${origin}${SCREEN}/boards/not-a-board`);
       await page.waitForSelector('[data-testid=missing]');
       await shot(page, 'list');
@@ -845,7 +845,7 @@ async function main() {
         check(!('x-sample-user' in headers), "the person's sign-in is the host's business, the model service never sees it");
         check(body.reasoning_effort === 'none' && body.chat_template_kwargs?.enable_thinking === false, 'the model is asked not to think first');
         check(typeof (body.max_completion_tokens ?? body.max_tokens) === 'number', 'a limit on the reply');
-        check(Array.isArray(body.tools) && body.tools.length >= 6, 'tools are offered');
+        check(Array.isArray(body.tools) && body.tools.length >= 5, 'tools are offered (a person who may only read is offered one fewer: the edit)');
       }
       equal(model.queue.length, 0, 'every scripted reply was used, none was asked for beyond the script');
       equal(pageErrors.length, 0, `page errors: ${pageErrors.join('; ')}`);
