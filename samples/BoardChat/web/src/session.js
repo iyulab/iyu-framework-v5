@@ -66,7 +66,8 @@ export function openBoardSession({ id, loaded, host, boards }) {
     },
   });
 
-  const tools = boardTools(store);
+  // edit_text is left out: it changes a string of the board (a read's path among them) in a way the loop's read rules do not see.
+  const tools = boardTools(store, { editText: false });
   session.store = store;
   session.tools = Object.fromEntries(tools.map(tool => [tool.name, tool]));
   session.functionTools = tools.map(functionTool);

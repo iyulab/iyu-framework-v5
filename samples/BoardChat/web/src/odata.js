@@ -151,7 +151,9 @@ export function fieldPaths(expression) {
   return found;
 }
 
-const entityOf = (catalog, name) => catalog.entities.find(entity => entity.name === name);
+// An entity the host lists as not readable is not one the person can use (the host lists it only when asked to show what is locked).
+const readableNames = catalog => catalog.entities.filter(entity => entity.readable !== false).map(entity => entity.name).slice(0, 8);
+const entityOf = (catalog, name) => catalog.entities.find(entity => entity.name === name && entity.readable !== false);
 
 function readableFields(entity) {
   return entity.properties.filter(property => property.readable !== false).map(property => `${entity.name}.${property.name}`);
@@ -186,7 +188,7 @@ export function permissionProblem(catalog, query) {
     return {
       field: query.entity,
       reason: 'entity-absent',
-      alternatives: catalog.entities.map(candidate => candidate.name).slice(0, 8),
+      alternatives: readableNames(catalog),
       message: `${query.entity} is not a data set you can read.`,
     };
   const paths = [
@@ -216,7 +218,7 @@ export function permissionProblem(catalog, query) {
 
 function withAlternatives(problem, catalog) {
   const where = problem.in;
-  const alternatives = problem.reason === 'entity-absent' ? catalog.entities.map(candidate => candidate.name).slice(0, 8) : readableFields(where).slice(0, 8);
+  const alternatives = problem.reason === 'entity-absent' ? readableNames(catalog) : readableFields(where).slice(0, 8);
   const why = problem.reason === 'locked' ? 'is hidden by a read policy for your role' : problem.reason === 'absent' ? 'is not a field you can read' : 'is not a data set you can read';
   return { field: problem.field, reason: problem.reason, alternatives, message: `${problem.field} ${why}.` };
 }
@@ -226,7 +228,7 @@ function withAlternatives(problem, catalog) {
 /** The catalog as the model reads it: what can be used, and — when the host shows them — what is locked. */
 export function catalogForModel(catalog) {
   return {
-    entities: catalog.entities.map(entity => ({
+    entities: catalog.entities.filter(entity => entity.readable !== false).map(entity => ({
       name: entity.name,
       fields: entity.properties.filter(property => property.readable !== false).map(property => `${property.name}:${property.type}${property.nullable ? '?' : ''}`),
       ...(entity.properties.some(property => property.readable === false) && {

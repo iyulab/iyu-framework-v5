@@ -32,7 +32,7 @@ export const DEFAULT_ENDPOINTS = {
 };
 const USER_HEADER = 'X-Sample-User';
 const MAX_TOOL_TEXT = 12000;
-const MUTATING = new Set(['patch_board', 'edit_text']);
+const MUTATING = new Set(['patch_board']); // edit_text is not offered: it would change a read's path without the read rules looking at it
 
 // ---------------------------------------------------------------- the two tools of this sample
 
@@ -179,8 +179,8 @@ export function createAssistant(deps) {
   let catalog; // read at most once a turn
   let turnNumber = 0;
 
-  async function loadCatalog(step) {
-    if (catalog) return catalog;
+  // One GET per catalog step: a step that says it read the catalog did.
+  async function fetchCatalog(step) {
     if (step) step.call = { method: 'GET', url: endpoints.catalog };
     const response = await host(endpoints.catalog);
     if (!response.ok) throw new Error(`the catalog could not be read (${response.status})`);
@@ -223,8 +223,7 @@ export function createAssistant(deps) {
 
     // ---- running one tool call
     async function runCatalog(step) {
-      const read = await loadCatalog(step);
-      setCall(step, { method: 'GET', url: endpoints.catalog }, `GET ${endpoints.catalog}`);
+      const read = await fetchCatalog(step);
       const readable = read.entities.reduce((n, entity) => n + entity.properties.filter(p => p.readable !== false).length, 0);
       step.detail = `${read.entities.map(entity => entity.name).join(', ')} — ${plural(readable, 'field', 'fields')} you can read`;
       return result(catalogForModel(read));
@@ -237,7 +236,8 @@ export function createAssistant(deps) {
         step.outcome = 'refused';
         return result({ refused: bulk.rule, message: bulk.message }, true);
       }
-      const denied = permissionProblem(await loadCatalog(), query);
+      if (!catalog) return result({ error: 'the catalog is not loaded — call read_catalog first' }, true);
+      const denied = permissionProblem(catalog, query);
       if (denied) {
         step.state = 'done';
         step.outcome = 'blocked';
@@ -290,7 +290,8 @@ export function createAssistant(deps) {
           candidate = undefined; // the tool says what is wrong with the patch
         }
         if (candidate) {
-          const problem = boardReadProblem(candidate, catalog ?? (await loadCatalog()));
+          if (!catalog) return result({ error: 'the catalog is not loaded — call read_catalog first' }, true);
+          const problem = boardReadProblem(candidate, catalog);
           if (problem?.permission) {
             const denied = problem.permission;
             step.outcome = 'blocked';
@@ -408,9 +409,10 @@ export function createAssistant(deps) {
 
       // Plan: every call becomes a pending step before the first runs.
       const planned = [];
-      let catalogPlanned = Boolean(catalog) || message.tool_calls.some(call => call.function?.name === 'read_catalog');
+      let catalogPlanned = Boolean(catalog); // loaded earlier this turn, or read by a step that comes before the one that needs it
       for (const call of message.tool_calls) {
         const name = call.function?.name;
+        if (name === 'read_catalog') catalogPlanned = true;
         const parsed = parseJson(call.function?.arguments || '{}');
         const args = parsed.value;
         const needsCatalog = name === 'query_data' || name === 'patch_board';
@@ -525,7 +527,7 @@ export function createAssistant(deps) {
   return {
     messages,
     send,
-    loadCatalog: () => loadCatalog(),
+    loadCatalog: () => fetchCatalog(),
     get session() {
       return session;
     },

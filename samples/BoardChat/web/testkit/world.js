@@ -74,9 +74,10 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
     if (url.startsWith('/$data/')) return odata(url);
     if (url.startsWith('/uboard/boards/revenue')) {
       if (request.method === 'POST') {
+        if (host.revision > 0) return json(409, envelope()); // the board exists: the host answers with it
         host.revision = 1;
         host.document = request.body;
-        return json(200, envelope());
+        return json(201, envelope());
       }
       const expected = Number(new URL(url, 'http://host').searchParams.get('expected'));
       if (expected !== host.revision) return json(409, envelope());

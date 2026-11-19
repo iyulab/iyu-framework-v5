@@ -197,3 +197,45 @@ test('the filter of a board is carried in each read: the diff marks every tile t
   assert.deepEqual(second.changed, { revenue: 'edited', trend: 'edited' });
   assert.equal(second.revision.to, 2);
 });
+
+// ---------------------------------------------------------------- the catalog reads, and the tools that are offered
+
+test('every step that says it read the catalog sent one request, and a query never runs on a catalog nobody read', async () => {
+  const world = makeWorld({
+    model: [
+      calls(['query_data', { entity: 'Orders', top: 5 }], ['read_catalog', {}]), // the query comes first: the loop reads the catalog before it
+      calls(['read_catalog', {}], ['query_data', { entity: 'Orders', top: 5 }]),
+      say('Done.'),
+    ],
+  });
+  const assistant = createAssistant(world.assistantDeps());
+  const result = await assistant.send('Look.');
+  const catalogSteps = result.steps.filter(s => s.kind === 'catalog');
+  assert.equal(catalogSteps.length, 3); // one the loop added, two the model asked for
+  assert.equal(world.requests.filter(r => r.url === '/uboard/catalog').length, catalogSteps.length);
+  assert.deepEqual(result.steps.map(s => s.kind), ['catalog', 'query', 'catalog', 'catalog', 'query']);
+  assert.equal(world.dataRequests().length, 2);
+});
+
+test('edit_text is not offered: a read\'s path cannot be changed behind the read rules', async () => {
+  const world = makeWorld({ model: [say('Hi.')] });
+  await createAssistant(world.assistantDeps()).send('Hi');
+  const names = world.modelRequests()[0].body.tools.map(tool => tool.function.name).sort();
+  assert.deepEqual(names, ['describe', 'get_board', 'patch_board', 'query_data', 'read_catalog', 'validate']);
+});
+
+test('an entity the host lists as not readable is not one to read', () => {
+  const closed = { entities: [{ name: 'Salaries', readable: false, properties: [{ name: 'Amount', type: 'decimal', nullable: false, readable: true }], links: [] }, ...CATALOG.entities] };
+  const problem = permissionProblem(closed, { entity: 'Salaries', top: 5 });
+  assert.equal(problem.reason, 'entity-absent');
+  assert.ok(problem.alternatives.includes('Orders') && !problem.alternatives.includes('Salaries'));
+});
+
+test('a board that already exists on the host answers the first save with 409 and its own board: a conflict, not a failure', async () => {
+  const world = makeWorld({ model: [calls(['patch_board', { patch: FIRST_PATCH }]), say('unreachable')] });
+  world.host.revision = 3; // somebody made the board while this page believed there was none
+  const result = await ask(world, 'Build it.');
+  assert.equal(result.failure.kind, 'conflict');
+  assert.equal(result.failure.serverRevision, 3);
+  assert.match(result.steps.find(s => s.kind === 'board').raw, /^POST \/uboard\/boards\/revenue\?name=Revenue%20overview → 409 Conflict$/);
+});
