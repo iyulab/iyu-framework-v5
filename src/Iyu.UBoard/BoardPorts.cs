@@ -67,4 +67,27 @@ public interface IBoardStore
     /// <param name="id">The board's id.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     Task<IReadOnlyList<BoardPublicationRecord>> ListPublicationsAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>The boards, without their documents, ordered by id.</summary>
+    /// <param name="skip">How many boards to pass over; at least 0.</param>
+    /// <param name="take">How many boards to return at most; at least 1.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<IReadOnlyList<BoardSummary>> ListAsync(int skip, int take, CancellationToken cancellationToken = default);
+
+    /// <summary>Changes the board's name. The name is not part of the document, so no revision is made and the board's revision does not move.</summary>
+    /// <param name="id">The board's id.</param>
+    /// <param name="name">The new name.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns><see cref="BoardChangeStatus.Done"/> with the board, or <see cref="BoardChangeStatus.NotFound"/>.</returns>
+    Task<BoardChange> RenameAsync(string id, string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the board together with all its revisions and its whole publication history, in one step: afterwards none of them is
+    /// left, and if the step fails none of them is removed. A host that wants the history kept as a record does not call this and
+    /// hides the board with a column of its own instead.
+    /// </summary>
+    /// <param name="id">The board's id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>True when there was such a board; false when there was none.</returns>
+    Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 }

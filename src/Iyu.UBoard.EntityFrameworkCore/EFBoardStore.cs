@@ -170,6 +170,34 @@ public sealed class EFBoardStore<TContext, TBoard, TRevision, TPublication>(TCon
         return rows.Select(ToRecord).ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<BoardSummary>> ListAsync(int skip, int take, CancellationToken cancellationToken = default) =>
+        await Boards().OrderBy(b => b.Id).Skip(skip).Take(take)
+            .Select(b => new BoardSummary(b.Id, b.Name, b.CurrentRevision, b.PublishedRevision))
+            .ToListAsync(cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<BoardChange> RenameAsync(string id, string name, CancellationToken cancellationToken = default)
+    {
+        var renamed = await context.Set<TBoard>().Where(b => b.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.Name, name), cancellationToken);
+        if (renamed == 0) return new BoardChange(BoardChangeStatus.NotFound, null);
+
+        var board = await Boards().FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+        return board is null ? new BoardChange(BoardChangeStatus.NotFound, null) : new BoardChange(BoardChangeStatus.Done, ToRecord(board));
+    }
+
+    /// <inheritdoc />
+    public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) =>
+        InTransactionAsync(async () =>
+        {
+            // The children first: nothing here assumes the host's tables carry a foreign key, and one that does would refuse the
+            // other order. All three deletes are one transaction, so a failure leaves the board whole.
+            await context.Set<TPublication>().Where(p => p.BoardId == id).ExecuteDeleteAsync(cancellationToken);
+            await context.Set<TRevision>().Where(r => r.BoardId == id).ExecuteDeleteAsync(cancellationToken);
+            return await context.Set<TBoard>().Where(b => b.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+        }, deleted => deleted, cancellationToken);
+
     /// <summary>Boards are read without tracking: a conditional update does not refresh an entity the context is holding.</summary>
     private IQueryable<TBoard> Boards() => context.Set<TBoard>().AsNoTracking();
 

@@ -242,6 +242,89 @@ public abstract class EFBoardStoreContract : IDisposable
     private static string Doc(string text) => $$"""{"title":"{{text}}"}""";
 
     [Fact]
+    public async Task Boards_are_listed_by_id_a_page_at_a_time_with_where_they_stand()
+    {
+        using var provider = Start();
+        foreach (var id in new[] { "c", "a", "b" }) await Board(provider, s => s.CreateAsync(id, "Board " + id, Doc(id), "ana"));
+        await Board(provider, s => s.SaveAsync("b", Doc("b2"), 1, "bo"));
+        await Board(provider, s => s.PublishAsync("b", 2, "bo"));
+
+        var first = await Board(provider, s => s.ListAsync(0, 2));
+        var second = await Board(provider, s => s.ListAsync(2, 2));
+
+        Assert.Equal(
+            new[] { new BoardSummary("a", "Board a", 1, null), new BoardSummary("b", "Board b", 2, 2) }, first);
+        Assert.Equal(new[] { new BoardSummary("c", "Board c", 1, null) }, second);
+        Assert.Empty(await Board(provider, s => s.ListAsync(3, 10)));
+    }
+
+    [Theory]
+    [InlineData(-1, 10)]
+    [InlineData(0, 0)]
+    [InlineData(0, 1001)]
+    public async Task A_page_outside_the_limits_is_refused(int skip, int take)
+    {
+        using var provider = Start();
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => Board(provider, s => s.ListAsync(skip, take)));
+    }
+
+    [Fact]
+    public async Task A_rename_changes_the_name_and_leaves_the_document_and_the_revisions_alone()
+    {
+        using var provider = Start();
+        await Board(provider, s => s.CreateAsync("plant", "Plant", Doc("a"), "ana"));
+        await Board(provider, s => s.SaveAsync("plant", Doc("b"), 1, "bo"));
+
+        var renamed = await Board(provider, s => s.RenameAsync("plant", "Plant overview"));
+        var missing = await Board(provider, s => s.RenameAsync("nowhere", "Anything"));
+
+        Assert.Equal(new BoardRecord("plant", "Plant overview", Doc("b"), 2, null), renamed.Board);
+        Assert.True(renamed.Succeeded);
+        Assert.Equal(BoardChangeStatus.NotFound, missing.Status);
+        Assert.Equal(2, (await Board(provider, s => s.ListRevisionsAsync("plant"))).Count);
+        await Assert.ThrowsAsync<ArgumentException>(() => Board(provider, s => s.RenameAsync("plant", "  ")));
+    }
+
+    [Fact]
+    public async Task A_delete_removes_the_board_every_revision_and_the_publication_history_and_no_other_board()
+    {
+        using var provider = Start();
+        await Board(provider, s => s.CreateAsync("plant", "Plant", Doc("a"), "ana"));
+        await Board(provider, s => s.SaveAsync("plant", Doc("b"), 1, "bo"));
+        await Board(provider, s => s.PublishAsync("plant", 2, "bo"));
+        await Board(provider, s => s.WithdrawAsync("plant", "bo"));
+        await Board(provider, s => s.CreateAsync("line", "Line", Doc("x"), "ana"));
+        await Board(provider, s => s.PublishAsync("line", 1, "ana"));
+
+        var deleted = await Board(provider, s => s.DeleteAsync("plant"));
+        var again = await Board(provider, s => s.DeleteAsync("plant"));
+
+        Assert.True(deleted);
+        Assert.False(again);
+        Assert.Null(await Board(provider, s => s.GetAsync("plant")));
+        Assert.Empty(await Board(provider, s => s.ListRevisionsAsync("plant")));
+        Assert.Empty(await Board(provider, s => s.ListPublicationsAsync("plant")));
+        Assert.NotNull(await Board(provider, s => s.GetAsync("line")));
+        Assert.Single(await Board(provider, s => s.ListRevisionsAsync("line")));
+        Assert.Single(await Board(provider, s => s.ListPublicationsAsync("line")));
+    }
+
+    [Fact]
+    public async Task A_board_deleted_can_be_made_again_from_revision_one()
+    {
+        using var provider = Start();
+        await Board(provider, s => s.CreateAsync("plant", "Plant", Doc("a"), "ana"));
+        await Board(provider, s => s.SaveAsync("plant", Doc("b"), 1, "bo"));
+        await Board(provider, s => s.DeleteAsync("plant"));
+
+        var again = await Board(provider, s => s.CreateAsync("plant", "Plant", Doc("c"), "cy"));
+
+        Assert.Equal(new BoardRecord("plant", "Plant", Doc("c"), 1, null), again.Board);
+        Assert.Single(await Board(provider, s => s.ListRevisionsAsync("plant")));
+    }
+
+    [Fact]
     public async Task A_new_board_starts_at_revision_one_and_a_second_creation_of_the_same_id_changes_nothing()
     {
         using var provider = Start();

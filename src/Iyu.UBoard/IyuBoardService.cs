@@ -32,6 +32,44 @@ public sealed class IyuBoardService(IBoardStore store, TimeProvider time)
         return store.CreateAsync(id, name, document, user, time.GetUtcNow(), cancellationToken);
     }
 
+    /// <summary>The boards without their documents, ordered by id, a page at a time.</summary>
+    /// <param name="skip">How many boards to pass over.</param>
+    /// <param name="take">How many boards to return at most: from 1 to 1000.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="skip"/> is negative or <paramref name="take"/> is outside 1 to 1000.</exception>
+    public Task<IReadOnlyList<BoardSummary>> ListAsync(int skip = 0, int take = 100, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(skip);
+        ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(take, 1000);
+        return store.ListAsync(skip, take, cancellationToken);
+    }
+
+    /// <summary>Changes the board's name; its document and revision stay as they are.</summary>
+    /// <param name="id">The board's id.</param>
+    /// <param name="name">The new name: not blank, at most <see cref="MaxTextLength"/> characters.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <exception cref="ArgumentException">A value is blank or too long.</exception>
+    public Task<BoardChange> RenameAsync(string id, string name, CancellationToken cancellationToken = default)
+    {
+        CheckId(id);
+        CheckText(name, nameof(name));
+        return store.RenameAsync(id, name, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes the board with every revision and its whole publication history, as one step. The publication history is the record
+    /// of who published what and when; a host that must keep it hides the board with a column of its own and does not call this.
+    /// </summary>
+    /// <param name="id">The board's id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>True when there was such a board.</returns>
+    public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        CheckId(id);
+        return store.DeleteAsync(id, cancellationToken);
+    }
+
     /// <summary>The board, or null when there is none.</summary>
     /// <param name="id">The board's id.</param>
     /// <param name="cancellationToken">Cancels the read.</param>

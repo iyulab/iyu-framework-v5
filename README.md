@@ -2337,7 +2337,9 @@ await boards.PublishAsync("plant", revision: 2, user);
 ```
 
 The three row types implement `IBoardRow`, `IBoardRevisionRow` and `IBoardPublicationRow`; the tables and their migrations are
-yours. The revision table's key is (`BoardId`, `Revision`) and the publication table's is (`BoardId`, `Sequence`), in that order.
+yours. The revision table must be unique over (`BoardId`, `Revision`) and the publication table over (`BoardId`, `Sequence`), in
+that order — as the primary key, or as a unique key or index beside a surrogate primary key of the table's own, whose value
+the database or EF makes. The board table is keyed on `Id` (a string).
 
 - **A save names the revision it worked from.** A save made on a revision the board has moved past changes nothing and answers
   `Conflict` with the board as it stands. The database decides — of two saves made together on one revision exactly one wins.
@@ -2346,6 +2348,9 @@ yours. The revision table's key is (`BoardId`, `Revision`) and the publication t
 - **A lower revision number is not necessarily a published one.** `FindLastAcceptedPublicationAsync` walks the publication
   history, newest first, for the newest earlier publication that your function accepts, so a draft is never mistaken for a fallback.
 - **Documents are opaque.** Only that the text is JSON is checked; what a valid board is belongs to the board language.
+- **Listing, renaming and deleting.** `ListAsync(skip, take)` returns boards by id without their documents. `RenameAsync` changes
+  the name only — no revision is made. `DeleteAsync` removes the board with every revision and its whole publication history in one
+  step; a host that must keep that history as a record does not call it and hides the board with a column of its own.
 - **The host does not start** if `AddIyuUBoard` names no part, if the store is not registered, or if your context does not map the
   three tables with those keys. Nothing is registered until you call it.
 - **Transactions.** A call joins the transaction you began on the same context; without one it begins its own through the context's

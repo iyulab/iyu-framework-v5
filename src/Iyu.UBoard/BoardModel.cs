@@ -11,7 +11,14 @@ namespace Iyu.UBoard;
 /// <param name="PublishedRevision">The revision being published, or null while the board is unpublished or its publication was withdrawn.</param>
 public sealed record BoardRecord(string Id, string Name, string Document, int CurrentRevision, int? PublishedRevision);
 
-/// <summary>One revision of a board. Revisions are only ever added, never changed or removed.</summary>
+/// <summary>A board as a list shows it: without its document, which can be large.</summary>
+/// <param name="Id">The board's id.</param>
+/// <param name="Name">What a person calls the board.</param>
+/// <param name="CurrentRevision">The revision a save must name to be accepted.</param>
+/// <param name="PublishedRevision">The revision being published, or null while the board is unpublished or its publication was withdrawn.</param>
+public sealed record BoardSummary(string Id, string Name, int CurrentRevision, int? PublishedRevision);
+
+/// <summary>One revision of a board. Revisions are only ever added, never changed or removed — until the board itself is deleted.</summary>
 /// <param name="BoardId">The board.</param>
 /// <param name="Revision">The revision number, from 1.</param>
 /// <param name="Document">The document as it was saved.</param>
