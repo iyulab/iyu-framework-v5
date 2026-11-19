@@ -23,8 +23,9 @@ so `web/src/host.js` carries it: it starts at the revision the page loaded, goes
 accepts. When the host answers `409`, `save` rejects and the store undoes the change. The store counts one revision per change and the
 host counts one per accepted save, so they stay equal as long as every change is exactly one save.
 
-The routes in `Program.cs` are the whole of the host's side: create, read, save on a revision, list revisions, publish, withdraw,
-read what is published, and list what was published before it. The tables are in `BoardTables.cs`.
+The host's side is one call, `app.MapIyuUBoard("/api")`: the library serves the board routes — create, read, save on a revision, list revisions, publish, withdraw,
+read what is published, list what was published before it, list, rename and delete — under `/api/boards/{id}`. The routes need a signed-in caller,
+so `Program.cs` also signs every request in as one development user. The tables are in `BoardTables.cs`.
 
 ## Run it
 
