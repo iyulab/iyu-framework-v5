@@ -22,17 +22,21 @@
     The board screen. The build runs npm over web/ and embeds what it writes (obj/uboard-web: the page, its scripts, styles and fonts, and
     THIRD-PARTY-NOTICES.txt generated from the lockfile) as the resources "uboard-web/...". Nothing built is committed.
 
-    - Node.js on the path: `npm ci` (when the lockfile is newer than the installed packages) and `npm run build` run, and a failure of either
-      fails the build.
-    - No Node.js: the build still succeeds and says so. The library then has no screen: the routes that serve it answer an explicit
-      503 that names this, and the host logs it at start. Only `dotnet pack` refuses - a package without its screen must not be made.
-    - `-p:UBoardWeb=false` skips the screen on purpose (a build that only needs the C#); pack refuses that too.
+    - Node.js 22.12 or later on the path: `npm ci` (when the lockfile is newer than the installed packages) and `npm run build` run, and
+      a failure of either fails the build.
+    - No Node.js, or one that is too old: the build still succeeds and says so. The library then has no screen: the routes that serve it
+      answer an explicit 503 that names this, and the host logs it at start. Only `dotnet pack` refuses - a package without its screen
+      must not be made.
+    - `-p:UBoardWeb=false` skips the screen on purpose (a build that only needs the C#); pack refuses that too. A design-time build (an
+      IDE opening the project) and a run that is told not to build touch nothing.
   -->
   <PropertyGroup>
     <UBoardWebDir>$(MSBuildProjectDirectory)/web/</UBoardWebDir>
     <UBoardWebOut>$(MSBuildProjectDirectory)/obj/uboard-web/</UBoardWebOut>
-    <!-- Exists only when the last build embedded the screen, so a stale bundle on disk is not mistaken for one in the assembly. -->
-    <UBoardWebStamp>$(MSBuildProjectDirectory)/obj/uboard-web.embedded</UBoardWebStamp>
+    <!-- One per configuration, and present only when that configuration's last build embedded the screen: a bundle left on disk by another
+         build is not mistaken for one in this assembly. -->
+    <UBoardWebStamp>$(MSBuildProjectDirectory)/obj/$(Configuration)/uboard-web.embedded</UBoardWebStamp>
+    <_UBoardWebActive Condition="'$(UBoardWeb)' != 'false' And '$(NoBuild)' != 'true' And '$(DesignTimeBuild)' != 'true'">true</_UBoardWebActive>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,19 +45,19 @@
 
   <Target Name="UBoardWebBuild" BeforeTargets="AssignTargetPaths" DependsOnTargets="UBoardWebBegin;UBoardWebCheckNode;UBoardWebInstall;UBoardWebCompile;UBoardWebEmbed" />
 
-  <Target Name="UBoardWebBegin">
+  <Target Name="UBoardWebBegin" Condition="'$(NoBuild)' != 'true' And '$(DesignTimeBuild)' != 'true'">
     <Delete Files="$(UBoardWebStamp)" />
   </Target>
 
-  <Target Name="UBoardWebCheckNode" Condition="'$(UBoardWeb)' != 'false'">
-    <Exec Command="node --version" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low" StandardErrorImportance="low">
+  <Target Name="UBoardWebCheckNode" Condition="'$(_UBoardWebActive)' == 'true'">
+    <Exec Command="node scripts/check-node.mjs" WorkingDirectory="$(UBoardWebDir)" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low" StandardErrorImportance="low">
       <Output TaskParameter="ExitCode" PropertyName="_UBoardNodeExit" />
     </Exec>
     <PropertyGroup>
       <_UBoardNodeAvailable Condition="'$(_UBoardNodeExit)' == '0'">true</_UBoardNodeAvailable>
     </PropertyGroup>
     <Message Importance="high" Condition="'$(_UBoardNodeAvailable)' != 'true'"
-             Text="Iyu.UBoard: Node.js was not found, so the board screen is not built and not embedded. The library builds without it; the screen routes answer 503 until it is built, and dotnet pack refuses." />
+             Text="Iyu.UBoard: Node.js 22.12 or later was not found, so the board screen is not built and not embedded. The library builds without it; the screen routes answer 503 until it is built, and dotnet pack refuses." />
   </Target>
 
   <Target Name="UBoardWebInstall" Condition="'$(_UBoardNodeAvailable)' == 'true'" Inputs="web/package-lock.json" Outputs="web/node_modules/.package-lock.json">

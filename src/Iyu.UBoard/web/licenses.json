@@ -1,4 +1,4 @@
 {
   "allowed": ["MIT", "ISC", "BSD-2-Clause", "BSD-3-Clause", "0BSD", "Apache-2.0", "OFL-1.1"],
-  "withoutLicenseFile": ["@lit-labs/ssr-dom-shim"]
+  "licenseTextFrom": { "@lit-labs/ssr-dom-shim": "lit" }
 }
