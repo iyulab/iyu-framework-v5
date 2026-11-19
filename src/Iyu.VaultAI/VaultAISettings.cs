@@ -17,9 +17,28 @@ public class VaultAISettings
     /// Name of the authorization policy every route of the module is held to — the report API, the viewer, and the
     /// report folders served at <c>{BasePath}-files</c>. Empty (the default) means any signed-in user. The policy must
     /// be registered with <c>AddAuthorization</c>; a name that is not registered fails at <c>UseVaultAIReports()</c>.
-    /// Reading the reports and generating, editing or deleting them share this one policy.
+    /// Reading the reports and generating, editing or deleting them share this one policy; <see cref="ReportEditPolicy"/>
+    /// adds a second one for editing and deleting.
     /// </summary>
     public string? AuthorizationPolicy { get; set; }
+
+    /// <summary>
+    /// Name of a second authorization policy that editing a report's description (<c>PATCH</c>) and deleting a report
+    /// output (<c>DELETE</c>) must also satisfy, on top of <see cref="AuthorizationPolicy"/>. Empty (the default) leaves
+    /// those routes under <see cref="AuthorizationPolicy"/> alone, as before — reading and generating never use this
+    /// one. Use it to let every signed-in user read and generate while only an administrator edits or deletes. The
+    /// policy must be registered with <c>AddAuthorization</c>; a name that is not registered fails at
+    /// <c>UseVaultAIReports()</c>, and so does naming one while <see cref="AllowAnonymous"/> is on (an anonymous module
+    /// has no signed-in user to hold to it).
+    /// </summary>
+    public string? ReportEditPolicy { get; set; }
+
+    /// <summary>
+    /// false turns the scheduled generation of reports off on this host: the viewer, the report API and manual
+    /// generation keep working, but the scheduler never starts a report on its own. Default true. Set it on every server
+    /// but one when several servers share the same report folder, or a report is generated once per server.
+    /// </summary>
+    public bool ScheduleReports { get; set; } = true;
 
     /// <summary>
     /// true serves the module to anonymous callers, which also lets them start report generation (an LLM call),

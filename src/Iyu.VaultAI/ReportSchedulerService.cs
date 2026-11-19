@@ -42,6 +42,14 @@ public sealed class ReportSchedulerService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // The scheduler is registered whenever the module is (the host's options are only known once it runs), so the
+        // off switch is read here. Said once, so a host that expected reports learns why none appear.
+        if (!_settings.ScheduleReports)
+        {
+            _log.LogInformation("VaultAI:ScheduleReports is false: reports are not generated on a schedule on this host.");
+            return;
+        }
+
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
         do
         {

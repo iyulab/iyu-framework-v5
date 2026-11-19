@@ -19,6 +19,7 @@ namespace Iyu.Tests.VaultAI;
 public sealed class VaultAIAuthorizationTests : IDisposable
 {
     private const string Policy = "ReportsAdmin";
+    private const string EditPolicy = "ReportsEditor";
     private readonly string _root = Path.Combine(Path.GetTempPath(), "iyu-vaultai-authz-" + Guid.NewGuid().ToString("N"));
     private readonly List<WebApplication> _apps = [];
 
@@ -46,7 +47,8 @@ public sealed class VaultAIAuthorizationTests : IDisposable
         builder.Services.AddAuthentication("Test")
             .AddScheme<AuthenticationSchemeOptions, HeaderClaimAuthHandler>("Test", null);
         builder.Services.AddAuthorizationBuilder()
-            .AddPolicy(Policy, p => p.RequireClaim("perm", Policy));
+            .AddPolicy(Policy, p => p.RequireClaim("perm", Policy))
+            .AddPolicy(EditPolicy, p => p.RequireClaim("perm", EditPolicy));
         builder.Services.AddVaultAIReports(builder.Configuration);
 
         var app = builder.Build();
@@ -113,6 +115,83 @@ public sealed class VaultAIAuthorizationTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         Assert.Equal(HttpStatusCode.OK, admitted.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+    }
+
+    // Reading and generating stay with the module's policy; editing a report and deleting an output also need the edit
+    // policy when one is named. A user who passes only the first is refused on exactly those two routes — and the
+    // folder does not exist, so a request that gets past the check ends in the handler's own answer, never 401 or 403.
+    [Theory]
+    [InlineData("PATCH", "/api/vault-ai/reports/daily")]
+    [InlineData("DELETE", "/api/vault-ai/reports/daily/outputs/2026-01-01.md")]
+    public async Task A_named_edit_policy_holds_editing_and_deleting_to_it(string method, string path)
+    {
+        var client = await Host(("ReportEditPolicy", EditPolicy));
+
+        using var reader = await client.SendAsync(Request(new HttpMethod(method), path, perm: "anything"));
+        using var editor = await client.SendAsync(Request(new HttpMethod(method), path, perm: EditPolicy));
+        using var anonymous = await client.SendAsync(Request(new HttpMethod(method), path));
+
+        Assert.Equal(HttpStatusCode.Forbidden, reader.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Forbidden, editor.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, editor.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/vault-ai/reports")]
+    [InlineData("POST", "/api/vault-ai/reports/daily/generate")]
+    [InlineData("GET", "/vault-ai-reports")]
+    public async Task A_named_edit_policy_leaves_reading_and_generating_to_the_module_policy(string method, string path)
+    {
+        var client = await Host(("ReportEditPolicy", EditPolicy));
+
+        using var reader = await client.SendAsync(Request(new HttpMethod(method), path, perm: "anything"));
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, reader.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, reader.StatusCode);
+    }
+
+    // Both policies are held when both are named: the edit policy is a second check, not a replacement for the first.
+    [Fact]
+    public async Task The_edit_policy_adds_to_the_module_policy_rather_than_replacing_it()
+    {
+        var client = await Host(("AuthorizationPolicy", Policy), ("ReportEditPolicy", EditPolicy));
+
+        using var editorOnly = await client.SendAsync(Request(HttpMethod.Patch, "/api/vault-ai/reports/daily", perm: EditPolicy));
+
+        Assert.Equal(HttpStatusCode.Forbidden, editorOnly.StatusCode);   // the module's policy refuses before the edit one is read
+    }
+
+    [Fact]
+    public async Task Without_an_edit_policy_a_signed_in_user_edits_as_before()
+    {
+        var client = await Host();
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Patch, "/api/vault-ai/reports/daily", perm: "anything"));
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_edit_policy_that_is_not_registered_fails_at_startup_naming_the_key()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Host(("ReportEditPolicy", "NoSuchPolicy")));
+
+        Assert.Contains("VaultAI:ReportEditPolicy", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("NoSuchPolicy", ex.Message, StringComparison.Ordinal);
+    }
+
+    // An anonymous module has no signed-in user to hold to a policy; naming one would read as protection that is not
+    // there, so it is refused rather than ignored.
+    [Fact]
+    public async Task An_edit_policy_beside_anonymous_access_fails_at_startup()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Host(("AllowAnonymous", "true"), ("ReportEditPolicy", EditPolicy)));
+
+        Assert.Contains("VaultAI:ReportEditPolicy", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AllowAnonymous", ex.Message, StringComparison.Ordinal);
     }
 
     // GET .../new starts an LLM call, so a signed-in user must not be sendable there by another site. The folder does

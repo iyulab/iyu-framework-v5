@@ -31,9 +31,19 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), `Iyu.VaultAI` (a second policy for editing reports, an off switch for the schedule), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
+
+- **Reports can be read by every signed-in user and edited by fewer (`VaultAI:ReportEditPolicy`, empty by default).** The module held
+  reading, generating, editing and deleting to one policy, so a host that wanted editors to be administrators had to give
+  everyone else no access at all. Naming a second policy makes `PATCH` on a report and `DELETE` of an output also need it, on
+  top of `VaultAI:AuthorizationPolicy`; reading and generating are untouched. Nothing changes while it is empty. A name that is
+  not registered fails at `UseVaultAIReports()`, and so does naming one while `VaultAI:AllowAnonymous` is on — there is no
+  signed-in user to hold to it, and ignoring the setting would look like a protection that is not there.
+- **The report schedule can be turned off on a host (`VaultAI:ScheduleReports`, `true` by default).** Several servers over one
+  report folder each generated every scheduled report. With `false` the scheduler starts nothing, not even its first pass, and
+  logs once that it is off; the viewer, the API and manual generation keep working. Nothing changes while it is `true`.
 
 - **A `403` can name the policy the caller did not satisfy (`IyuMainServerOptions.NamePolicyInForbidden`, off by default).** The
   answer to a signed-in caller who is refused reads `Forbidden. Requires policy 'x' (set 'y').` — for a request that reaches another

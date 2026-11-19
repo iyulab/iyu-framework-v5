@@ -59,26 +59,54 @@ internal static class VaultAIAuthorization
     /// names a policy that is not registered.</summary>
     internal static void EnsureConfigured(IServiceProvider services, VaultAISettings settings)
     {
-        if (settings.AllowAnonymous || settings.AuthorizationPolicy is not { Length: > 0 } name) return;
+        // A module open to anonymous callers has no signed-in user to hold to a policy: naming one would read as a
+        // protection that is not there, so it is refused rather than ignored.
+        if (settings.AllowAnonymous)
+        {
+            if (settings.ReportEditPolicy is { Length: > 0 })
+                throw new InvalidOperationException(
+                    "VaultAI:ReportEditPolicy is set while VaultAI:AllowAnonymous is true. An anonymous module cannot hold " +
+                    "editing to a policy; clear one of the two.");
+            return;
+        }
+
+        RequireRegistered(services, "VaultAI:AuthorizationPolicy", settings.AuthorizationPolicy,
+            "or leave the setting empty to require any signed-in user");
+        RequireRegistered(services, "VaultAI:ReportEditPolicy", settings.ReportEditPolicy,
+            "or leave the setting empty to hold editing to VaultAI:AuthorizationPolicy alone");
+    }
+
+    private static void RequireRegistered(IServiceProvider services, string key, string? name, string otherwise)
+    {
+        if (name is not { Length: > 0 }) return;
 
         var provider = services.GetRequiredService<IAuthorizationPolicyProvider>();
         if (provider.GetPolicyAsync(name).GetAwaiter().GetResult() is null)
             throw new InvalidOperationException(
-                $"VaultAI:AuthorizationPolicy names the policy '{name}', but no such authorization policy is registered. " +
-                "Register it with services.AddAuthorization(o => o.AddPolicy(...)), or leave the setting empty to require " +
-                "any signed-in user.");
+                $"{key} names the policy '{name}', but no such authorization policy is registered. " +
+                $"Register it with services.AddAuthorization(o => o.AddPolicy(...)), {otherwise}.");
     }
 
-    /// <summary>Runs the policy for this request. Returns false after writing the challenge or forbid response.</summary>
-    internal static async Task<bool> AuthorizeAsync(HttpContext context, VaultAISettings settings)
+    /// <summary>Runs the module's policy for this request. Returns false after writing the challenge or forbid response.</summary>
+    internal static Task<bool> AuthorizeAsync(HttpContext context, VaultAISettings settings) =>
+        AuthorizeWithAsync(context, settings.AllowAnonymous, settings.AuthorizationPolicy);
+
+    /// <summary>The check an edit or delete of a report adds: <see cref="VaultAISettings.ReportEditPolicy"/> when one is
+    /// named, otherwise nothing beyond what <see cref="AuthorizeAsync"/> already ran for the request.</summary>
+    internal static Task<bool> AuthorizeEditAsync(HttpContext context, VaultAISettings settings) =>
+        settings.AllowAnonymous || settings.ReportEditPolicy is not { Length: > 0 } name
+            ? Task.FromResult(true)
+            : AuthorizeWithAsync(context, allowAnonymous: false, name);
+
+    private static async Task<bool> AuthorizeWithAsync(HttpContext context, bool allowAnonymous, string? policyName)
     {
-        if (settings.AllowAnonymous) return true;
+        if (allowAnonymous) return true;
 
         var provider = context.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
         var evaluator = context.RequestServices.GetRequiredService<IPolicyEvaluator>();
 
         var policy = await AuthorizationPolicy.CombineAsync(provider,
-            [new AuthorizeAttribute { Policy = string.IsNullOrEmpty(settings.AuthorizationPolicy) ? null : settings.AuthorizationPolicy }])
+            [new AuthorizeAttribute { Policy = string.IsNullOrEmpty(policyName) ? null : policyName }])
             ?? throw new InvalidOperationException("The VaultAI authorization policy resolved to nothing.");
 
         var authentication = await evaluator.AuthenticateAsync(policy, context);

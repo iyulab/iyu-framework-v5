@@ -1800,6 +1800,17 @@ session means a cookie-based scheme. `VaultAI:AllowAnonymous` = `true` turns the
 authenticating reverse proxy already decides who reaches it, because anonymous callers can then start generations and read
 the report folders, which hold prompts and run logs.
 
+**Letting everyone read but only some edit.** `VaultAI:ReportEditPolicy` names a second policy that editing a report's
+description (`PATCH`) and deleting an output (`DELETE`) must also satisfy — on top of `VaultAI:AuthorizationPolicy`, which
+still gates every route; reading and generating never use it. Empty (the default) leaves those two routes under the one
+gate, as before. A name that is not registered fails at `UseVaultAIReports()`, and so does naming one while
+`VaultAI:AllowAnonymous` is `true`: an anonymous module has nobody to hold to it.
+
+**One scheduler per report folder.** The module generates scheduled reports (`info.json` `cron`) on a one-minute tick.
+When several servers share a report folder, set `VaultAI:ScheduleReports` = `false` on all but one — otherwise each
+generates the same report. The viewer, the report API and manual generation keep working on a host where it is `false`;
+only the schedule is off, and the host logs that once at start.
+
 **Embedding the chat widget in your own pages.** `app.MapVaultAIEmbed()` maps the server half of the chat service's browser
 widget: `GET /api/vault-ai-embed/config` returns `{ enabled, origin, channelId }` (where to load the widget from, and which
 channel), and `POST /api/vault-ai-embed/token` asks the chat service for a short-lived token with the key the host holds —

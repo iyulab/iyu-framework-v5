@@ -116,18 +116,20 @@ public static class VaultAIMiddleware
                         return;
                     }
 
-                    // PATCH .../{folder}  (action == null)
+                    // PATCH .../{folder}  (action == null) — editing is held to VaultAI:ReportEditPolicy as well, when named.
                     if (method == "PATCH" && action is null)
                     {
+                        if (!await VaultAIAuthorization.AuthorizeEditAsync(context, settings)) return;
                         await VaultAIReportsApi.PatchInfoAsync(context, reportPath);
                         return;
                     }
 
-                    // DELETE .../outputs/{file}
+                    // DELETE .../outputs/{file} — same extra check as the edit above.
                     if (method == "DELETE"
                         && string.Equals(action, "outputs", StringComparison.OrdinalIgnoreCase)
                         && file is not null)
                     {
+                        if (!await VaultAIAuthorization.AuthorizeEditAsync(context, settings)) return;
                         await VaultAIReportsApi.DeleteOutputAsync(context, reportPath);
                         return;
                     }

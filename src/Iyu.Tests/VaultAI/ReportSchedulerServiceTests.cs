@@ -89,6 +89,47 @@ public sealed class ReportSchedulerServiceTests : IDisposable
         return logger;
     }
 
+    // Two servers over one report folder must not both generate: the one that turns scheduling off starts nothing —
+    // not even the immediate first pass — and says why, so a host that expected reports can find out.
+    [Fact]
+    public async Task A_host_that_turns_scheduling_off_never_starts_a_report_and_says_so()
+    {
+        var folder = DefineReport("daily");
+        var logger = new CapturingLogger();
+        var settings = Options.Create(new VaultAISettings
+            { ReportPath = _root, ReportAgentId = Guid.NewGuid(), ScheduleReports = false });
+        using var service = new ReportSchedulerService(logger, new FailingClient(), settings, new StubEnvironment());
+
+        await service.StartAsync(CancellationToken.None);
+        // Returns at once: there is no loop to wait for. A bound, so that a scheduler that does start its loop fails this test
+        // instead of hanging the run.
+        await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(10));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Empty(Outputs(folder));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information
+            && e.Message.Contains("VaultAI:ScheduleReports", StringComparison.Ordinal));
+    }
+
+    // The control for the test above: with scheduling on (the default) the same host starts the due report at once,
+    // which is what makes an empty folder in the test above mean something. The first pass is awaited by polling for
+    // its failure marker — the service does not promise how far its loop runs before StartAsync returns.
+    [Fact]
+    public async Task A_host_that_keeps_scheduling_on_starts_a_due_report_at_start()
+    {
+        var folder = DefineReport("daily");
+        var settings = Options.Create(new VaultAISettings { ReportPath = _root, ReportAgentId = Guid.NewGuid() });
+        using var service = new ReportSchedulerService(new CapturingLogger(), new FailingClient(), settings, new StubEnvironment());
+
+        Assert.True(settings.Value.ScheduleReports);
+        await service.StartAsync(CancellationToken.None);
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (Outputs(folder).Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(50);
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Single(Outputs(folder));
+    }
+
     private static IReadOnlyList<string> Outputs(string folder)
     {
         var dir = Path.Combine(folder, "output");
