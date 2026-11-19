@@ -2387,6 +2387,8 @@ history an answer returned with the next request, either `message` or the `resul
 as the person. Each turn is asked of `IBoardAccess` first: a board the caller may not view is 404, and a caller who may view but not edit gets an
 answer-only turn — the assistant is offered only the tools declared `"edits": false`, and the answer carries `"answerOnly": true`. That is
 the screen's own declaration, so it keeps an edit from being offered rather than preventing one; the save is what is refused (403).
+`Iyu.UBoard.IronHive` (not packed yet) is an implementation over `IronHive.Agent` and IronProw: `services.AddIyuUBoardIronHive(o => { o.BaseUrl = …; o.ApiKey = …; o.Model = …; })`
+for any OpenAI-compatible model service — the address, key, model and reply limit are set there and nowhere else, and the host does not start without an address and a model.
 
 ## Previewing a model change
 
