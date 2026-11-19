@@ -2356,6 +2356,15 @@ the database or EF makes. The board table is keyed on `Id` (a string).
 - **Transactions.** A call joins the transaction you began on the same context; without one it begins its own through the context's
   execution strategy. On a context with a retrying strategy, begin your own transaction through the strategy as well.
 
+**Routes.** `app.MapIyuUBoard()` (default prefix `/uboard`) puts the board store behind routes under `{prefix}/boards`, for a page that reads and
+writes boards: `POST {id}?name=` (201, or 409 with the board that is already there), `GET {id}`, `PUT {id}?expected=` (200, 404, or 409 with the
+board as it now stands), `PUT {id}/name?name=`, `DELETE {id}` (204), `GET revisions` and `GET revisions/{n}`, `POST {id}/publish?revision=`,
+`POST {id}/withdraw`, `GET {id}/publications`, `GET {id}/published` (204 while nothing is published), `GET {id}/fallback`, and the list
+`GET boards?skip=&take=`. A board is sent as `{ id, name, revision, publishedRevision, document }` with the document as the JSON it is. The
+routes need a signed-in caller (or `IyuUBoardOptions.Policy`) and a same-origin request, a body must be `application/json`, a value the
+service refuses (a blank id, a document that is not JSON, a page out of range) is 400, and the history names the caller by name, else by
+the `sub` claim.
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the

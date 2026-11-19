@@ -24,7 +24,9 @@ public static class IyuUBoardEndpoints
     ];
 
     /// <summary>
-    /// Maps the parts that were turned on: with <see cref="IyuUBoardOptions.Model"/>, <c>POST {prefix}/model/chat/completions</c>.
+    /// Maps the parts that were turned on: with <see cref="IyuUBoardOptions.Model"/>, <c>POST {prefix}/model/chat/completions</c>;
+    /// with <see cref="IyuUBoardOptions.Boards"/>, the board routes under <c>{prefix}/boards</c> (make, read, save by revision, rename,
+    /// delete, revisions, publish, withdraw, publications, the published revision, the fallback list and a paged list).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -49,28 +51,10 @@ public static class IyuUBoardEndpoints
         var group = endpoints.MapGroup(prefix);
         if (settings.Policy is { Length: > 0 } policy) group.RequireAuthorization(policy);
         else group.RequireAuthorization();
-        group.AddEndpointFilter(SameOriginJson);
-        if (settings.ModelEnabled) group.MapPost("model/chat/completions", ChatAsync);
+        group.AddEndpointFilter(IyuUBoardRequestRules.SameOrigin);
+        if (settings.ModelEnabled) group.MapPost("model/chat/completions", ChatAsync).AddEndpointFilter(IyuUBoardRequestRules.RequireJson);
+        if (settings.BoardsEnabled) IyuUBoardBoardRoutes.Map(group);
         return group;
-    }
-
-    private static async ValueTask<object?> SameOriginJson(EndpointFilterInvocationContext invocation, EndpointFilterDelegate next)
-    {
-        var request = invocation.HttpContext.Request;
-
-        // Browsers say where a request came from; anything but this origin is another site acting with the caller's cookie.
-        var site = request.Headers["Sec-Fetch-Site"].ToString();
-        if (site.Length > 0 && site is not ("same-origin" or "none"))
-            return Results.StatusCode(StatusCodes.Status403Forbidden);
-        var origin = request.Headers.Origin.ToString();
-        if (origin.Length > 0 && !string.Equals(origin, $"{request.Scheme}://{request.Host}", StringComparison.OrdinalIgnoreCase))
-            return Results.StatusCode(StatusCodes.Status403Forbidden);
-
-        // A form post (a request another site can send without asking) is not JSON.
-        if (!request.HasJsonContentType())
-            return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
-
-        return await next(invocation);
     }
 
     private static async Task<IResult> ChatAsync(

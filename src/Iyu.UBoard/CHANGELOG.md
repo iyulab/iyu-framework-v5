@@ -29,3 +29,9 @@ All notable changes to this package are documented here. The format follows
   service 504. The route requires a signed-in caller (or the policy named in `IyuUBoardOptions.Policy`), JSON, a request within
   `MaxRequestBytes`, and the same origin. A host that turns the model on without a key, an address or a model does not start; the
   message names what is missing, never a value. The package now references the ASP.NET Core shared framework for the route.
+- Board routes: with `Boards()` on, `app.MapIyuUBoard()` also serves the board store under `{prefix}/boards` — make (`POST {id}?name=`, 201 or
+  409 with the board that exists), read, save by revision (`PUT {id}?expected=`, 409 with the board as it now stands), rename, delete, the
+  revision list and each revision, publish, withdraw, the publication history, the published revision (204 while nothing is published),
+  the fallback list, and a paged board list. Bodies are the board as `{ id, name, revision, publishedRevision, document }`. The routes
+  need a signed-in caller (or the policy in `IyuUBoardOptions.Policy`) and a same-origin request; a body must be JSON, a value the service
+  refuses is 400, a document over 4 MiB is 413, and the history names the caller by name, else by the `sub` claim.
