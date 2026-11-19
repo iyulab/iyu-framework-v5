@@ -175,8 +175,24 @@ surface has no reason for the last one. Anything missing shows up as a normal
 
 ## Minimum consumer
 
+The packages the host references — `Iyu.MainServer`, `Iyu.MainServer.GraphQL` if it serves GraphQL (see below),
+and the Entity Framework Core provider package for your database:
+
+```bash
+dotnet add package Iyu.MainServer
+dotnet add package Iyu.MainServer.GraphQL
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer   # UseSqlServer below; another database, another provider package
+```
+
+`Order`, `OrderExt` and `AppDbContext` are the entity classes and the context of your own model — the ones
+mdd-booster generates, or ones you write, with `AppDbContext` deriving from `IyuDbContext`. Declare their
+namespaces as in «Namespaces a consumer needs» above. `WebApplication` comes from the web SDK
+(`Microsoft.NET.Sdk.Web`), whose implicit usings cover it.
+
+<!-- minimum-consumer-sample -->
 ```csharp
 using Iyu.MainServer;
+using Microsoft.EntityFrameworkCore;   // UseSqlServer
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -1190,18 +1206,27 @@ Guarding a field on one write entry point does not guard the others, and does no
 rule like *"this field cannot change once the order is billed"* has to sit where every entry point
 converges, at save time.
 
-Derive from `EntityWriteRule<T>` and register by scanning:
+Derive from `EntityWriteRule<T>` (it and `WriteRuleContext<T>` are in `Iyu.Data.WriteRules`, a namespace the
+`global using` lines in «Namespaces a consumer needs» do not cover) and register by scanning:
 
+<!-- write-rule-sample -->
 ```csharp
+using Iyu.Data.WriteRules;
+
 public sealed class OrderVatTypeLock : EntityWriteRule<Order>
 {
     protected override void Apply(WriteRuleContext<Order> ctx)
     {
         if (!ctx.IsUpdated || !ctx.IsModified(nameof(Order.VatType))) return;
         if (ctx.Entity.BilledDate is not null)
-            throw new DomainRuleException("Cannot change VAT handling after invoicing.");
+            throw new WriteRuleViolationException("VatTypeLocked", "Cannot change VAT handling after invoicing.");
     }
 }
+```
+
+<!-- write-rule-registration -->
+```csharp
+using Iyu.Data.WriteRules;
 
 builder.Services.AddIyuWriteRules(typeof(Program).Assembly);
 ```

@@ -89,12 +89,19 @@ internal static class ReadmeCompilation
 
     /// <summary>The errors compiling <paramref name="source"/> as a library produces.</summary>
     public static IReadOnlyList<Diagnostic> Errors(string assemblyName, string source)
+        => Errors(assemblyName, [source], OutputKind.DynamicallyLinkedLibrary);
+
+    /// <summary>
+    /// The errors compiling <paramref name="sources"/> together produces, one syntax tree each. A sample written as top-level
+    /// statements is an application, so it is compiled with <see cref="OutputKind.ConsoleApplication"/>.
+    /// </summary>
+    public static IReadOnlyList<Diagnostic> Errors(string assemblyName, IReadOnlyList<string> sources, OutputKind kind)
     {
         var compilation = CSharpCompilation.Create(
             assemblyName,
-            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
+            sources.Select(s => CSharpSyntaxTree.ParseText(s, new CSharpParseOptions(LanguageVersion.Latest))),
             ReferenceSet(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+            new CSharpCompilationOptions(kind, nullableContextOptions: NullableContextOptions.Enable));
 
         return [.. compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error)];
     }
