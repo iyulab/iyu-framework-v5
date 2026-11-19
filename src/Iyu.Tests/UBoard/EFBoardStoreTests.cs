@@ -146,6 +146,25 @@ public class UBoardSurrogateKeyDb(DbContextOptions<UBoardSurrogateKeyDb> options
     }
 }
 
+/// <summary>A context whose revision and publication tables carry a foreign key to the board, with no cascade — what a schema made by hand often has.</summary>
+public class UBoardForeignKeyDb(DbContextOptions<UBoardForeignKeyDb> options) : DbContext(options)
+{
+    public DbSet<UBoardRow> Boards => Set<UBoardRow>();
+
+    public DbSet<UBoardRevisionRow> Revisions => Set<UBoardRevisionRow>();
+
+    public DbSet<UBoardPublicationRow> Publications => Set<UBoardPublicationRow>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UBoardRow>().HasKey(b => b.Id);
+        modelBuilder.Entity<UBoardRevisionRow>().HasKey(r => new { r.BoardId, r.Revision });
+        modelBuilder.Entity<UBoardRevisionRow>().HasOne<UBoardRow>().WithMany().HasForeignKey(r => r.BoardId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<UBoardPublicationRow>().HasKey(p => new { p.BoardId, p.Sequence });
+        modelBuilder.Entity<UBoardPublicationRow>().HasOne<UBoardRow>().WithMany().HasForeignKey(p => p.BoardId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 /// <summary>Like <see cref="UBoardSurrogateKeyDb"/> but the pair is not unique, so nothing stops two saves on one revision.</summary>
 public class UBoardNonUniquePairDb(DbContextOptions<UBoardNonUniquePairDb> options) : DbContext(options)
 {
@@ -308,6 +327,45 @@ public abstract class EFBoardStoreContract : IDisposable
         Assert.NotNull(await Board(provider, s => s.GetAsync("line")));
         Assert.Single(await Board(provider, s => s.ListRevisionsAsync("line")));
         Assert.Single(await Board(provider, s => s.ListPublicationsAsync("line")));
+    }
+
+    // A delete that starts together with saves and publications of the same board must not leave their rows behind with no board:
+    // it either finishes before them (they find no board) or after them (it removes what they wrote). A racer that the engine
+    // turns away — a lock timeout, a deadlock victim — is not what is asked here; the state at the end is. SQLite serializes its
+    // writers, so this is only a smoke test there; the engines that lock rows are where it can fail.
+    [Fact]
+    public async Task A_delete_racing_with_saves_and_publications_leaves_no_rows_of_the_board_behind()
+    {
+        using var provider = Start();
+        for (var round = 0; round < 12; round++)
+        {
+            var id = $"race{round}";
+            await Board(provider, s => s.CreateAsync(id, "Race", Doc("a"), "ana"));
+            var gate = new TaskCompletionSource();
+            var racers = new List<Task>();
+            async Task Racer(Func<IyuBoardService, Task> work)
+            {
+                await gate.Task;
+                try { await Board(provider, async s => { await work(s); return 0; }); }
+                catch (Exception) { /* turned away by the engine: only the state at the end is judged */ }
+            }
+
+            racers.Add(Task.Run(() => Racer(s => s.DeleteAsync(id))));
+            for (var i = 0; i < 3; i++)
+            {
+                racers.Add(Task.Run(() => Racer(s => s.SaveAsync(id, Doc("b"), 1, "bo"))));
+                racers.Add(Task.Run(() => Racer(s => s.PublishAsync(id, 1, "bo"))));
+            }
+
+            gate.SetResult();
+            await Task.WhenAll(racers);
+
+            if (await Board(provider, s => s.GetAsync(id)) is null)
+            {
+                Assert.Empty(await Board(provider, s => s.ListRevisionsAsync(id)));
+                Assert.Empty(await Board(provider, s => s.ListPublicationsAsync(id)));
+            }
+        }
     }
 
     [Fact]
@@ -680,5 +738,46 @@ public sealed class EFBoardStoreSurrogateKeyTests : IDisposable
         Assert.Contains("(BoardId, Revision)", failure.Message);
         Assert.DoesNotContain("UBoardSurrogatePublicationRow", failure.Message);
         await Task.CompletedTask;
+    }
+}
+
+/// <summary>A delete on tables that carry a foreign key from the children to the board: the children have to go before the board.</summary>
+public sealed class EFBoardStoreForeignKeyTests : IDisposable
+{
+    private readonly string _file = Path.Combine(Path.GetTempPath(), $"iyu-uboard-{Guid.NewGuid():N}.db");
+
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools();
+        File.Delete(_file);
+    }
+
+    [Fact]
+    public async Task A_delete_succeeds_where_the_revisions_and_the_history_hold_a_foreign_key_to_the_board()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDbContext<UBoardForeignKeyDb>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddIyuUBoard<UBoardForeignKeyDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>();
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        using (var scope = provider.CreateScope())
+            scope.ServiceProvider.GetRequiredService<UBoardForeignKeyDb>().Database.EnsureCreated();
+
+        async Task<T> Run<T>(Func<IyuBoardService, Task<T>> work)
+        {
+            using var scope = provider.CreateScope();
+            return await work(scope.ServiceProvider.GetRequiredService<IyuBoardService>());
+        }
+
+        await Run(s => s.CreateAsync("plant", "Plant", """{"t":"a"}""", "ana"));
+        await Run(s => s.SaveAsync("plant", """{"t":"b"}""", 1, "bo"));
+        await Run(s => s.PublishAsync("plant", 2, "bo"));
+
+        var deleted = await Run(s => s.DeleteAsync("plant"));
+
+        Assert.True(deleted);
+        Assert.Null(await Run(s => s.GetAsync("plant")));
+        Assert.Empty(await Run(s => s.ListRevisionsAsync("plant")));
+        Assert.Empty(await Run(s => s.ListPublicationsAsync("plant")));
     }
 }

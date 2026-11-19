@@ -131,6 +131,13 @@ public sealed class EFBoardStore<TContext, TBoard, TRevision, TPublication>(TCon
                         && !await context.Set<TRevision>().AsNoTracking().AnyAsync(r => r.BoardId == id && r.Revision == wanted, cancellationToken))
                         return null;
 
+                    // The board's pointer moves first. That takes the board's row lock, so a delete that is under way finishes before
+                    // this goes on (and the board is then gone: no line is written for it), and two publications of one board
+                    // are taken in turn. Nothing has been changed when the board is not there.
+                    var moved = await context.Set<TBoard>().Where(b => b.Id == id)
+                        .ExecuteUpdateAsync(s => s.SetProperty(b => b.PublishedRevision, revision), cancellationToken);
+                    if (moved == 0) return null;
+
                     var last = await context.Set<TPublication>().AsNoTracking()
                         .Where(p => p.BoardId == id).MaxAsync(p => (int?)p.Sequence, cancellationToken);
                     var line = new TPublication
@@ -151,8 +158,6 @@ public sealed class EFBoardStore<TContext, TBoard, TRevision, TPublication>(TCon
                         context.Entry(line).State = EntityState.Detached;
                     }
 
-                    await context.Set<TBoard>().Where(b => b.Id == id)
-                        .ExecuteUpdateAsync(s => s.SetProperty(b => b.PublishedRevision, revision), cancellationToken);
                     return ToRecord(line);
                 }, line => line is not null, cancellationToken);
             }
@@ -191,11 +196,18 @@ public sealed class EFBoardStore<TContext, TBoard, TRevision, TPublication>(TCon
     public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) =>
         InTransactionAsync(async () =>
         {
-            // The children first: nothing here assumes the host's tables carry a foreign key, and one that does would refuse the
-            // other order. All three deletes are one transaction, so a failure leaves the board whole.
+            // The board's row is taken first, by an update that changes nothing: the row's lock makes a save or a publication that is
+            // under way on the same board finish before this goes on, and one that starts after it find no board. The children are
+            // deleted after that, and so include anything such a save or publication wrote — none is left behind with no board — and
+            // the board last, which is the order a foreign key from the children to the board needs. All of it is one transaction,
+            // so a failure leaves the board whole.
+            if (await context.Set<TBoard>().Where(b => b.Id == id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(b => b.Name, b => b.Name), cancellationToken) == 0)
+                return false;
             await context.Set<TPublication>().Where(p => p.BoardId == id).ExecuteDeleteAsync(cancellationToken);
             await context.Set<TRevision>().Where(r => r.BoardId == id).ExecuteDeleteAsync(cancellationToken);
-            return await context.Set<TBoard>().Where(b => b.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+            await context.Set<TBoard>().Where(b => b.Id == id).ExecuteDeleteAsync(cancellationToken);
+            return true;
         }, deleted => deleted, cancellationToken);
 
     /// <summary>Boards are read without tracking: a conditional update does not refresh an entity the context is holding.</summary>
