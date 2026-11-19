@@ -364,6 +364,31 @@ public abstract class EFBoardStoreContract : IDisposable
     }
 
     [Fact]
+    public async Task The_earlier_publications_are_listed_newest_first_each_once_without_the_one_in_force_a_withdrawal_or_a_draft()
+    {
+        using var provider = Start();
+        await Board(provider, s => s.CreateAsync("plant", "Plant", Doc("r1"), "ana"));
+        await Board(provider, s => s.SaveAsync("plant", Doc("r2"), 1, "ana"));
+        await Board(provider, s => s.SaveAsync("plant", Doc("draft-3"), 2, "ana"));
+        await Board(provider, s => s.SaveAsync("plant", Doc("r4"), 3, "ana"));
+
+        Assert.Empty(await Board(provider, s => s.ListEarlierPublicationsAsync("plant")));
+
+        await Board(provider, s => s.PublishAsync("plant", 1, "ana"));
+        Assert.Empty(await Board(provider, s => s.ListEarlierPublicationsAsync("plant")));
+        await Board(provider, s => s.PublishAsync("plant", 2, "ana"));
+        await Board(provider, s => s.WithdrawAsync("plant", "ana"));
+        await Board(provider, s => s.PublishAsync("plant", 1, "ana"));
+        await Board(provider, s => s.PublishAsync("plant", 4, "ana"));
+
+        var earlier = await Board(provider, s => s.ListEarlierPublicationsAsync("plant"));
+
+        Assert.Equal([1, 2], earlier.Select(r => r.Revision).ToArray());
+        Assert.Equal([Doc("r1"), Doc("r2")], earlier.Select(r => r.Document).ToArray());
+        Assert.Empty(await Board(provider, s => s.ListEarlierPublicationsAsync("missing")));
+    }
+
+    [Fact]
     public async Task No_accepted_publication_is_found_for_a_board_that_is_not_published_or_has_nothing_earlier_to_fall_back_to()
     {
         using var provider = Start();

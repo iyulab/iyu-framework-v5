@@ -132,9 +132,37 @@ public sealed class IyuBoardService(IBoardStore store, TimeProvider time)
     }
 
     /// <summary>
+    /// The revisions that were ever published before the one in force, newest publication first, each once, with their documents.
+    /// This is what a reader falls back through when the publication in force is one its viewer refuses. A revision with a lower
+    /// number is not necessarily one that was ever published (it may be a draft), so the list comes from the publication history.
+    /// </summary>
+    /// <param name="id">The board's id.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>The revisions; empty when the board is not being published or nothing was published before the revision in force.</returns>
+    public async Task<IReadOnlyList<BoardRevisionRecord>> ListEarlierPublicationsAsync(string id, CancellationToken cancellationToken = default)
+    {
+        CheckId(id);
+
+        var board = await store.FindAsync(id, cancellationToken);
+        if (board?.PublishedRevision is not { } inForce) return [];
+
+        var earlier = new List<BoardRevisionRecord>();
+        var seen = new HashSet<int> { inForce };
+        foreach (var line in await store.ListPublicationsAsync(id, cancellationToken))
+        {
+            // A withdrawal names no revision, and a revision published again is listed once.
+            if (line.Revision is not { } revision || !seen.Add(revision)) continue;
+
+            if (await store.FindRevisionAsync(id, revision, cancellationToken) is { } found) earlier.Add(found);
+        }
+
+        return earlier;
+    }
+
+    /// <summary>
     /// For a board whose publication a viewer refused — the JSON was fine and the board language was not — finds the newest
-    /// revision published <i>before</i> the one in force that <paramref name="accepts"/>. A revision with a lower number is not
-    /// necessarily one that was ever published (it may be a draft), so the answer comes from the history, newest line first.
+    /// earlier publication (<see cref="ListEarlierPublicationsAsync"/>) that <paramref name="accepts"/>. For a host that can run
+    /// the check itself; a host whose check runs in the browser sends the list to the reader instead.
     /// </summary>
     /// <param name="id">The board's id.</param>
     /// <param name="accepts">Whether a document is one the viewer takes. The store never judges that.</param>
@@ -143,23 +171,8 @@ public sealed class IyuBoardService(IBoardStore store, TimeProvider time)
     public async Task<BoardRevisionRecord?> FindLastAcceptedPublicationAsync(
         string id, Func<string, bool> accepts, CancellationToken cancellationToken = default)
     {
-        CheckId(id);
         ArgumentNullException.ThrowIfNull(accepts);
-
-        var board = await store.FindAsync(id, cancellationToken);
-        if (board?.PublishedRevision is not { } inForce) return null;
-
-        var tried = new HashSet<int> { inForce };
-        foreach (var line in await store.ListPublicationsAsync(id, cancellationToken))
-        {
-            // A withdrawal names no revision, and a revision published again is looked at once.
-            if (line.Revision is not { } revision || !tried.Add(revision)) continue;
-
-            var found = await store.FindRevisionAsync(id, revision, cancellationToken);
-            if (found is not null && accepts(found.Document)) return found;
-        }
-
-        return null;
+        return (await ListEarlierPublicationsAsync(id, cancellationToken)).FirstOrDefault(found => accepts(found.Document));
     }
 
     private static void CheckId(string id)

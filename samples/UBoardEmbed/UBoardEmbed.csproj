@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>UBoardEmbed</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Iyu.UBoard\Iyu.UBoard.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard.EntityFrameworkCore\Iyu.UBoard.EntityFrameworkCore.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -25,4 +25,7 @@
   <Project Path="src/Iyu.FileServer.Azure/Iyu.FileServer.Azure.csproj" />
   <Project Path="src/Iyu.DocConvert/Iyu.DocConvert.csproj" />
   <Project Path="src/Iyu.Tests/Iyu.Tests.csproj" />
+  <Folder Name="/samples/">
+    <Project Path="samples/UBoardEmbed/UBoardEmbed.csproj" />
+  </Folder>
 </Solution>
