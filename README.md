@@ -53,7 +53,7 @@ What it does not do:
 The parts exchange plain files or a standard package, so each can be used without the others: parse models
 with M3L alone, run Schemorph on SQL you wrote yourself, run `mdd` and apply its SQL with another tool, or
 reference only the `Iyu.*` packages a host needs. The one hard dependency is that mdd-booster reads models
-through the published `M3L.Native` NuGet package. Each part's README links here for this overview.
+through the published `M3L.Native` NuGet package.
 
 ## From a model to a database
 
