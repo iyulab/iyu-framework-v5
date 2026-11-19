@@ -14,23 +14,30 @@ internal static class IyuUBoardBoardRoutes
     /// <summary>The largest document a request may carry, in bytes. A larger one is refused with 413.</summary>
     internal const int MaxDocumentBytes = 4 * 1024 * 1024;
 
+    /// <summary>The response header of the board list that carries the store offset to continue from. It is absent when the store has nothing more to look at.</summary>
+    internal const string NextSkipHeader = "X-UBoard-Next-Skip";
+
+    /// <summary>The most store rows one list request looks at (asks the access rules about). A list that reaches it answers where to go on.</summary>
+    internal const int MaxExamined = 1000;
+
+    // How many rows one read of the store asks for.
+    private const int ReadSize = 200;
+
     internal static void Map(RouteGroupBuilder group, bool assistant)
     {
         var boards = group.MapGroup("boards");
         boards.AddEndpointFilter(RefusedValue);
         boards.AddEndpointFilter(IyuUBoardRequestRules.RequireJsonWhenThereIsABody);
 
-        // Only the boards the caller may view, each with what the caller may do to it. The filter runs after the page is cut, so a
-        // page can hold fewer boards than asked for; a caller who sees a short page asks for the next skip.
-        boards.MapGet("", async (int? skip, int? take, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
+        // Only the boards the caller may view, each with what the caller may do to it. The route walks the store in order, hides what the
+        // caller may not view and stops at `take` boards, so a short page is not the end of the list: while the store has more to look at,
+        // the answer carries the offset to continue from in NextSkipHeader (no header means the store is exhausted). One request looks at
+        // no more than MaxExamined rows, so a caller who may view nothing cannot make it walk an unbounded store; when that bound is
+        // reached the page may be short or empty and the header says where to go on.
+        boards.MapGet("", async (int? skip, int? take, HttpResponse response, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
         {
-            var listed = new List<object>();
-            foreach (var b in await service.ListAsync(skip ?? 0, take ?? 100, cancellationToken))
-            {
-                if (!await access.AllowsAsync(user, BoardAction.View, b.Id, cancellationToken)) continue;
-                listed.Add(new { b.Id, b.Name, Revision = b.CurrentRevision, b.PublishedRevision, Can = await CanAsync(access, user, b.Id, cancellationToken) });
-            }
-
+            var (listed, next) = await ListVisibleAsync(skip ?? 0, take ?? 100, user, access, service, cancellationToken);
+            if (next is { } offset) response.Headers[NextSkipHeader] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return Results.Json(listed);
         });
 
@@ -146,6 +153,45 @@ internal static class IyuUBoardBoardRoutes
                 Catalog = settings.CatalogEnabled,
                 settings.DataRoot,
             }));
+
+    // The boards from store offset `skip` on that the caller may view, at most `take` of them, and the offset to continue from — null
+    // when nothing is left to look at. The offset is that of the first board the caller may view that this page did not take, so a
+    // page that fills up with the store's last visible board has no continuation; when the look was cut short by MaxExamined it is
+    // where the look stopped.
+    private static async Task<(List<object> Listed, int? Next)> ListVisibleAsync(
+        int skip, int take, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken)
+    {
+        // The same limits the service holds a page of the store to, checked here because the pages this asks of the store are not the caller's.
+        ArgumentOutOfRangeException.ThrowIfNegative(skip);
+        ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(take, 1000);
+
+        var listed = new List<object>();
+        var examined = 0;
+        var offset = skip;
+        while (examined < MaxExamined)
+        {
+            var asked = Math.Min(ReadSize, MaxExamined - examined);
+            var rows = await service.ListAsync(offset, asked, cancellationToken);
+            foreach (var b in rows)
+            {
+                examined++;
+                if (!await access.AllowsAsync(user, BoardAction.View, b.Id, cancellationToken))
+                {
+                    offset++;
+                    continue;
+                }
+
+                if (listed.Count == take) return (listed, offset);
+                listed.Add(new { b.Id, b.Name, Revision = b.CurrentRevision, b.PublishedRevision, Can = await CanAsync(access, user, b.Id, cancellationToken) });
+                offset++;
+            }
+
+            if (rows.Count < asked) return (listed, null);
+        }
+
+        return (listed, offset);
+    }
 
     // null when the caller may do it. A caller who may not even view the board is told it is not there, whatever they asked; one who may
     // view it but not do this is told so.
