@@ -41,6 +41,8 @@
     <ProjectReference Include="..\Iyu.UBoard\Iyu.UBoard.csproj" />
     <ProjectReference Include="..\Iyu.UBoard.EntityFrameworkCore\Iyu.UBoard.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\Iyu.UBoard.MainServer\Iyu.UBoard.MainServer.csproj" />
+    <!-- BoardChatSampleTests run the built sample as a process; this makes the tests build it first. Nothing of it is referenced. -->
+    <ProjectReference Include="..\..\samples\BoardChat\BoardChat.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Iyu.MainServer.ML\Iyu.MainServer.ML.csproj" />
     <ProjectReference Include="..\Iyu.FileServer\Iyu.FileServer.csproj" />
     <ProjectReference Include="..\Iyu.FileServer.Azure\Iyu.FileServer.Azure.csproj" />

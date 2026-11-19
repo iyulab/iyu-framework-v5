@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>BoardChat</RootNamespace>
+    <!-- The page under web/ is built by npm into wwwroot; none of it is part of the C# build. -->
+    <!-- wwwroot is served as plain files from the content root, and npm rewrites it at any time: it is not a build input. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    <DefaultItemExcludes>$(DefaultItemExcludes);web/**;model/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Iyu.MainServer\Iyu.MainServer.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard\Iyu.UBoard.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard.EntityFrameworkCore\Iyu.UBoard.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard.MainServer\Iyu.UBoard.MainServer.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/iyulab/mdd-booster/main/schemas/mdd.schema.json",
+  "sources": ["./tables.m3l.md"],
+  "targets": [
+    {
+      "type": "Model",
+      "projectPath": "../Entities_gen",
+      "namespace": "BoardChat.Entities",
+      "dbContextName": "SalesDb"
+    },
+    {
+      "type": "Api",
+      "projectPath": "../Server_gen",
+      "namespace": "BoardChat.Server",
+      "surfaces": ["odata"]
+    }
+  ]
+}
