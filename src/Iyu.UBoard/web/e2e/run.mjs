@@ -30,7 +30,9 @@ const BOARD = 'revenue';
 const SCREEN = '/uboard/ui';
 
 let steps = 0;
+let stepStarted = Date.now();
 const step = async (name, run) => {
+  stepStarted = Date.now();
   try {
     await run();
   } catch (error) {
@@ -38,7 +40,7 @@ const step = async (name, run) => {
     throw error;
   }
   steps += 1;
-  console.log(`  ok ${String(steps).padStart(2)}  ${name}`);
+  console.log(`  ok ${String(steps).padStart(2)}  ${name}  (${((Date.now() - stepStarted) / 1000).toFixed(1)}s)`);
 };
 const check = (condition, message) => {
   if (!condition) throw new Error(`assertion failed: ${message}`);
@@ -690,6 +692,48 @@ async function main() {
       check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r3 · you are editing r11'), await page.textContent('[data-testid=readers-note]'));
     });
 
+    await step('a person who may only read: the board opens, the chat answers only, no edit tool is offered, and nothing to publish or restore', async () => {
+      const readOnly = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'viewer' } });
+      await watch(readOnly);
+      const viewer = await readOnly.newPage();
+      watchConsole(viewer);
+      await viewer.goto(`${origin}${SCREEN}/boards/${boardId}`);
+      await viewer.waitForSelector('[data-testid=pill-readonly]');
+      equal(await viewer.locator('[data-testid=banner-invalid]').count(), 0, 'a sound draft is drawn');
+      check(await viewer.locator('[data-testid=grid] .tile').count() > 0, 'the board is drawn for a person who may only read');
+      equal(await viewer.locator('header [data-act=publish]').count(), 0, 'no Publish');
+      equal(await viewer.locator('header [data-act=reader]').count(), 0, 'no preview as reader');
+      check((await viewer.textContent('.ctx')).includes('Read only — answers only, no edits'), 'the chat says it is answers only');
+      equal(await viewer.locator('u-prompt textarea').getAttribute('placeholder'), 'Ask a question about this board…', 'the prompt invites a question');
+      await viewer.click('header [data-act=history]');
+      await viewer.waitForSelector('[data-testid=drawer]');
+      equal(await viewer.locator('[data-testid=drawer] [data-act=publish], [data-testid=drawer] [data-act=restore]').count(), 0, 'no publish and no restore in the history');
+      check(await viewer.locator('[data-testid=drawer] [data-act=compare]').count() > 0, 'compare is reading, it stays');
+      await viewer.click('[data-testid=drawer] [data-act=closehist]');
+      model.load([say('The board shows revenue by month, and I cannot change it for you.')]);
+      const before = model.requests.length;
+      await viewer.locator('u-prompt textarea').fill('What does this show?');
+      await viewer.locator('u-prompt textarea').press('Enter');
+      await viewer.waitForFunction(() => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > 0 && !document.querySelector('u-prompt').loading, null, { timeout: 30000 });
+      const sent = model.requests.slice(before);
+      equal(sent.length, 1, 'the model was asked once');
+      check(!sent[0].body.tools.some(tool => tool.function.name === 'patch_board'), 'the model was offered no tool that edits');
+      check(sent[0].body.tools.some(tool => tool.function.name === 'query_data'), 'it may still read');
+      equal(await viewer.locator('[data-testid=answer-only]').count(), 1, 'the answer is labelled');
+      // The routes are the ones that decide: the page left the buttons out, and the host would refuse them anyway.
+      const refused = await fetch(`${origin}/uboard/boards/${boardId}?expected=1`, { method: 'PUT', headers: { 'X-Sample-User': 'viewer', 'content-type': 'application/json' }, body: '{}' });
+      equal(refused.status, 403, 'an edit by the viewer is refused by the host');
+      const viewerList = await readOnly.newPage();
+      watchConsole(viewerList);
+      await viewerList.goto(`${origin}${SCREEN}`);
+      await viewerList.waitForSelector('[data-testid=board-list] table');
+      equal(await viewerList.locator('[data-act=newboard]').count(), 0, 'no new-board button for a person who may not make boards');
+      check((await viewerList.textContent('[data-testid=list-sub]')).includes('Creating boards is not enabled'), 'the list says why');
+      check((await viewerList.textContent('tr[data-board] .acc')).includes('Read only'), 'the row says read only');
+      await shot(viewer, 'readonly');
+      await readOnly.close();
+    });
+
     // 11 ------------------------------------------------------------------------------------------------- reader
     await step('reader view: the published revision only — no chat, no catalog, no edit marks', async () => {
       await page.click('header [data-act=reader]');
@@ -735,6 +779,26 @@ async function main() {
       equal(model.requests.length, asked, 'none of them reached the model');
     });
 
+    await step('a draft the board check refuses is told and not drawn, and the assistant says it cannot work on it without asking the model', async () => {
+      const readOnly = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'analyst' } });
+      await watch(readOnly);
+      const broken = await readOnly.newPage();
+      watchConsole(broken);
+      await broken.goto(`${origin}${SCREEN}/boards/${boardId}`);
+      await broken.waitForSelector('[data-testid=banner-invalid]');
+      equal(await broken.locator('[data-testid=grid] .tile').count(), 0, 'nothing of it is drawn');
+      check((await broken.textContent('[data-testid=banner-invalid]')).includes('does not pass the board check'), 'the banner says why');
+      const before = model.requests.length;
+      await broken.locator('u-prompt textarea').fill('Can you fix it?');
+      await broken.locator('u-prompt textarea').press('Enter');
+      await broken.waitForFunction(() => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > 0, null, { timeout: 30000 });
+      equal(model.requests.length, before, 'the model was not asked about a board it cannot be given');
+      await broken.click('header [data-act=history]');
+      await broken.waitForSelector('[data-testid=drawer]');
+      check(await broken.locator('[data-testid=drawer] [data-act=restore]').count() > 0, 'an earlier revision can be restored from the history');
+      await readOnly.close();
+    });
+
     await step('a question is answered and the board is not changed; the answer says so', async () => {
       await page.click('[data-act=editor]');
       await page.waitForSelector('[data-testid=chat]');
@@ -746,48 +810,6 @@ async function main() {
       check(model.requests.at(-1).body.tools.some(tool => tool.function.name === 'patch_board'), 'an editor is offered the edit tool, a question just does not use it');
     });
 
-    await step('a person who may only read: the board opens, the chat answers only, no edit tool is offered, and nothing to publish or restore', async () => {
-      const readOnly = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'viewer' } });
-      await watch(readOnly);
-      const viewer = await readOnly.newPage();
-      watchConsole(viewer);
-      await viewer.goto(`${origin}${SCREEN}/boards/${boardId}`);
-      await viewer.waitForSelector('[data-testid=pill-readonly]');
-      // The draft the earlier step left is one the viewer's check refuses: it is said, not drawn, and nothing stops.
-      equal(await viewer.locator('[data-testid=banner-invalid]').count(), 1, 'a draft the check refuses is told, not drawn');
-      equal(await viewer.locator('[data-testid=grid] .tile').count(), 0, 'nothing of it is drawn');
-      equal(await viewer.locator('header [data-act=publish]').count(), 0, 'no Publish');
-      equal(await viewer.locator('header [data-act=reader]').count(), 0, 'no preview as reader');
-      check((await viewer.textContent('.ctx')).includes('Read only — answers only, no edits'), 'the chat says it is answers only');
-      equal(await viewer.getAttribute('u-prompt', 'placeholder'), 'Ask a question about this board…', 'the prompt invites a question');
-      await viewer.click('header [data-act=history]');
-      await viewer.waitForSelector('[data-testid=drawer]');
-      equal(await viewer.locator('[data-testid=drawer] [data-act=publish], [data-testid=drawer] [data-act=restore]').count(), 0, 'no publish and no restore in the history');
-      check(await viewer.locator('[data-testid=drawer] [data-act=compare]').count() > 0, 'compare is reading, it stays');
-      await viewer.click('[data-testid=drawer] [data-act=closehist]');
-      model.load([say('The board shows revenue by month, and I cannot change it for you.')]);
-      const before = model.requests.length;
-      await viewer.locator('u-prompt textarea').fill('What does this show?');
-      await viewer.locator('u-prompt textarea').press('Enter');
-      await viewer.waitForFunction(() => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > 0 && !document.querySelector('u-prompt').loading, null, { timeout: 30000 });
-      const sent = model.requests.slice(before);
-      equal(sent.length, 1, 'the model was asked once');
-      check(!sent[0].body.tools.some(tool => tool.function.name === 'patch_board'), 'the model was offered no tool that edits');
-      check(sent[0].body.tools.some(tool => tool.function.name === 'query_data'), 'it may still read');
-      equal(await viewer.locator('[data-testid=answer-only]').count(), 1, 'the answer is labelled');
-      // The routes are the ones that decide: the page left the buttons out, and the host would refuse them anyway.
-      const refused = await fetch(`${origin}/uboard/boards/${boardId}?expected=1`, { method: 'PUT', headers: { 'X-Sample-User': 'viewer', 'content-type': 'application/json' }, body: '{}' });
-      equal(refused.status, 403, 'an edit by the viewer is refused by the host');
-      const viewerList = await readOnly.newPage();
-      watchConsole(viewerList);
-      await viewerList.goto(`${origin}${SCREEN}`);
-      await viewerList.waitForSelector('[data-testid=board-list] table');
-      equal(await viewerList.locator('[data-act=newboard]').count(), 0, 'no new-board button for a person who may not make boards');
-      check((await viewerList.textContent('[data-testid=list-sub]')).includes('Creating boards is not enabled'), 'the list says why');
-      check((await viewerList.textContent('tr[data-board] .acc')).includes('Read only'), 'the row says read only');
-      await shot(viewer, 'readonly');
-      await readOnly.close();
-    });
 
     await step('the list shows the board with what this person may do to it; a board the host does not hold is not there', async () => {
       await page.goto(`${origin}${SCREEN}`);
