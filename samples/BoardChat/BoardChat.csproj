@@ -3,10 +3,8 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <RootNamespace>BoardChat</RootNamespace>
-    <!-- The page under web/ is built by npm into wwwroot; none of it is part of the C# build. -->
-    <!-- wwwroot is served as plain files from the content root, and npm rewrites it at any time: it is not a build input. -->
-    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
-    <DefaultItemExcludes>$(DefaultItemExcludes);web/**;model/**</DefaultItemExcludes>
+    <!-- The model is the input of the generator, not of this build. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);model/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

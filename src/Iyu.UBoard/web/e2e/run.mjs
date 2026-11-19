@@ -1,12 +1,13 @@
-// End-to-end run of the board chat sample, in a real browser against the real host.
+// End-to-end run of the board screen the library serves, in a real browser against a real host (the board chat sample).
 //
 // What is real: the host (started here on a free port with a throwaway database), its OData service, the catalog, the board
-// routes, publishing, the page and the viewer — and the assistant's route, with IronHive.Agent and IronProw behind it. What is scripted is
-// the model service: a small OpenAI-compatible server here answers the host's requests with canned replies (tool calls included, sent as
-// the stream the host asks for), so no key and no model are needed. Everything the assistant does with those replies — the loop, the
-// host-run tools, reading the catalog, querying, checking and saving the board — goes through the real page and host.
+// routes, publishing, the screen the library serves and the viewer in it — and the assistant's route, with IronHive.Agent and IronProw
+// behind it. What is scripted is the model service: a small OpenAI-compatible server here answers the host's requests with canned replies
+// (tool calls included, sent as the stream the host asks for), so no key and no model are needed. Everything the assistant does with
+// those replies — the loop, the host-run tools, reading the catalog, querying, checking and saving the board — goes through the real page
+// and host. The page's Content-Security-Policy is held to: a violation, or a console error, fails the run.
 //
-//   node e2e/run.mjs        (from samples/BoardChat/web; prints E2E-OK steps=N; BOARDCHAT_SHOTS_DIR chooses where the screenshots go)
+//   node e2e/run.mjs        (from src/Iyu.UBoard/web; prints E2E-OK steps=N; BOARDCHAT_SHOTS_DIR chooses where the screenshots go)
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
@@ -19,12 +20,14 @@ import { calls, say } from '../testkit/world.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const web = resolve(here, '..');
-const sample = resolve(web, '..');
+const sample = resolve(web, '../../../samples/BoardChat');
 // Screenshots go to BOARDCHAT_SHOTS_DIR when it is set, else to e2e/screenshots (not committed).
 const imagesDir = process.env.BOARDCHAT_SHOTS_DIR ? resolve(process.env.BOARDCHAT_SHOTS_DIR) : join(here, 'screenshots');
 const HOST_KEY = 'host-held-key';
 const MODEL_NAME = 'scripted-model';
 const sleep = ms => new Promise(done => setTimeout(done, ms));
+const BOARD = 'revenue';
+const SCREEN = '/uboard/ui';
 
 let steps = 0;
 const step = async (name, run) => {
@@ -73,9 +76,8 @@ const freePort = () =>
     server.on('error', fail);
   });
 
+// The library's build builds the screen (npm) and embeds it, so building the sample builds what the browser is shown.
 function build() {
-  const vite = spawnSync(process.execPath, [join(web, 'node_modules/vite/bin/vite.js'), 'build'], { cwd: web, encoding: 'utf8' });
-  if (vite.status !== 0) throw new Error(`the page did not build:\n${vite.stdout}${vite.stderr}`);
   const dotnet = spawnSync('dotnet', ['build', join(sample, 'BoardChat.csproj'), '-v', 'q', '-nologo'], { encoding: 'utf8' });
   if (dotnet.status !== 0) throw new Error(`the host did not build:\n${dotnet.stdout}${dotnet.stderr}`);
 }
@@ -84,7 +86,6 @@ function build() {
 async function startHost(port, work, modelUrl) {
   const app = join(work, 'app');
   cpSync(join(sample, 'bin/Debug/net10.0'), app, { recursive: true });
-  cpSync(join(sample, 'wwwroot'), join(app, 'wwwroot'), { recursive: true });
   const child = spawn('dotnet', [join(app, 'BoardChat.dll'), '--urls', `http://127.0.0.1:${port}`, '--Database', join(work, 'boardchat.db')], {
     cwd: app,
     env: { ...process.env, Model__BaseUrl: modelUrl, Model__ApiKey: HOST_KEY, Model__Name: MODEL_NAME, ASPNETCORE_ENVIRONMENT: 'Production' },
@@ -285,17 +286,36 @@ async function main() {
   const hostProcess = await startHost(port, work, await model.listen());
   const browser = await chromium.launch({ executablePath: findBrowser() });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // The sample signs in by a header (a host puts its own authentication in front of the same routes): the analyst makes and edits boards.
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'analyst' } });
+    // A page the policy refuses something on says so by an event; every page of every context is watched from its first script.
+    const watch = async target => {
+      await target.addInitScript(() => {
+        window.__violations = [];
+        document.addEventListener('securitypolicyviolation', event => window.__violations.push(`${event.violatedDirective} ${event.blockedURI}`));
+      });
+    };
+    await watch(context);
     const page = await context.newPage();
     const pageErrors = [];
+    const policyProblems = [];
     const odata = [];
-    page.on('pageerror', error => { pageErrors.push(error.message); console.error('pageerror:', error.message); }); page.on('console', m => { if (m.type() === 'error') console.error('console:', m.text()); });
+    const watchConsole = target => {
+      target.on('pageerror', error => { pageErrors.push(error.message); console.error('pageerror:', error.message); });
+      target.on('console', m => {
+        if (m.type() !== 'error') return;
+        console.error('console:', m.text());
+        if (/Content.Security.Policy/i.test(m.text())) policyProblems.push(m.text());
+      });
+    };
+    watchConsole(page);
     page.on('request', request => {
       if (request.url().includes('/$data/')) odata.push(decodeURI(request.url().slice(origin.length)));
     });
 
+    let boardId = BOARD;
     const api = async (path, init = {}) => {
-      const response = await fetch(`${origin}/uboard/boards/revenue${path}`, { ...init, headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...init.headers } });
+      const response = await fetch(`${origin}/uboard/boards/${boardId}${path}`, { ...init, headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...init.headers } });
       return { status: response.status, body: response.status === 204 ? null : await response.json().catch(() => null) };
     };
     const hostRevision = async () => (await api('')).body.revision;
@@ -315,6 +335,12 @@ async function main() {
       await page.click(`.chip[data-chip="${label}"]`);
       await settle(before);
     };
+    // What a person types for each turn of the scripted conversation (the screen's starters name none of this data).
+    const ASK = {
+      first: 'Show monthly revenue for 2026, with total revenue, order count and average order value up top.',
+      second: 'Split revenue by region as stacked bars, and add the top 5 products.',
+      third: 'Only paid orders — and mark the months under our 30k target.',
+    };
     const lastSteps = () => page.$$eval('#msgs [data-role=assistant]:last-of-type .step', rows => rows.map(row => ({ label: row.querySelector('b').textContent, state: row.dataset.state, outcome: row.dataset.outcome, kind: row.dataset.step, raw: row.querySelector('pre')?.textContent ?? null })));
     const mark = id => page.getAttribute(`.tile[data-id=${id}]`, 'data-mark');
     // The viewer draws its widgets in shadow roots, which textContent does not enter: read the text through them.
@@ -333,36 +359,51 @@ async function main() {
     const pill = testid => page.textContent(`[data-testid=${testid}]`);
 
     // 1 -------------------------------------------------------------------------------------------------- start
-    await step('the empty board: a catalog with a locked field, starting chips, no revisions', async () => {
-      await page.goto(origin);
+    await step('the list: no boards yet, a button to make one because the application lets this person; the page carries its policy', async () => {
+      const response = await page.goto(`${origin}${SCREEN}`);
+      equal(response.status(), 200, 'the list page');
+      const policy = response.headers()['content-security-policy'] ?? '';
+      check(/script-src 'self'(;|$)/.test(policy) && policy.includes("default-src 'none'") && policy.includes("frame-ancestors 'none'"), `a restrictive policy: ${policy}`);
+      equal(response.headers()['x-content-type-options'], 'nosniff', 'nosniff');
+      await page.waitForSelector('[data-testid=no-boards]');
+      check((await page.textContent('[data-testid=no-boards]')).includes('No boards yet'), 'the empty state');
+      equal(await page.locator('.top [data-act=newboard]').count(), 1, 'a new-board button');
+      equal(await page.locator('.cat').count(), 0, 'no catalog pane: the catalog is the assistant\'s tool, not a screen');
+      await shot(page, 'list-empty');
+    });
+
+    await step('a new board: a name, then an empty board that is the person\'s to edit, with starters and no revision of content yet', async () => {
+      await page.click('.top [data-act=newboard]');
+      await page.waitForSelector('[data-testid=new-board-dialog]');
+      equal(await page.locator('[data-act=createboard]').isDisabled(), true, 'a board needs a name');
+      await page.fill('[aria-label="Board name"]', 'Revenue overview');
+      await page.click('[data-act=createboard]');
       await page.waitForSelector('[data-testid=empty-board]');
-      check((await page.textContent('h2')) === 'This board is empty' || true, 'empty heading');
-      equal(await pill('pill-draft'), 'New board', 'draft pill');
-      check(await page.locator('.cat .set .n', { hasText: 'Orders' }).count() === 1, 'the catalog lists Orders');
-      const margin = page.locator('.f[data-field="Orders.Margin"]');
-      equal(await margin.getAttribute('data-locked'), 'true', 'Margin is locked for the analyst');
-      equal(await margin.getAttribute('data-tip'), 'Hidden by a read policy for your role', 'the lock explains itself');
-      check((await page.locator('.chip').count()) === 4, 'four starting chips');
-      equal((await api('')).status, 404, 'the host holds no board yet');
+      const where = new URL(page.url());
+      check(/^\/uboard\/ui\/boards\/revenue-overview-[0-9a-f]{4}$/.test(where.pathname), `the board's own page: ${where.pathname}`);
+      boardId = where.pathname.split('/').pop();
+      equal((await page.textContent('[data-testid=board-title]')), 'Revenue overview', 'the name');
+      check((await page.locator('.chip').count()) === 2, 'two starting chips');
+      equal(await page.locator('[data-testid=pill-readonly]').count(), 0, 'not read only');
+      equal((await api('')).body.revision, 1, 'the host holds the empty board');
       await shot(page, 'start');
     });
 
     // 2 -------------------------------------------------------------------------------------------------- turn 1
-    await step('conversation 1: one sentence builds KPIs and a line, r1 is saved, tiles are marked new', async () => {
+    await step('conversation 1: one sentence builds KPIs and a line, a revision is saved, tiles are marked new', async () => {
       model.load(TURN1);
-      await chip('Monthly revenue with KPIs');
+      await say_(ASK.first);
       const rows = await lastSteps();
       equal(rows.map(r => r.kind).join(','), 'catalog,query,board', 'step kinds');
       check(rows.every(r => r.state === 'done'), 'all steps done');
-      equal(rows[2].label, 'Created the board · r1', 'board step label');
+      equal(rows[2].label, 'Edited the board · r2', 'board step label');
       for (const id of ['k1', 'k2', 'k3', 'rev']) equal(await mark(id), 'new', `${id} is new`);
-      equal(await pill('pill-draft'), 'Draft r1', 'draft pill');
-      equal(await hostRevision(), 1, 'the host kept r1');
+      equal(await pill('pill-draft'), 'Draft r2', 'draft pill');
+      equal(await hostRevision(), 2, 'the host kept r2 (r1 is the empty board made with it)');
       for (let i = 0; i < 40 && !/\d+(\.\d)?K/.test(await tileText('k1')); i++) await sleep(250);
       check(/\d+(\.\d)?K/.test(await tileText('k1')), `KPI shows a value: ${await tileText('k1')}`);
       check((await tileText('k2')).includes('533'), 'order count 533 read from the host');
       check(await page.locator('.tile[data-id=rev] canvas, .tile[data-id=rev] svg').count() > 0, 'the line chart drew');
-      check(await page.locator('.f[data-field="Orders.Total"] .u:not(.off)').count() === 1, 'the catalog marks Orders.Total as used');
       await shot(page, 'turn1');
     });
 
@@ -379,13 +420,13 @@ async function main() {
     // 3 -------------------------------------------------------------------------------------------------- turn 2
     await step('conversation 2: a tile changes kind and two are added — one edited, two new, r2', async () => {
       model.load(TURN2);
-      await chip('Split by region and add top products');
+      await say_(ASK.second);
       equal(await mark('rev'), 'edited', 'rev edited');
       equal(await mark('top'), 'new', 'top new');
       equal(await mark('region'), 'new', 'region new');
       equal(await mark('k1'), null === null ? '' : '', 'k1 unmarked');
-      equal(await hostRevision(), 2, 'host at r2');
-      check((await page.textContent('.tile[data-id=rev] .pill')).includes('edited in r2'), 'badge says edited in r2');
+      equal(await hostRevision(), 3, 'host at r3');
+      check((await page.textContent('.tile[data-id=rev] .pill')).includes('edited in r3'), 'badge says edited in r3');
       check((await tileText('top')).includes('Delta Max'), 'top products from the host');
       await shot(page, 'turn2');
     });
@@ -394,13 +435,14 @@ async function main() {
     await step('conversation 3: the filter reaches every read; while the save is slow only changed tiles show skeletons', async () => {
       model.load(TURN3);
       let held = false;
-      await page.route('**/uboard/boards/revenue?expected=2', async route => {
+      await page.route('**/uboard/boards/*?expected=3', async route => {
         held = true;
         await sleep(2500);
         await route.continue();
       });
       const before = await replies();
-      await page.click('.chip[data-chip="Only paid orders, mark months under target"]');
+      await page.locator('u-prompt textarea').fill(ASK.third);
+      await page.locator('u-prompt textarea').press('Enter');
       await page.waitForSelector('.tile[data-loading=true]');
       const loading = await page.$$eval('.tile[data-loading=true]', tiles => tiles.map(t => t.dataset.id).sort());
       check(loading.length >= 1 && loading.every(id => ['k1', 'k2', 'k3', 'rev', 'region', 'top'].includes(id)), `skeletons only on tiles the edit touches: ${loading}`);
@@ -408,10 +450,10 @@ async function main() {
       check(running.includes('running'), `a step is running: ${running}`);
       await shot(page, 'loading');
       await settle(before);
-      await page.unroute('**/uboard/boards/revenue?expected=2');
+      await page.unroute('**/uboard/boards/*?expected=3');
       check(held, 'the save was held');
       for (const id of ['k1', 'k2', 'k3', 'rev', 'region', 'top']) equal(await mark(id), 'edited', `${id} edited`);
-      equal(await hostRevision(), 3, 'host at r3');
+      equal(await hostRevision(), 4, 'host at r4');
       check((await deepTextOf('#msgs')).includes('paid orders only'), 'the reply says paid only');
       await shot(page, 'turn3');
     });
@@ -430,16 +472,11 @@ async function main() {
       const reply = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
       check(reply.includes('Orders.Margin is hidden by a read policy for your role'), reply);
       check(/Orders\.Total/.test(reply), 'an alternative is offered');
-      check(await page.locator('.f.flash[data-field="Orders.Margin"]').count() === 1, 'the locked field flashes in the catalog');
-      equal(await hostRevision(), 3, 'nothing was saved');
+      equal(await hostRevision(), 4, 'nothing was saved');
       await shot(page, 'policy');
     });
 
-    await step('the other user may read it: switching sign-in reloads the catalog without the lock', async () => {
-      await page.selectOption('#who', 'finance');
-      await page.waitForFunction(() => document.querySelector('.f[data-field="Orders.Margin"]')?.dataset.locked === 'false');
-      await page.selectOption('#who', 'analyst');
-      await page.waitForFunction(() => document.querySelector('.f[data-field="Orders.Margin"]')?.dataset.locked === 'true');
+    await step('the other user may read it: the host answers each person as they are, the screen holds no sign-in of its own', async () => {
       const asFinance = await (await fetch(`${origin}/$data/Orders?$select=Margin&$top=1`, { headers: { 'X-Sample-User': 'finance' } })).status;
       const asAnalyst = await (await fetch(`${origin}/$data/Orders?$select=Margin&$top=1`, { headers: { 'X-Sample-User': 'analyst' } })).status;
       equal(asFinance, 200, 'the host lets finance read Margin');
@@ -458,7 +495,7 @@ async function main() {
       const rowsDrawn = await page.locator('.tile[data-id=orders] tbody tr').count();
       check(rowsDrawn > 0 && rowsDrawn <= 50, `table drew ${rowsDrawn} rows, at most one page`);
       check((await page.textContent('.tile[data-id=orders] [data-testid=page-note]')).includes('Showing 1–50 of 640'), 'the tile says it shows 50 of 640');
-      equal(await hostRevision(), 4, 'host at r4');
+      equal(await hostRevision(), 5, 'host at r5');
       await page.evaluate(() => document.querySelector('.cbody').scrollTo(0, 100000));
       await shot(page, 'large');
     });
@@ -474,7 +511,7 @@ async function main() {
       check(query.label === 'Queried Orders', 'query label');
       equal(await page.locator('.tile[data-id=refunds] [data-empty=true]').count(), 1, 'the tile explains the emptiness');
       check((await tileText('refunds')).includes('Nothing matches yet'), 'tile copy');
-      equal(await hostRevision(), 5, 'host at r5');
+      equal(await hostRevision(), 6, 'host at r6');
       await page.evaluate(() => document.querySelector('.cbody').scrollTo(0, 100000));
       await shot(page, 'nodata');
     });
@@ -489,10 +526,10 @@ async function main() {
       await page.getByRole('button', { name: 'Stop generating' }).click();
       await settle(before);
       const stopped = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
-      check(stopped.startsWith('Stopped. The board is at r5'), stopped);
+      check(stopped.startsWith('Stopped. The board is at r6'), stopped);
       await say_('Are you still there?');
       check((await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]')).includes('Back again'), 'the conversation goes on after a stop');
-      equal(await hostRevision(), 5, 'host still at r5');
+      equal(await hostRevision(), 6, 'host still at r6');
     });
 
     // 8 -------------------------------------------------------------------------------------------------- error
@@ -507,7 +544,7 @@ async function main() {
       const reply = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
       check(reply.includes('Nothing was saved') && reply.includes('/parts/cum/as'), reply);
       equal(await page.locator('[data-testid=banner-rejected]').count(), 1, 'the banner says the edit was rejected');
-      equal(await hostRevision(), 5, 'the host still holds r5');
+      equal(await hostRevision(), 6, 'the host still holds r6');
       equal(await page.locator('.tile[data-id=cum]').count(), 0, 'the refused tile is not on the board');
       await page.evaluate(() => document.querySelector('.cbody').scrollTo(0, 0));
       await shot(page, 'error');
@@ -518,19 +555,19 @@ async function main() {
       const current = (await api('')).body;
       const other = structuredClone(current.document);
       other.parts.rev.title = 'Monthly revenue (finance view)';
-      const saved = await fetch(`${origin}/uboard/boards/revenue?expected=${current.revision}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'X-Sample-User': 'finance' }, body: JSON.stringify(other) });
+      const saved = await fetch(`${origin}/uboard/boards/${boardId}?expected=${current.revision}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'X-Sample-User': 'finance' }, body: JSON.stringify(other) });
       equal(saved.status, 200, 'the other session saved');
       model.load(CONFLICT);
       await say_('Make the target line red.');
       equal(await page.locator('[data-testid=banner-conflict]').count(), 1, 'conflict banner');
-      check((await page.textContent('[data-testid=banner-conflict]')).includes('Another session saved r6 while you were on r5'), await page.textContent('[data-testid=banner-conflict]'));
+      check((await page.textContent('[data-testid=banner-conflict]')).includes('Another session saved r7 while you were on r6'), await page.textContent('[data-testid=banner-conflict]'));
       const rows = await lastSteps();
       const board = rows.find(r => r.kind === 'board');
       equal(board.outcome, 'conflict', 'conflict outcome');
-      check(/^PUT \/uboard\/boards\/revenue\?expected=5 → 409 Conflict$/.test(board.raw), board.raw);
+      check(/^PUT \/uboard\/boards\/revenue-overview-[0-9a-f]{4}\?expected=6 → 409 Conflict$/.test(board.raw), board.raw);
       const reply = await deepTextOf('#msgs [data-role=assistant]:last-of-type [data-testid=reply]');
-      check(reply.includes("wasn't saved") && reply.includes('r6'), reply);
-      equal(await hostRevision(), 6, 'the other session\'s r6 stands');
+      check(reply.includes("wasn't saved") && reply.includes('r7'), reply);
+      equal(await hostRevision(), 7, 'the other session\'s r7 stands');
       equal((await api('')).body.document.parts.rev.referenceLines[0].color, '#c92a2a', 'the refused change did not land');
       await page.evaluate(() => document.querySelector('.cbody').scrollTo(0, 0));
       await shot(page, 'conflict');
@@ -539,12 +576,12 @@ async function main() {
     await step('conflict: reload the new revision and the same edit is applied on top of it', async () => {
       model.load(RETRY);
       const before = await replies();
-      await page.click('.chip[data-chip="Reload r6 and retry"]');
+      await page.click('.chip[data-chip="Reload r7 and retry"]');
       await settle(before + 0);
       await page.waitForFunction(() => !document.querySelector('u-prompt').loading);
-      await page.waitForFunction(() => document.querySelector('[data-testid=pill-draft]').textContent === 'Draft r7');
+      await page.waitForFunction(() => document.querySelector('[data-testid=pill-draft]').textContent === 'Draft r8');
       const saved = (await api('')).body;
-      equal(saved.revision, 7, 'host at r7');
+      equal(saved.revision, 8, 'host at r8');
       equal(saved.document.parts.rev.referenceLines[0].color, '#d92d20', 'the edit landed');
       equal(saved.document.parts.rev.title, 'Monthly revenue (finance view)', 'the other session\'s change is kept');
       equal(await page.locator('[data-testid=banner-conflict]').count(), 0, 'the banner is gone');
@@ -554,7 +591,7 @@ async function main() {
     await step('board variable: a filter for the whole board is one variable — changing it above the board asks the reads again', async () => {
       model.load(VARIABLE_FILTER);
       await say_('Let me pick the order status for the whole board.');
-      equal(await hostRevision(), 8, 'host at r8');
+      equal(await hostRevision(), 9, 'host at r9');
       const saved = (await api('')).body.document;
       check(saved.variables?.status?.options?.includes('pending'), 'the board declares the variable with its options');
       check(saved.data.region.path.includes("{{$status}}") && !saved.data.region.path.includes("Status eq 'paid'"), 'the read mentions the variable instead of a literal');
@@ -567,14 +604,14 @@ async function main() {
       await sleep(1200);
       check(asked().some(url => url.includes("Status eq 'pending'")), `the read was asked again with the chosen status: ${asked().slice(-2)}`);
       check((await page.locator('.tile[data-id=region] .tbody').count()) === 1, 'the tile is still drawn');
-      equal(await hostRevision(), 8, 'choosing a value saves nothing');
+      equal(await hostRevision(), 9, 'choosing a value saves nothing');
       await shot(page, 'variables');
     });
 
     await step('table paging on the server: a skip variable walks the rows, the board holds one page at a time', async () => {
       model.load(VARIABLE_PAGING);
       await say_('Page through the latest orders.');
-      equal(await hostRevision(), 9, 'host at r9');
+      equal(await hostRevision(), 10, 'host at r10');
       await page.waitForSelector('select[data-var=skip]');
       const note = () => page.textContent('.tile[data-id=orders] [data-testid=page-note]');
       const firstRow = () => page.locator('.tile[data-id=orders] tbody tr').first().textContent();
@@ -612,7 +649,7 @@ async function main() {
       check(context.neighbours.some(n => n.id === 'region') && context.neighbours.every(n => n.id !== 'rev'), 'the neighbours are named, the selection is not among them');
       check(context.reads.month && !context.reads.region, 'the read the part uses is carried, the neighbours reads are not');
       check(context.untrusted.rev?.title?.includes('Monthly revenue'), 'the title travels as data');
-      equal(await hostRevision(), 10, 'host at r10');
+      equal(await hostRevision(), 11, 'host at r11');
       equal((await api('')).body.document.parts.rev.as, 'chart.line', 'the pointed part changed');
       check((await page.locator('[data-role=user]').last().locator('[data-testid=user-on]').textContent()).includes('Monthly revenue'), 'the message says what it was about');
       equal(await page.locator('[data-testid=selection-chip]').count(), 0, 'pointing is cleared once the message is sent');
@@ -620,36 +657,37 @@ async function main() {
     });
 
     // 10 ------------------------------------------------------------------------------------------------- history
-    await step('history drawer: revisions r1…r10 with who saved them, compare shows what a revision changed', async () => {
+    await step('history drawer: revisions r1…r11 with who saved them, compare shows what a revision changed', async () => {
       await page.click('header [data-act=history]');
       await page.waitForSelector('[data-testid=drawer]');
-      equal(await page.locator('[data-testid=drawer] .dr').count(), 10, 'ten revisions');
-      check((await page.textContent('[data-testid=drawer] .dr[data-rev="10"]')).includes('draft'), 'r10 is the draft');
-      await page.click('[data-testid=drawer] .dr[data-rev="2"] [data-act=compare]');
+      equal(await page.locator('[data-testid=drawer] .dr').count(), 11, 'eleven revisions');
+      check((await page.textContent('[data-testid=drawer] .dr[data-rev="11"]')).includes('draft'), 'r11 is the draft');
+      await page.click('[data-testid=drawer] .dr[data-rev="3"] [data-act=compare]');
       const text = await page.textContent('[data-testid=compare]');
       check(text.includes('rev (edited)') && text.includes('top (new)') && text.includes('region (new)'), text);
       await shot(page, 'history');
     });
 
-    await step('publish r2, then r3 — readers follow the pointer; republishing r2 is the rollback', async () => {
+    await step('publish r3, then r4 — readers follow the pointer; republishing r3 is the rollback', async () => {
       const publishFromDrawer = async n => {
         await page.click(`[data-testid=drawer] .dr[data-rev="${n}"] [data-act=publish]`);
         await page.waitForSelector('[data-testid=publish-modal]');
         await page.click('[data-act=confirmpub]');
         await page.waitForFunction(r => document.querySelector('[data-testid=pill-published]')?.textContent === `Published r${r}`, n);
       };
-      await publishFromDrawer(2);
-      equal((await api('/published')).body.revision, 2, 'published r2');
-      await page.click('header [data-act=history]');
       await publishFromDrawer(3);
       equal((await api('/published')).body.revision, 3, 'published r3');
-      check((await deepTextOf('#msgs')).includes('r2 is one click away if you need to roll back'), 'the chat says how to roll back');
+      check((await page.textContent('[data-testid=banner-notice]')).includes('Published r3'), 'the board says what was published');
       await page.click('header [data-act=history]');
-      await publishFromDrawer(2);
-      equal((await api('/published')).body.revision, 2, 'rolled back to r2');
+      await publishFromDrawer(4);
+      equal((await api('/published')).body.revision, 4, 'published r4');
+      check((await deepTextOf('#msgs')).includes('r3 is one click away if you need to roll back'), 'the chat says how to roll back');
+      await page.click('header [data-act=history]');
+      await publishFromDrawer(3);
+      equal((await api('/published')).body.revision, 3, 'rolled back to r3');
       const history = (await api('/publications')).body;
       equal(history.length, 3, 'the host kept three publication events');
-      check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r2 · you are editing r10'), await page.textContent('[data-testid=readers-note]'));
+      check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r3 · you are editing r11'), await page.textContent('[data-testid=readers-note]'));
     });
 
     // 11 ------------------------------------------------------------------------------------------------- reader
@@ -657,10 +695,9 @@ async function main() {
       await page.click('header [data-act=reader]');
       await page.waitForSelector('[data-testid=reader][data-reader-state=published]');
       equal(await page.locator('.chat').count(), 0, 'no chat');
-      equal(await page.locator('.cat').count(), 0, 'no catalog');
-      equal(await page.locator('[data-testid=grid] .tile').count(), 6, 'r2 has six tiles');
+      equal(await page.locator('[data-testid=grid] .tile').count(), 6, 'r3 has six tiles');
       equal(await page.locator('.tile .pill').count(), 0, 'no edit badges');
-      equal(await pill('pill-published'), 'Published r2', 'pill');
+      equal(await pill('pill-published'), 'Published r3', 'pill');
       for (let i = 0; i < 40 && !(await tileText('top')).includes('Delta Max'); i++) await sleep(250);
       check((await tileText('top')).includes('Delta Max'), 'the reader sees live values');
       await page.waitForTimeout(500);
@@ -671,10 +708,10 @@ async function main() {
       const current = (await api('')).body;
       const broken = structuredClone(current.document);
       broken.parts.rev.colour = 'red'; // an option the board language does not have: the host stores it, the viewer's check refuses it
-      const saved = await fetch(`${origin}/uboard/boards/revenue?expected=${current.revision}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'X-Sample-User': 'analyst' }, body: JSON.stringify(broken) });
+      const saved = await fetch(`${origin}/uboard/boards/${boardId}?expected=${current.revision}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'X-Sample-User': 'analyst' }, body: JSON.stringify(broken) });
       equal(saved.status, 200, 'the host stores a document its viewer refuses');
       const revision = (await saved.json()).revision;
-      equal((await fetch(`${origin}/uboard/boards/revenue/publish?revision=${revision}`, { method: 'POST', headers: { 'X-Sample-User': 'analyst' } })).status, 200, 'published');
+      equal((await fetch(`${origin}/uboard/boards/${boardId}/publish?revision=${revision}`, { method: 'POST', headers: { 'X-Sample-User': 'analyst' } })).status, 200, 'published');
       await page.click('[data-act=editor]');
       await page.click('header [data-act=reader]');
       await page.waitForSelector('[data-testid=reader][data-reader-state=fell-back]');
@@ -687,7 +724,7 @@ async function main() {
 
     await step('the route turns away what a page may not send, and the model is not asked', async () => {
       const asked = model.requests.length;
-      const turn = (headers, body) => fetch(`${origin}/uboard/boards/revenue/turn`, { method: 'POST', headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }).then(r => r.status);
+      const turn = (headers, body) => fetch(`${origin}/uboard/boards/${boardId}/turn`, { method: 'POST', headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }).then(r => r.status);
       const ok = { message: 'hi', tools: [] };
       equal(await turn({ 'Sec-Fetch-Site': 'cross-site' }, ok), 403, 'another site');
       equal(await turn({ Origin: 'http://elsewhere.example' }, ok), 403, 'another origin');
@@ -696,6 +733,86 @@ async function main() {
       equal(await turn({}, { message: 'x'.repeat(1 << 20), tools: [] }), 413, 'over 1 MiB');
       equal(await turn({}, { ...ok, results: [] }), 400, 'a message and results together');
       equal(model.requests.length, asked, 'none of them reached the model');
+    });
+
+    await step('a question is answered and the board is not changed; the answer says so', async () => {
+      await page.click('[data-act=editor]');
+      await page.waitForSelector('[data-testid=chat]');
+      model.load([say('Revenue is highest in the east, and the board already shows it.')]);
+      const revision = await hostRevision();
+      await say_('Which region is highest?');
+      equal(await page.locator('#msgs [data-role=assistant]:last-of-type [data-testid=answer-only]').count(), 1, 'the answer is labelled as one');
+      equal(await hostRevision(), revision, 'nothing was saved');
+      check(model.requests.at(-1).body.tools.some(tool => tool.function.name === 'patch_board'), 'an editor is offered the edit tool, a question just does not use it');
+    });
+
+    await step('a person who may only read: the board opens, the chat answers only, no edit tool is offered, and nothing to publish or restore', async () => {
+      const readOnly = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'viewer' } });
+      await watch(readOnly);
+      const viewer = await readOnly.newPage();
+      watchConsole(viewer);
+      await viewer.goto(`${origin}${SCREEN}/boards/${boardId}`);
+      await viewer.waitForSelector('[data-testid=pill-readonly]');
+      // The draft the earlier step left is one the viewer's check refuses: it is said, not drawn, and nothing stops.
+      equal(await viewer.locator('[data-testid=banner-invalid]').count(), 1, 'a draft the check refuses is told, not drawn');
+      equal(await viewer.locator('[data-testid=grid] .tile').count(), 0, 'nothing of it is drawn');
+      equal(await viewer.locator('header [data-act=publish]').count(), 0, 'no Publish');
+      equal(await viewer.locator('header [data-act=reader]').count(), 0, 'no preview as reader');
+      check((await viewer.textContent('.ctx')).includes('Read only — answers only, no edits'), 'the chat says it is answers only');
+      equal(await viewer.getAttribute('u-prompt', 'placeholder'), 'Ask a question about this board…', 'the prompt invites a question');
+      await viewer.click('header [data-act=history]');
+      await viewer.waitForSelector('[data-testid=drawer]');
+      equal(await viewer.locator('[data-testid=drawer] [data-act=publish], [data-testid=drawer] [data-act=restore]').count(), 0, 'no publish and no restore in the history');
+      check(await viewer.locator('[data-testid=drawer] [data-act=compare]').count() > 0, 'compare is reading, it stays');
+      await viewer.click('[data-testid=drawer] [data-act=closehist]');
+      model.load([say('The board shows revenue by month, and I cannot change it for you.')]);
+      const before = model.requests.length;
+      await viewer.locator('u-prompt textarea').fill('What does this show?');
+      await viewer.locator('u-prompt textarea').press('Enter');
+      await viewer.waitForFunction(() => document.querySelectorAll('[data-role=assistant] [data-testid=reply]').length > 0 && !document.querySelector('u-prompt').loading, null, { timeout: 30000 });
+      const sent = model.requests.slice(before);
+      equal(sent.length, 1, 'the model was asked once');
+      check(!sent[0].body.tools.some(tool => tool.function.name === 'patch_board'), 'the model was offered no tool that edits');
+      check(sent[0].body.tools.some(tool => tool.function.name === 'query_data'), 'it may still read');
+      equal(await viewer.locator('[data-testid=answer-only]').count(), 1, 'the answer is labelled');
+      // The routes are the ones that decide: the page left the buttons out, and the host would refuse them anyway.
+      const refused = await fetch(`${origin}/uboard/boards/${boardId}?expected=1`, { method: 'PUT', headers: { 'X-Sample-User': 'viewer', 'content-type': 'application/json' }, body: '{}' });
+      equal(refused.status, 403, 'an edit by the viewer is refused by the host');
+      const viewerList = await readOnly.newPage();
+      watchConsole(viewerList);
+      await viewerList.goto(`${origin}${SCREEN}`);
+      await viewerList.waitForSelector('[data-testid=board-list] table');
+      equal(await viewerList.locator('[data-act=newboard]').count(), 0, 'no new-board button for a person who may not make boards');
+      check((await viewerList.textContent('[data-testid=list-sub]')).includes('Creating boards is not enabled'), 'the list says why');
+      check((await viewerList.textContent('tr[data-board] .acc')).includes('Read only'), 'the row says read only');
+      await shot(viewer, 'readonly');
+      await readOnly.close();
+    });
+
+    await step('the list shows the board with what this person may do to it; a board the host does not hold is not there', async () => {
+      await page.goto(`${origin}${SCREEN}`);
+      await page.waitForSelector('[data-testid=board-list] tr[data-board]');
+      const row = page.locator(`tr[data-board="${boardId}"]`);
+      check((await row.textContent()).includes('Revenue overview') && (await row.textContent()).includes('Can edit'), await row.textContent());
+      check((await row.textContent()).includes('r11') && (await row.textContent()).includes('r3'), 'latest and published revisions');
+      await page.goto(`${origin}${SCREEN}/boards/not-a-board`);
+      await page.waitForSelector('[data-testid=missing]');
+      await shot(page, 'list');
+    });
+
+    await step('the files the page loads are the library\'s: hashed, kept for good, with the notices beside them', async () => {
+      const html = await (await fetch(`${origin}${SCREEN}`, { headers: { 'X-Sample-User': 'analyst' } })).text();
+      const files = [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+)"/g)].map(m => m[1]);
+      check(files.length >= 2, `the page names its files: ${files}`);
+      for (const file of files) {
+        const response = await fetch(`${origin}${SCREEN}/${file}`, { headers: { 'X-Sample-User': 'analyst' } });
+        equal(response.status, 200, file);
+        check((response.headers.get('cache-control') ?? '').includes('immutable'), `${file} is kept for good`);
+      }
+      const notices = await fetch(`${origin}${SCREEN}/third-party-notices.txt`, { headers: { 'X-Sample-User': 'analyst' } });
+      check((await notices.text()).includes('pretendard'), 'the notices travel with the screen');
+      equal((await fetch(`${origin}${SCREEN}/assets/../index.html`)).status === 200, false, 'a path outside the files is not a file');
+      equal((await fetch(`${origin}${SCREEN}/boards/${boardId}`, { headers: { 'Sec-Fetch-Site': 'cross-site', 'X-Sample-User': 'analyst' } })).status, 403, 'another site may not load a page');
     });
 
     await step('the host named the model and held its key and limits, the person was not forwarded, and the page threw nothing', async () => {
@@ -710,6 +827,9 @@ async function main() {
       }
       equal(model.queue.length, 0, 'every scripted reply was used, none was asked for beyond the script');
       equal(pageErrors.length, 0, `page errors: ${pageErrors.join('; ')}`);
+      equal(policyProblems.length, 0, `the policy refused something: ${policyProblems.join('; ')}`);
+      const violations = await page.evaluate(() => window.__violations ?? []);
+      equal(violations.length, 0, `policy violations on the page: ${violations.join('; ')}`);
     });
 
     console.log(`E2E-OK steps=${steps}`);
