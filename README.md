@@ -2332,6 +2332,7 @@ revision so an edit can be undone, which revision readers see, and a way to fall
 one the viewer refuses. `Iyu.UBoard` owns that bookkeeping and never looks inside a document; `Iyu.UBoard.EntityFrameworkCore`
 keeps it in tables of your own `DbContext`.
 
+<!-- uboard-sample -->
 ```csharp
 builder.Services.AddIyuUBoard<AppDbContext, BoardRow, BoardRevisionRow, BoardPublicationRow>();
 
