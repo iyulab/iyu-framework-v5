@@ -12,7 +12,8 @@ save and read as the signed-in person run in the screen the library serves.
 **This is a sample, not a template for production.** The sign-in is a stand-in: a request is made by the user named in the
 `X-Sample-User` header, or by `analyst` when there is none. `finance` may read the protected columns (an order's `Margin`, a customer's
 `Email`); `analyst` may not, and the assistant is told so. Who may make and change boards is `SampleBoardAccess` in `SampleUsers.cs`:
-`analyst` and `finance` may; anyone else signed in (say, `viewer`) may open a board and ask the assistant about it, and nothing more.
+`analyst` and `finance` may; anyone else signed in (say, `viewer`) may open a board and ask the assistant about it, and nothing more. A `partner` may open only the boards
+whose id starts with `shared-`, and the board list holds only those.
 
 ## Run it
 

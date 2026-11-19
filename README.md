@@ -2339,8 +2339,8 @@ await boards.PublishAsync("plant", revision: 2, user);
 The three row types implement `IBoardRow`, `IBoardRevisionRow` and `IBoardPublicationRow`; the tables and their migrations are
 yours. The revision table must be unique over (`BoardId`, `Revision`) and the publication table over (`BoardId`, `Sequence`), in
 that order — as the primary key, or as a unique key or index beside a surrogate primary key of the table's own, whose value
-the database or EF makes. The board table is keyed on `Id` (a string).
-
+the database or EF makes. The board table is keyed on `Id` (a string).
+
 **Or use the tables the package ships.** `IyuBoardRow`, `IyuBoardRevisionRow` and `IyuBoardPublicationRow` map to `IyuBoards`,
 `IyuBoardRevisions` and `IyuBoardPublications`. In a context you write, call `modelBuilder.ApplyIyuBoardTables()` from `OnModelCreating`; for a
 generated context nobody edits, add `.UseIyuBoardTables()` to its options (it adds the tables to the model the context builds, and replaces the
@@ -2365,7 +2365,9 @@ context's model customizer to do so). Then `builder.Services.AddIyuUBoard<AppDbC
 writes boards: `POST {id}?name=` (201, or 409 with the board that is already there), `GET {id}`, `PUT {id}?expected=` (200, 404, or 409 with the
 board as it now stands), `PUT {id}/name?name=`, `DELETE {id}` (204), `GET revisions` and `GET revisions/{n}`, `POST {id}/publish?revision=`,
 `POST {id}/withdraw`, `GET {id}/publications`, `GET {id}/published` (204 while nothing is published), `GET {id}/fallback`, and the list
-`GET boards?skip=&take=`. A board is sent as `{ id, name, revision, publishedRevision, document }` with the document as the JSON it is. The
+`GET boards?skip=&take=` (the boards the caller may view, in id order, `skip` an offset into the store; when the store has more to look at the
+answer names where to go on in the `X-UBoard-Next-Skip` header, so a short page is not the end, and one request looks at no more than 1000 boards).
+A board is sent as `{ id, name, revision, publishedRevision, document }` with the document as the JSON it is. The
 routes need a signed-in caller (or `IyuUBoardOptions.Policy`) and a same-origin request, a body must be `application/json`, a value the
 service refuses (a blank id, a document that is not JSON, a page out of range) is 400, and the history names the caller by name, else by
 the `sub` claim.
