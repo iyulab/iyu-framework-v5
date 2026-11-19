@@ -1,14 +1,16 @@
 // End-to-end run of the board chat sample, in a real browser against the real host.
 //
 // What is real: the host (started here on a free port with a throwaway database), its OData service, the catalog, the board
-// routes, publishing, the page and the viewer. What is scripted: the model — the browser's request to the model proxy is answered
-// here with canned chat-completions replies (tool calls included), so no key and no model are needed. Everything the assistant
-// does with those replies — reading the catalog, querying, checking and saving the board — goes through the real loop and host.
+// routes, publishing, the page and the viewer — and the assistant's route, with IronHive.Agent and IronProw behind it. What is scripted is
+// the model service: a small OpenAI-compatible server here answers the host's requests with canned replies (tool calls included, sent as
+// the stream the host asks for), so no key and no model are needed. Everything the assistant does with those replies — the loop, the
+// host-run tools, reading the catalog, querying, checking and saving the board — goes through the real page and host.
 //
 //   node e2e/run.mjs        (from samples/BoardChat/web; prints E2E-OK steps=N; BOARDCHAT_SHOTS_DIR chooses where the screenshots go)
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createSocketServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +22,8 @@ const web = resolve(here, '..');
 const sample = resolve(web, '..');
 // Screenshots go to BOARDCHAT_SHOTS_DIR when it is set, else to e2e/screenshots (not committed).
 const imagesDir = process.env.BOARDCHAT_SHOTS_DIR ? resolve(process.env.BOARDCHAT_SHOTS_DIR) : join(here, 'screenshots');
+const HOST_KEY = 'host-held-key';
+const MODEL_NAME = 'scripted-model';
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 let steps = 0;
@@ -61,7 +65,7 @@ function findBrowser() {
 
 const freePort = () =>
   new Promise((done, fail) => {
-    const server = createServer();
+    const server = createSocketServer();
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       server.close(() => done(port));
@@ -77,14 +81,13 @@ function build() {
 }
 
 // The host runs from a copy of its build output, so a build or a test run elsewhere can replace the files meanwhile.
-async function startHost(port, work) {
+async function startHost(port, work, modelUrl) {
   const app = join(work, 'app');
   cpSync(join(sample, 'bin/Debug/net10.0'), app, { recursive: true });
   cpSync(join(sample, 'wwwroot'), join(app, 'wwwroot'), { recursive: true });
   const child = spawn('dotnet', [join(app, 'BoardChat.dll'), '--urls', `http://127.0.0.1:${port}`, '--Database', join(work, 'boardchat.db')], {
     cwd: app,
-    // The model is named only so the proxy route exists; the browser's request is answered by the script before it gets there.
-    env: { ...process.env, Model__BaseUrl: 'http://127.0.0.1:1/v1', Model__ApiKey: 'x', Model__Name: 'x', ASPNETCORE_ENVIRONMENT: 'Production' },
+    env: { ...process.env, Model__BaseUrl: modelUrl, Model__ApiKey: HOST_KEY, Model__Name: MODEL_NAME, ASPNETCORE_ENVIRONMENT: 'Production' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -221,6 +224,14 @@ const redLine = { patch: [{ op: 'replace', path: '/parts/rev/referenceLines/0/co
 const CONFLICT = [calls(['patch_board', redLine])];
 const RETRY = [calls(['patch_board', redLine]), say('Done — the target line is red, on top of the other session\'s change.')];
 
+// What the host asks for is a stream; the replies are written as chat-completions messages and sent as the chunks a service would send.
+const asStream = reply => {
+  const message = reply.choices[0].message;
+  const delta = { role: 'assistant', ...(message.content ? { content: message.content } : {}), ...(message.tool_calls ? { tool_calls: message.tool_calls.map((call, index) => ({ index, ...call })) } : {}) };
+  const chunk = (d, finish, usage) => `data: ${JSON.stringify({ id: 'scripted', object: 'chat.completion.chunk', model: MODEL_NAME, choices: [{ index: 0, delta: d, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\n`;
+  return chunk(delta, null) + chunk({}, message.tool_calls ? 'tool_calls' : 'stop', { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }) + 'data: [DONE]\n\n';
+};
+
 class ScriptedModel {
   constructor() {
     this.queue = [];
@@ -229,15 +240,32 @@ class ScriptedModel {
   load(replies) {
     this.queue.push(...replies);
   }
-  handle = async route => {
-    const request = route.request();
-    const body = JSON.parse(request.postData() ?? '{}');
-    this.requests.push({ body, headers: request.headers() });
-    const reply = this.queue.shift();
-    if (!reply) return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the scripted model has nothing left to say' }) });
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply) });
-  };
+  /** Serves the replies over HTTP on a free port; resolves with the base URL the host is told to use. */
+  async listen() {
+    const port = await freePort();
+    this.server = createHttpServer((request, response) => {
+      let raw = '';
+      request.on('data', chunk => (raw += chunk));
+      request.on('end', () => {
+        const body = raw ? JSON.parse(raw) : {};
+        if (request.method !== 'POST') return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: [{ id: MODEL_NAME }] }));
+        this.requests.push({ body, headers: request.headers });
+        const reply = this.queue.shift();
+        if (!reply) return response.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'the scripted model has nothing left to say' }));
+        if (body.stream) return response.writeHead(200, { 'content-type': 'text/event-stream' }).end(asStream(reply));
+        return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
+      });
+    });
+    await new Promise(done => this.server.listen(port, '127.0.0.1', done));
+    return `http://127.0.0.1:${port}`;
+  }
+  close() {
+    this.server?.close();
+  }
 }
+
+// The text of a message as a model reads it: a plain string, or the parts of one.
+const textOf = message => (typeof message.content === 'string' ? message.content : (message.content ?? []).map(part => part.text ?? '').join(''));
 
 // ---------------------------------------------------------------- the run
 
@@ -253,19 +281,18 @@ async function main() {
   const work = mkdtempSync(join(tmpdir(), 'boardchat-e2e-'));
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
-  const hostProcess = await startHost(port, work);
+  const model = new ScriptedModel();
+  const hostProcess = await startHost(port, work, await model.listen());
   const browser = await chromium.launch({ executablePath: findBrowser() });
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
-    const model = new ScriptedModel();
     const pageErrors = [];
     const odata = [];
     page.on('pageerror', error => { pageErrors.push(error.message); console.error('pageerror:', error.message); }); page.on('console', m => { if (m.type() === 'error') console.error('console:', m.text()); });
     page.on('request', request => {
       if (request.url().includes('/$data/')) odata.push(decodeURI(request.url().slice(origin.length)));
     });
-    await page.route('**/uboard/model/chat/completions', model.handle);
 
     const api = async (path, init = {}) => {
       const response = await fetch(`${origin}/uboard/boards/revenue${path}`, { ...init, headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...init.headers } });
@@ -561,7 +588,7 @@ async function main() {
       await shot(page, 'pointing');
       const before = model.requests.length;
       await say_('Make this one a line chart.');
-      const sent = model.requests.slice(before).flatMap(r => r.body.messages).find(m => m.role === 'user' && m.content.startsWith('Make this one a line chart.'));
+      const sent = model.requests.slice(before).flatMap(r => r.body.messages).find(m => m.role === 'user' && textOf(m).startsWith('Make this one a line chart.'));
       check(sent, 'the message reached the model');
       check(sent.content.includes('<edit-context>') && sent.content.includes('"id":"rev"'), 'the edit context names the selected part');
       const context = JSON.parse(sent.content.slice(sent.content.indexOf('<edit-context>') + 15, sent.content.lastIndexOf('</edit-context>')));
@@ -642,12 +669,28 @@ async function main() {
       await shot(page, 'fallback');
     });
 
-    await step('the model never named itself, every model request carried the person, and the page threw nothing', async () => {
+    await step('the route turns away what a page may not send, and the model is not asked', async () => {
+      const asked = model.requests.length;
+      const turn = (headers, body) => fetch(`${origin}/assistant/turn`, { method: 'POST', headers: { 'X-Sample-User': 'analyst', 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }).then(r => r.status);
+      const ok = { message: 'hi', tools: [] };
+      equal(await turn({ 'Sec-Fetch-Site': 'cross-site' }, ok), 403, 'another site');
+      equal(await turn({ Origin: 'http://elsewhere.example' }, ok), 403, 'another origin');
+      equal(await turn({ 'content-type': 'text/plain' }, 'message=hi'), 415, 'not JSON');
+      equal(await turn({}, { ...ok, tools: [{ name: 'two words', schema: {} }] }), 400, 'a tool that is not a plain name');
+      equal(await turn({}, { message: 'x'.repeat(1 << 20), tools: [] }), 413, 'over 1 MiB');
+      equal(await turn({}, { ...ok, results: [] }), 400, 'a message and results together');
+      equal(model.requests.length, asked, 'none of them reached the model');
+    });
+
+    await step('the host named the model and held its key and limits, the person was not forwarded, and the page threw nothing', async () => {
       check(model.requests.length >= 15, `the model was asked ${model.requests.length} times`);
       for (const { body, headers } of model.requests) {
-        check(!('model' in body), 'no model field in a request body');
+        equal(body.model, MODEL_NAME, 'the host names the model');
+        equal(headers.authorization, `Bearer ${HOST_KEY}`, "the host's key, not the page's");
+        check(!('x-sample-user' in headers), "the person's sign-in is the host's business, the model service never sees it");
+        check(body.reasoning_effort === 'none' && body.chat_template_kwargs?.enable_thinking === false, 'the model is asked not to think first');
+        check(typeof (body.max_completion_tokens ?? body.max_tokens) === 'number', 'a limit on the reply');
         check(Array.isArray(body.tools) && body.tools.length >= 6, 'tools are offered');
-        check(['analyst', 'finance'].includes(headers['x-sample-user']), 'the person is named');
       }
       equal(model.queue.length, 0, 'every scripted reply was used, none was asked for beyond the script');
       equal(pageErrors.length, 0, `page errors: ${pageErrors.join('; ')}`);
@@ -657,6 +700,7 @@ async function main() {
   } finally {
     await browser.close().catch(() => {});
     hostProcess.kill();
+    model.close();
     await sleep(500);
     rmSync(work, { recursive: true, force: true });
   }

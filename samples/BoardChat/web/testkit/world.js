@@ -61,14 +61,29 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
 
   const envelope = () => ({ id: 'revenue', name: host.name, revision: host.revision, publishedRevision: null, document: host.document });
 
+  // The host's turn route, played here: it keeps nothing, takes the conversation back as the page holds it (the replies are in the model's
+  // own wire shape, which the page never reads) and says what the model was asked, so a test can read the same messages and tools a model sees.
+  const answerTurn = request => {
+    const { system, history = [], message, results, final, tools = [] } = request.body;
+    const messages = [...history, ...(message === undefined ? results.map(r => ({ role: 'tool', tool_call_id: r.callId, content: r.output })) : [{ role: 'user', content: message }])];
+    const asked = history.at(-1)?.tool_calls ?? [];
+    const answered = new Set(messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+    if (message !== undefined && asked.some(c => !answered.has(c.id))) throw new Error('the history holds a tool call without its result');
+    if (final !== undefined) return { stop: 'Completed', text: final, history: [...messages, { role: 'assistant', content: final }] };
+    request.model = { messages: [{ role: 'system', content: system }, ...messages], tools: tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.schema } })) };
+    const reply = queue.shift();
+    if (!reply) throw new Error('the scripted model has no reply left');
+    const said = reply.choices[0].message;
+    const toolCalls = (said.tool_calls ?? []).map(c => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }));
+    return { stop: toolCalls.length ? 'AwaitingHostTools' : 'Completed', text: said.content ?? '', toolCalls, history: [...messages, { role: 'assistant', content: said.content ?? null, ...(said.tool_calls ? { tool_calls: said.tool_calls } : {}) }] };
+  };
+
   const fetch = async (url, init = {}) => {
     const request = { url, method: init.method ?? 'GET', headers: init.headers ?? {}, body: init.body === undefined ? undefined : JSON.parse(init.body) };
     requests.push(request);
-    if (url === '/uboard/model/chat/completions') {
-      if (modelStatus) return json(modelStatus, { error: 'upstream' });
-      const reply = queue.shift();
-      if (!reply) throw new Error('the scripted model has no reply left');
-      return json(200, reply);
+    if (url === '/assistant/turn') {
+      if (modelStatus) return json(modelStatus, { error: modelStatus === 429 ? 'ratelimit' : 'unknown' });
+      return json(200, answerTurn(request));
     }
     if (url === '/uboard/catalog') return json(catalogStatus, catalog);
     if (url.startsWith('/$data/')) return odata(url);
@@ -93,7 +108,8 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
     requests,
     host,
     queue,
-    modelRequests: () => requests.filter(r => r.url === '/uboard/model/chat/completions'),
+    /** The calls that reached the model: each as the model's own request (the system rules, the messages, the tools). */
+    modelRequests: () => requests.filter(r => r.model).map(r => ({ ...r, body: r.model })),
     dataRequests: () => requests.filter(r => r.url.startsWith('/$data/')),
     boardWrites: () => requests.filter(r => r.url.startsWith('/uboard/boards/')),
     /** Another session saves the board: the host moves on without this page knowing. */

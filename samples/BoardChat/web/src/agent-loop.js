@@ -1,4 +1,6 @@
-// The assistant's tool loop — the part of the chat panel that talks to the model, runs its tool calls and keeps the board honest.
+// The assistant's tool runtime — the part of the chat panel that runs the model's tool calls and keeps the board honest. The model, the
+// conversation and the loop around them are the host's (IronHive.Agent behind one route); every tool here is a tool the host declared
+// without an implementation, because only this page can check a board edit, save it and read as the signed-in person.
 // It is a plain module with no page in it: everything it touches (the network, the board session, the clock) is handed in, so a
 // script can play the model and the host and the whole conversation can be tested without a browser.
 //
@@ -6,14 +8,15 @@
 // carry this file. It stays in the sample until the library ships viewer assets, which is a dependency decision still to be taken.)
 //
 // What the loop guarantees (the screens depend on each of these):
-//   - The page never names the model: the request to the proxy carries messages and tools only.
+//   - The page never names the model or lifts its limits: a request carries the conversation, the rules text and the tools, nothing else.
 //   - Every step is announced pending -> running -> done | error, with the raw call that was made. The text shown for a step and
 //     the request that was sent are the same string, built once.
 //   - A board edit the check refuses is shown to the model once; refused again, nothing is saved and the person is told where.
 //   - A save the host refuses because the board moved on is a structured conflict, never a bare string.
 //   - A read of something the person cannot read stops before any request. A read that would return rows without a page, or
 //     more than MAX_ROWS of them, is refused with advice; tables read one page of TABLE_PAGE rows.
-//   - The number of model calls in one turn is capped.
+//   - The number of model calls in one turn is capped. A turn the page ends itself is closed with the words it said, so the conversation
+//     the host keeps never holds a tool call without its result.
 import { applyJsonPatch } from '@iyulab/u-board/domain';
 import { DATA_SOURCE_ID, buildSystemPrompt, workflowRules } from './prompt.js';
 import { changedParts, partsTouched, removedParts } from './board-diff.js';
@@ -28,7 +31,7 @@ export { DATA_SOURCE_ID, buildSystemPrompt, workflowRules, changedParts, removed
 export { buildODataUrl, parseODataUrl, bulkProblem, permissionProblem, DATA_ROOT, MAX_ROWS, TABLE_PAGE };
 
 export const DEFAULT_ENDPOINTS = {
-  model: '/uboard/model/chat/completions',
+  turn: '/assistant/turn',
   catalog: '/uboard/catalog',
   boards: '/uboard/boards',
 };
@@ -187,7 +190,7 @@ export function createAssistant(deps) {
       ...(deps.signal ? { signal: deps.signal } : {}),
     });
 
-  const messages = []; // the conversation: what the model sees, and the log the page keeps
+  const messages = []; // the conversation as the host last returned it: opaque to the page, handed back with the next request
   let session = openBoardSession({ id: deps.board.id, loaded: deps.board.loaded, host, boards: endpoints.boards });
   let catalog; // kept for the session (a new sign-in is a new assistant); a read_catalog step always asks the host again
   let turnNumber = 0;
@@ -212,9 +215,9 @@ export function createAssistant(deps) {
     const startRevision = session.known.revision;
     const context = editContext(startDocument, options.selection, { name: deps.board.loaded?.name, revision: startRevision });
     emit({ type: 'turn-start', turn: turnNumber, text: userText, ...(context && { selection: context.selection.map(s => s.id) }) });
-    messages.push({ role: 'user', content: context ? `${userText}
+    let pending = { message: context ? `${userText}
 
-${contextBlock(context)}` : userText });
+${contextBlock(context)}` : userText }; // what the next request carries: the person's words, then the results of the tools the answer asked for
     let lastDocument = startDocument;
     let finalText;
     let rounds = 0;
@@ -410,23 +413,26 @@ ${contextBlock(context)}` : userText });
     while (!turn.halted && rounds < maxRounds) {
       rounds += 1;
       const document = await session.document();
-      const response = await callModel(document);
+      const response = await callTurn(document, pending);
       if (response.failure) {
         turn.failure = response.failure;
         turn.halted = true;
         break;
       }
-      const message = response.message;
-      messages.push({ role: 'assistant', content: message.content ?? null, ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) });
-      if (!message.tool_calls?.length) {
-        finalText = (message.content ?? '').trim();
+      const answer = response.answer;
+      messages.splice(0, messages.length, ...answer.history);
+      pending = undefined;
+      const toolCalls = (answer.toolCalls ?? []).map(call => ({ id: call.id, function: { name: call.name, arguments: call.arguments } }));
+      if (!toolCalls.length) {
+        finalText = (answer.text ?? '').trim();
         break;
       }
+      const results = []; // what the next request carries
 
       // Plan: every call becomes a pending step before the first runs.
       const planned = [];
       let catalogPlanned = Boolean(catalog); // loaded earlier this turn, or read by a step that comes before the one that needs it
-      for (const call of message.tool_calls) {
+      for (const call of toolCalls) {
         const name = call.function?.name;
         if (name === 'read_catalog') catalogPlanned = true;
         const parsed = parseJson(call.function?.arguments || '{}');
@@ -461,7 +467,7 @@ ${contextBlock(context)}` : userText });
           step.detail = 'not run — the turn stopped';
           step.endedAt = now();
           emitStep(step);
-          if (call) messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ skipped: 'an earlier step stopped the turn' }) });
+          if (call) results.push({ callId: call.id, output: JSON.stringify({ skipped: 'an earlier step stopped the turn' }) });
           continue;
         }
         step.state = 'running';
@@ -480,8 +486,9 @@ ${contextBlock(context)}` : userText });
         step.state = outcome.isError && !outcome.notAnError ? 'error' : 'done';
         if (step.state === 'error' && !step.detail) step.detail = firstError(outcome.text);
         emitStep(step);
-        if (call) messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.text });
+        if (call) results.push({ callId: call.id, output: outcome.text });
       }
+      pending = { results };
       if (turn.halted) break;
     }
 
@@ -495,10 +502,12 @@ ${contextBlock(context)}` : userText });
     if (turn.failure) {
       reply = composeFailure(turn.failure, startRevision, session.known.revision);
       if (turn.failure.kind === 'rejected') noteStep('Nothing was saved', `the board is still r${session.known.revision}`);
-      messages.push({ role: 'assistant', content: reply });
       emit({ type: 'failure', failure: turn.failure });
     } else if (!reply) reply = session.known.revision !== startRevision ? `Done — saved r${session.known.revision}.` : 'Done.';
 
+    // The tools the last answer asked for were run and the model will not read their results: close the turn on the host's side with the words
+    // the person is about to read, so the conversation it keeps stays whole.
+    if (pending?.results) await closeTurn(endDocument, pending.results, reply);
     const outcome = turn.failure ? ({ permission: 'blocked', rejected: 'rejected', conflict: 'conflict', limit: 'limit' }[turn.failure.kind] ?? 'error') : turn.emptyResults.length > 0 ? 'empty' : 'done';
     const summary = {
       outcome,
@@ -517,27 +526,36 @@ ${contextBlock(context)}` : userText });
     return summary;
   }
 
-  // ---- the model
-  async function callModel(document) {
-    const body = {
-      messages: [{ role: 'system', content: buildSystemPrompt({ board: { revision: session.known.revision, document } }) }, ...messages],
-      tools: toolDefinitions(session),
-      tool_choice: 'auto',
-    };
+  // ---- the host's turn route
+  const declared = () => toolDefinitions(session).map(tool => ({ name: tool.function.name, description: tool.function.description, schema: tool.function.parameters }));
+  const turnRequest = (document, body) =>
+    host(endpoints.turn, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ system: buildSystemPrompt({ board: { revision: session.known.revision, document } }), history: messages, tools: declared(), ...body }),
+    });
+
+  async function callTurn(document, body) {
     let response;
     try {
-      response = await host(endpoints.model, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      response = await turnRequest(document, body);
     } catch (error) {
       return { failure: { kind: 'model', status: 0, message: `The assistant could not be reached (${error instanceof Error ? error.message : error}).` } };
     }
     if (!response.ok) {
       const status = response.status;
-      return { failure: { kind: 'model', status, message: status === 429 ? 'The assistant is busy right now. Try again in a moment.' : `The assistant's service answered ${status}. Nothing was changed.` } };
+      const kind = (await response.json().catch(() => null))?.error;
+      return { failure: { kind: 'model', status, message: MODEL_FAILURES[kind] ?? `The assistant's service answered ${status}. Nothing was changed.` } };
     }
-    const json = await response.json();
-    const message = json?.choices?.[0]?.message;
-    if (!message) return { failure: { kind: 'model', status: 200, message: 'The assistant answered with nothing. Nothing was changed.' } };
-    return { message };
+    const answer = await response.json().catch(() => null);
+    if (!answer?.history) return { failure: { kind: 'model', status: 200, message: 'The assistant answered with nothing. Nothing was changed.' } };
+    return { answer };
+  }
+
+  async function closeTurn(document, results, final) {
+    const response = await turnRequest(document, { results, final }).catch(() => null);
+    const answer = response?.ok ? await response.json().catch(() => null) : null;
+    if (answer?.history) messages.splice(0, messages.length, ...answer.history);
   }
 
   return {
@@ -559,6 +577,15 @@ ${contextBlock(context)}` : userText });
 }
 
 // ---------------------------------------------------------------- words for the screen
+
+// What the host's route says went wrong (the agent's own classification of the failure), in words for the person.
+const MODEL_FAILURES = {
+  ratelimit: 'The assistant is busy right now. Try again in a moment.',
+  timeout: 'The assistant took too long to answer. Nothing was changed.',
+  network: 'The assistant could not be reached. Nothing was changed.',
+  contextlimit: 'This conversation has grown too long for the assistant. Start a new one. Nothing was changed.',
+  guard: "The assistant's safety check stopped this request. Nothing was changed.",
+};
 
 function kindFor(name) {
   if (name === 'read_catalog') return 'catalog';

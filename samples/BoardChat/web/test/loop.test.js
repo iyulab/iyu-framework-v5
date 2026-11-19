@@ -76,14 +76,15 @@ test('the page never names the model, and every host request carries the signed-
   const assistant = createAssistant(world.assistantDeps());
   await assistant.send('Show monthly revenue.');
 
-  const requests = world.modelRequests();
+  const requests = world.requests.filter(r => r.url === '/assistant/turn');
   assert.equal(requests.length, 3);
   for (const request of requests) {
-    assert.equal(request.url, '/uboard/model/chat/completions');
     assert.equal(request.method, 'POST');
-    assert.equal(Object.hasOwn(request.body, 'model'), false, 'no model field in the body');
-    assert.deepEqual(Object.keys(request.body).sort(), ['messages', 'tool_choice', 'tools']);
+    // Neither the model, nor its key, nor a limit on its reply: the host holds those. The page sends the conversation, the rules text and its tools.
+    assert.deepEqual(Object.keys(request.body).filter(key => !['system', 'history', 'tools', 'message', 'results'].includes(key)), [], 'nothing but what a turn is');
+    for (const field of ['model', 'max_tokens', 'max_completion_tokens', 'temperature', 'stream', 'reasoning_effort']) assert.equal(Object.hasOwn(request.body, field), false, `no ${field} in the body`);
     assert.ok(request.body.tools.length >= 5);
+    assert.ok(request.body.tools.every(tool => Object.keys(tool).sort().join() === 'description,name,schema'), 'a tool is a name, words and a schema');
   }
   assert.equal(world.requests.length, 6); // three model calls, the catalog, one read, one save
   for (const request of world.requests) assert.equal(request.headers['X-Sample-User'], 'dev', request.url);
@@ -111,6 +112,22 @@ test('a model that never stops calling tools is stopped after the most rounds it
   assert.equal(world.modelRequests().length, 4);
   assert.match(result.reply, /stopped after 4 steps/);
   assert.equal(world.queue.length, 6);
+});
+
+test('a turn the page ends itself is closed on the host, so the next turn starts from a whole conversation', async () => {
+  // The cap ends the turn with the last answer's tool calls run and never sent back; the failure the person reads is recorded with them.
+  const world = makeWorld({ model: [...Array.from({ length: 2 }, () => calls(['get_board', {}])), say('Here is the board.')] });
+  const assistant = createAssistant(world.assistantDeps({ maxRounds: 2 }));
+  const first = await assistant.send('Keep looking.');
+  assert.equal(first.outcome, 'limit');
+
+  const closing = world.requests.filter(r => r.url === '/assistant/turn').at(-1).body;
+  assert.ok(closing.results.length > 0 && closing.final === first.reply, 'the results owed and the words said go to the host together');
+  assert.equal(world.modelRequests().length, 2, 'closing does not ask the model');
+
+  const second = await assistant.send('Try again.'); // the host refuses a history that holds a call without its result
+  assert.equal(second.outcome, 'done');
+  assert.match(world.modelRequests().at(-1).body.messages.at(-2).content, /stopped after 2 steps/);
 });
 
 test('a read that matches no rows is an empty result, not an error', async () => {

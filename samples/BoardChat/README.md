@@ -2,9 +2,11 @@
 
 A host that serves dummy sales data over OData, keeps the boards people build from it, and lets an assistant — any OpenAI-compatible
 model — build them from a conversation. It is thin on purpose: the data model is `model/tables.m3l.md`, the entities, context and
-controllers are generated from it (`Entities_gen`, `Server_gen`), and every route comes from a library — `Iyu.MainServer` (OData at
-`/$data`), `Iyu.UBoard` (boards at `/uboard/boards`, the model proxy at `/uboard/model/chat/completions`, the source catalog at
-`/uboard/catalog`). `Program.cs` only switches those on; no route is mapped by hand.
+controllers are generated from it (`Entities_gen`, `Server_gen`), and the routes come from libraries — `Iyu.MainServer` (OData at
+`/$data`), `Iyu.UBoard` (boards at `/uboard/boards`, the source catalog at `/uboard/catalog`). `Program.cs` only switches those on.
+The one route the sample writes is the assistant's, `/assistant/turn` (`Assistant.cs`): the loop and the model service behind it
+are [IronHive.Agent](https://github.com/iyulab/ironhive-agent) and [IronProw](https://github.com/iyulab/iron-prow), and the page's
+tools — the ones that check, save and read as the signed-in person — run in the page.
 
 **This is a sample, not a template for production.** The sign-in is a stand-in: a request is made by the user named in the
 `X-Sample-User` header, or by `analyst` when there is none. `finance` may read the protected columns (an order's `Margin`, a customer's
@@ -28,27 +30,22 @@ over.
 
 ## The model
 
-The assistant's model is named in configuration; without it the host still runs and the model route is simply not there:
+The assistant's model is named in configuration; without it the host still runs and the assistant's route is simply not there:
 
 ```
-Model__BaseUrl=https://your-service.example/v1   # the part before /chat/completions
+Model__BaseUrl=https://your-service.example/v1   # any OpenAI-compatible service
 Model__ApiKey=...
 Model__Name=the-model-to-use
+Model__MaxOutputTokens=4096                      # optional: the most a reply may take
 ```
 
-Two more settings matter for a model that **reasons before it answers**. It spends the reply's tokens thinking first, so a board
-can run out of room before any answer arrives, and a long think can pass the time a gateway in front of the service will wait (a
-`524` or `504`, which the host reports as `502`). Give it room, and turn the thinking off where the service has a switch for it:
+The host asks the model not to think before it answers (IronHive's `ReasoningEffort.None`, which it turns into the switches a
+service understands): a model that reasons first spends the reply's tokens on it, and a long think can pass the time a gateway in
+front of the service will wait.
 
-```
-Model__MaxOutputTokens=8192                                                        # default 4096
-Model__ExtraBody={"chat_template_kwargs":{"enable_thinking":false}}                # fields the host adds to every request
-```
-
-`ExtraBody` is the host's, not the page's: the page cannot send those fields and cannot change them.
-
-The key stays on the server: the page talks to `/uboard/model/chat/completions`, which sends the request on with the server's key
-and model.
+The key, the model and the limits are the host's: a request from the page carries the conversation, the rules text and the page's
+tools, and nothing else. The route turns away another site, anything that is not JSON, a body over 1 MiB and a tool that is not a
+plain name.
 
 ## What is generated, and how
 
