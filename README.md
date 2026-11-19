@@ -116,7 +116,7 @@ The C# half is what the rest of this page is about: «Minimum consumer» below w
 | `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
 | `Iyu.Notifications` | `AddIyuNotifications` — host-neutral notification routing: events declared in code, recipients resolved from users and roles (and from kinds the application resolves itself), an inbox with read and handled state, and a record of events nobody could be reached for; assumes no storage technology (see «Telling people what happened») |
 | `Iyu.Notifications.EntityFrameworkCore` | `AddIyuNotifications<TContext, TInbox, TUnreached, TTarget>` — the inbox, the unreached record and the administrators' target table over the application's own Entity Framework tables. Reference it only if they live in your `DbContext` |
-| `Iyu.UBoard` | `AddIyuUBoard(o => o.Boards())` — host-neutral board storage for embedding a board viewer and editor: boards as opaque JSON documents, an append-only revision history, saves that name the revision they worked from, and a publication pointer with a history to fall back through; assumes no storage technology (see «Keeping boards and their history») |
+| `Iyu.UBoard` | `AddIyuUBoard(o => o.Boards().Screen())` — host-neutral board storage and the screen that manages boards: boards as opaque JSON documents, an append-only revision history, saves that name the revision they worked from, a publication pointer with a history to fall back through, access rules the application owns, a port for an assistant's chat, and a list-and-editor screen the package carries; assumes no storage technology (see «Keeping boards and their history») |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
@@ -2389,6 +2389,17 @@ answer-only turn — the assistant is offered only the tools declared `"edits": 
 the screen's own declaration, so it keeps an edit from being offered rather than preventing one; the save is what is refused (403).
 `Iyu.UBoard.IronHive` (not packed yet) is an implementation over `IronHive.Agent` and IronProw: `services.AddIyuUBoardIronHive(o => { o.BaseUrl = …; o.ApiKey = …; o.Model = …; })`
 for any OpenAI-compatible model service — the address, key, model and reply limit are set there and nowhere else, and the host does not start without an address and a model.
+
+**The screen.** `AddIyuUBoard(o => o.Boards().Screen())` makes `MapIyuUBoard` also serve a screen that manages boards, so the application writes no page:
+`{prefix}/ui` lists the boards the caller may open (and makes a new one when `IBoardAccess` lets them), and `{prefix}/ui/boards/{id}` is one board — the
+viewer, its revision history, publishing and rolling back, and, when an assistant is registered, a chat that answers questions or changes the board by
+talking. The application decides who may do what (`IBoardAccess`); the screen shows only what the caller may do and the routes enforce it, so a person who may
+only read a board gets an answer-only chat and no Publish, and a person who may not make boards gets no new-board button. A page is 404 for a person who may not
+view the board, the same as for a board that is not there, and carries a restrictive `Content-Security-Policy` (its own host only, no inline script, no
+framing). `Screen("/odata")` names where the host serves its OData if it is not `/$data`. The screen is built from web sources when the package is built, with Node.js
+22.12 or later, and embedded; a build without Node.js still builds and runs, but has no screen — its routes answer 503 and the host logs it at start — and
+`dotnet pack` refuses to make the package without one. The notices of the packages the screen is made of are at `{prefix}/ui/third-party-notices.txt` and in
+the package as `THIRD-PARTY-NOTICES.txt`.
 
 ## Previewing a model change
 

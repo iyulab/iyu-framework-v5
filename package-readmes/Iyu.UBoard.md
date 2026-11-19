@@ -1,6 +1,6 @@
 # Iyu.UBoard
 
-Host-neutral board storage for embedding a board viewer and editor - boards as opaque JSON documents with an append-only revision history, optimistic saves, and a publication pointer with a history to fall back through; it depends on neither Entity Framework Core nor Iyu.Core.
+Host-neutral board storage and screen for embedding a board viewer and editor - boards as opaque JSON documents with an append-only revision history, optimistic saves, a publication pointer with a history to fall back through, access rules the application owns, a port for the assistant's turn, and the screen that manages boards; it depends on neither Entity Framework Core nor Iyu.Core.
 
 ```
 dotnet add package Iyu.UBoard
