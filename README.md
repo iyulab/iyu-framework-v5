@@ -130,6 +130,38 @@ Two things about the commands:
 The C# half is what the rest of this page is about: «Minimum consumer» below wires the generated entities to
 `AddIyuMainServer`.
 
+## Changing a model
+
+Once a database exists, every change to the data follows the same loop:
+
+1. **Edit the model** — `tables.m3l.md`, and `mdd.json` if the set of targets changes.
+2. **Regenerate** — `mdd build .` in the folder that holds `mdd.json`. It rewrites every generated file; a model that does
+   not validate stops the build before anything is written.
+3. **Review what changed** — `git diff` over the generated folders, or the copy-based preview in «Previewing a model
+   change» below if you want to see it before the originals are touched. A one-field change touches only that entity's files.
+4. **Preview the database change** — `schemorph diff --url "$CONN" --schema ../db`: nothing is applied, and a change
+   that would delete data is left out of the plan until `--allow-destructive` is given.
+5. **Apply it** — `schemorph apply --url "$CONN" --schema ../db` (add `--expect-plan <hash>` to apply only the plan you
+   reviewed).
+6. **Build and test the application**, then commit the model and the generated files together.
+
+What is rewritten and what is yours: folders and files whose name ends in `_gen` (`Entity_gen/`, `Tables_gen/`,
+`entities_gen.ts`, …) are rewritten by every `mdd build`, so an edit made there is lost on the next one without a
+warning — change the model or `mdd.json` instead. Your own code lives outside them: a `partial class` next to a
+generated entity, write rules, read policies, the host.
+
+**A new field without `?` is NOT NULL.** On a table that already holds rows there is nothing to fill the new column
+with, so `schemorph diff` warns `SCHEMORPH101` and `apply` fails. Declare the field nullable (`bio: string(200)?`) or give it
+a default (`age: integer = 0`); the [mdd-booster README](https://github.com/iyulab/mdd-booster#readme) describes both
+in its first-run notes.
+
+**Two people changing the same model.** Generation is deterministic — the same model, `mdd.json` and `mdd` version
+always write the same files — so merge the model file, which is plain text, regenerate, and commit the result; do not
+merge generated files by hand.
+
+When the change is an upgrade of `mdd` or of the `Iyu.*` packages rather than of the model, check «Which `mdd` release
+needs which `Iyu.*` release» under «Upgrading» first.
+
 ## Layers
 
 | Project | Role |
@@ -2466,6 +2498,28 @@ code you depend on moved. Each release entry opens with **Packages affected**; i
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
 changes only.
+
+### Which `mdd` release needs which `Iyu.*` release
+
+Code that [`mdd`](https://github.com/iyulab/mdd-booster) generates uses types from the packages that share one version. These are
+the floors its changelog states, by the `mdd` release that introduced the dependency. A floor applies from that
+`mdd` release on, and only to models that use the feature (the first row, to every model):
+
+| `mdd` release | What the generated code uses | `Iyu.*` at least | If lower |
+|---|---|---|---|
+| 0.11.0 | simple type names — the consumer declares the `global using` lines («Namespaces a consumer needs») | **0.10.0** | `CS0246` on the type name; the 0.10.0 README is the first that lists the lines |
+| 0.34.0 | `[Searchable]` on `@searchable` fields | **0.33.0** | `CS0246` |
+| 0.34.0 | a shared-key declaration for each `::aspect` model | **0.32.0** | the declaration exists from 0.30.0, but the shared-key refusals do not carry their named codes (`SharedKeyRequired`, …) |
+| 0.40.0 | `[Searchable]` on the navigation of a `@searchable` reference key | **0.37.0** | compiles; the navigation adds nothing to a search |
+| 0.41.0 | `[DecimalDigits]` on `decimal(p,s)` fields | **0.39.0** | `CS0246` |
+| 0.41.0 | a read-only set for each keyed `::view` | **0.38.0** | the registration it calls is missing; mark the view `@internal` to keep generating only its SQL |
+| 0.45.0 | `[ElementStringLength]` and `[ElementDecimalDigits]` on list fields (`string(n)[]`, `decimal(p,s)[]`) | **0.43.0** | `CS0246` |
+| 0.46.0 | lists of enum values (`states: doc_state[]`) | **0.44.0** | compiles, but the list is stored under the CLR names and the data API refuses the wire names |
+
+The floor of a model is the highest one among the features it uses. For `mdd` releases and features not listed
+there is no floor stated in either changelog; the lowest runtime such a release compiles against is **not established**.
+Where a row says to raise the runtime, raise it first and regenerate afterwards — the order the `mdd` changelog gives for the
+`[Searchable]` change.
 
 ## Build & test
 
