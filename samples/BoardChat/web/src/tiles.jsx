@@ -1,12 +1,13 @@
 // The canvas: the board drawn as tiles. Each part of the board is drawn by U-Board's own viewer (one small board per tile, so a
 // tile can wear its «edited in r3» mark, its loading skeleton and its empty-result explanation); the tile's place and width
 // are the board layout's own.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { BoardView } from '@iyulab/u-board/viewer';
 import { isHttpRef, readHttpRef, requestPath, resolvedReading } from '@iyulab/u-board/picture';
 import { DATA_SOURCE_ID } from './agent-loop.js';
 import { hostFetch } from './host-api.js';
 import { tileReads } from './tile-data.js';
+import { choosable, fillVariables, pageNote, variableDefaults } from './variables.js';
 
 const readName = reference => (typeof reference === 'string' ? /^([^[\]]+)/.exec(reference)?.[1] : undefined);
 
@@ -70,7 +71,8 @@ export function tileBoard(document, id) {
   };
 }
 
-function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count, rows, adapters, variables, flat }) {
+function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count, rows, askedPath, adapters, variables, flat }) {
+  const hasSkip = /[?&]\$skip=/.test(askedPath ?? '');
   const stable = useMemo(() => {
     const { _title, ...clean } = board;
     return clean;
@@ -101,41 +103,71 @@ function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count
         <div className="tbody"><BoardView board={stable} adapters={adapters} variables={variables} /></div>
       )}
       {!loading && !emptyNote && part.as === 'table' && count !== undefined && (
-        <div className="foot" data-testid="page-note"><span>Showing 1–{rows ?? '?'} of {Number(count).toLocaleString('en-US')}</span><span>One server page · rows are not loaded at once</span></div>
+        <div className="foot" data-testid="page-note"><span>{pageNote(askedPath, rows, count) ?? `${rows ?? '?'} of ${Number(count).toLocaleString('en-US')}`}</span><span>{hasSkip ? 'One server page · the page is chosen above the board' : 'One server page · rows are not paged further'}</span></div>
       )}
     </section>
   );
 }
 
-export function Tiles({ document, adapters, changed = {}, revision, loadIds = [], answers = {}, variables, flat }) {
-  const items = gridItems(document);
-  if (!document || !items) return document ? <BoardView board={document} adapters={adapters} variables={variables} /> : null;
+/** The controls for the board's variables: a choice per variable that lists options (a filter for the whole board, a page of a table). */
+function VariableBar({ variables, values, onChoose }) {
+  const offered = choosable(variables);
+  if (offered.length === 0) return null;
   return (
-    <div className="grid" data-testid="grid">
-      {items.map(({ id, span }) => {
-        const part = document.parts[id];
-        const paths = readsOfPart(part).map(name => document.data?.[name]?.path).filter(Boolean);
-        const first = paths.map(path => answers[path]).find(Boolean);
-        const empty = paths.length > 0 && paths.every(path => answers[path] && answers[path].rows === 0);
-        return (
-          <Tile
-            key={id}
-            id={id}
-            span={span}
-            part={part}
-            board={tileBoard(document, id)}
-            mark={changed[id]}
-            revision={revision}
-            loading={loadIds.includes(id)}
-            emptyNote={empty}
-            count={first?.count}
-            rows={first?.rows}
-            adapters={adapters}
-            variables={variables}
-            flat={flat}
-          />
-        );
-      })}
+    <div className="vars" data-testid="variables">
+      {offered.map(({ name, label, options }) => (
+        <label key={name} className="var">
+          <span>{label}</span>
+          <select data-var={name} value={values[name] ?? options[0]} onChange={event => onChoose(name, event.target.value)}>
+            {options.map(option => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+      ))}
     </div>
+  );
+}
+
+export function Tiles({ document, adapters, changed = {}, revision, loadIds = [], answers = {}, variables, flat }) {
+  const [chosen, setChosen] = useState({});
+  const defaults = useMemo(() => variableDefaults(document?.variables), [JSON.stringify(document?.variables)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A choice the board no longer offers (its options changed) falls back to the default.
+  const values = useMemo(() => {
+    const kept = {};
+    for (const { name, options } of choosable(document?.variables)) if (options.includes(chosen[name])) kept[name] = chosen[name];
+    return { ...defaults, ...kept, ...variables };
+  }, [defaults, chosen, variables, JSON.stringify(document?.variables)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const items = gridItems(document);
+  if (!document || !items) return document ? <BoardView board={document} adapters={adapters} variables={values} /> : null;
+  return (
+    <>
+      <VariableBar variables={document.variables} values={values} onChoose={(name, value) => setChosen(previous => ({ ...previous, [name]: value }))} />
+      <div className="grid" data-testid="grid">
+        {items.map(({ id, span }) => {
+          const part = document.parts[id];
+          const paths = readsOfPart(part).map(name => document.data?.[name]?.path).filter(Boolean).map(path => fillVariables(path, values));
+          const first = paths.map(path => answers[path]).find(Boolean);
+          const empty = paths.length > 0 && paths.every(path => answers[path] && answers[path].rows === 0);
+          return (
+            <Tile
+              key={id}
+              id={id}
+              span={span}
+              part={part}
+              board={tileBoard(document, id)}
+              mark={changed[id]}
+              revision={revision}
+              loading={loadIds.includes(id)}
+              emptyNote={empty}
+              count={first?.count}
+              rows={first?.rows}
+              askedPath={paths.find(path => answers[path])}
+              adapters={adapters}
+              variables={values}
+              flat={flat}
+            />
+          );
+        })}
+      </div>
+    </>
   );
 }

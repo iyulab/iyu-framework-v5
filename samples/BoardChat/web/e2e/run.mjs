@@ -181,6 +181,23 @@ const LARGE = [
   say('Added Latest orders. The table reads one server page of 50 rows with the total count — the other orders are never loaded. The charts above stay aggregated on the server.'),
 ];
 
+const PAID_VARIABLE = "filter(Status eq '{{$status}}' and OrderDate ge 2026-01-01)/";
+// A filter for the whole board is one variable that the reads mention; a table is walked on the server by a `skip` variable.
+const VARIABLE_FILTER = [
+  calls(['patch_board', { patch: [
+    { op: 'add', path: '/variables', value: { status: { label: 'Status', options: ['paid', 'pending', 'refunded'], default: 'paid' } } },
+    { op: 'replace', path: '/data/region/path', value: paths.region(PAID_VARIABLE) },
+  ] }]),
+  say('The status is now one board variable: pick it above the board and Revenue by region is asked again for that status.'),
+];
+const SKIP_OPTIONS = Array.from({ length: 13 }, (_, n) => String(n * 50));
+const VARIABLE_PAGING = [
+  calls(['patch_board', { patch: [
+    { op: 'add', path: '/variables/skip', value: { label: 'Rows from', options: SKIP_OPTIONS, default: '0' } },
+    { op: 'replace', path: '/data/orders/path', value: `/$data/Orders?$select=${ORDERS_COLUMNS.join(',')}&$orderby=OrderDate desc,Id desc&$top=50&$skip={{$skip}}&$count=true` },
+  ] }]),
+  say('Latest orders now pages on the server: choose the first row above the board and the table asks the server for that page of 50.'),
+];
 const NODATA_FILTER = "Status eq 'refunded' and OrderDate ge 2026-10-29";
 const NODATA = [
   calls(['query_data', { entity: 'Orders', filter: NODATA_FILTER, select: ['OrderDate', 'Total', 'RegionName'], top: 50, count: true }]),
@@ -485,12 +502,54 @@ async function main() {
       equal(await page.locator('[data-testid=banner-conflict]').count(), 0, 'the banner is gone');
     });
 
+    // 9b ------------------------------------------------------------------------------------------------- variables
+    await step('board variable: a filter for the whole board is one variable — changing it above the board asks the reads again', async () => {
+      model.load(VARIABLE_FILTER);
+      await say_('Let me pick the order status for the whole board.');
+      equal(await hostRevision(), 8, 'host at r8');
+      const saved = (await api('')).body.document;
+      check(saved.variables?.status?.options?.includes('pending'), 'the board declares the variable with its options');
+      check(saved.data.region.path.includes("{{$status}}") && !saved.data.region.path.includes("Status eq 'paid'"), 'the read mentions the variable instead of a literal');
+      await page.waitForSelector('[data-testid=variables] select[data-var=status]');
+      equal(await page.inputValue('select[data-var=status]'), 'paid', 'the variable starts at its default');
+      const asked = () => odata.map(url => decodeURIComponent(url)).filter(url => url.includes('groupby((RegionName)'));
+      check(asked().some(url => url.includes("Status eq 'paid'")), 'the read was asked with the default');
+      check(!asked().some(url => url.includes("Status eq 'pending'")), 'nothing asked for pending yet');
+      await page.selectOption('select[data-var=status]', 'pending');
+      await sleep(1200);
+      check(asked().some(url => url.includes("Status eq 'pending'")), `the read was asked again with the chosen status: ${asked().slice(-2)}`);
+      check((await page.locator('.tile[data-id=region] .tbody').count()) === 1, 'the tile is still drawn');
+      equal(await hostRevision(), 8, 'choosing a value saves nothing');
+      await shot(page, 'variables');
+    });
+
+    await step('table paging on the server: a skip variable walks the rows, the board holds one page at a time', async () => {
+      model.load(VARIABLE_PAGING);
+      await say_('Page through the latest orders.');
+      equal(await hostRevision(), 9, 'host at r9');
+      await page.waitForSelector('select[data-var=skip]');
+      const note = () => page.textContent('.tile[data-id=orders] [data-testid=page-note]');
+      const firstRow = () => page.locator('.tile[data-id=orders] tbody tr').first().textContent();
+      await page.waitForFunction(() => document.querySelector('.tile[data-id=orders] [data-testid=page-note]')?.textContent.includes('Showing 1–50 of 640'));
+      const page1 = await firstRow();
+      await page.selectOption('select[data-var=skip]', '50');
+      await page.waitForFunction(() => document.querySelector('.tile[data-id=orders] [data-testid=page-note]')?.textContent.includes('Showing 51–100 of 640'));
+      const page2 = await firstRow();
+      check(page1 !== page2, 'the second page starts with another row');
+      const reads = odata.map(url => decodeURIComponent(url)).filter(url => url.includes('$skip='));
+      check(reads.length >= 2 && reads.every(url => url.includes('$top=50') && url.includes('$count=true')), `every page is a server page of 50 with the count: ${reads}`);
+      check(reads.some(url => url.includes('$skip=50')), 'the server was asked for the second page');
+      const rows = await page.locator('.tile[data-id=orders] tbody tr').count();
+      check(rows > 0 && rows <= 50, `the table holds one page, ${rows} rows`);
+      check((await note()).includes('Showing 51–100 of 640'), await note());
+    });
+
     // 10 ------------------------------------------------------------------------------------------------- history
-    await step('history drawer: revisions r1…r7 with who saved them, compare shows what a revision changed', async () => {
+    await step('history drawer: revisions r1…r9 with who saved them, compare shows what a revision changed', async () => {
       await page.click('header [data-act=history]');
       await page.waitForSelector('[data-testid=drawer]');
-      equal(await page.locator('[data-testid=drawer] .dr').count(), 7, 'seven revisions');
-      check((await page.textContent('[data-testid=drawer] .dr[data-rev="7"]')).includes('draft'), 'r7 is the draft');
+      equal(await page.locator('[data-testid=drawer] .dr').count(), 9, 'nine revisions');
+      check((await page.textContent('[data-testid=drawer] .dr[data-rev="9"]')).includes('draft'), 'r9 is the draft');
       await page.click('[data-testid=drawer] .dr[data-rev="2"] [data-act=compare]');
       const text = await page.textContent('[data-testid=compare]');
       check(text.includes('rev (edited)') && text.includes('top (new)') && text.includes('region (new)'), text);
@@ -515,7 +574,7 @@ async function main() {
       equal((await api('/published')).body.revision, 2, 'rolled back to r2');
       const history = (await api('/publications')).body;
       equal(history.length, 3, 'the host kept three publication events');
-      check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r2 · you are editing r7'), await page.textContent('[data-testid=readers-note]'));
+      check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r2 · you are editing r9'), await page.textContent('[data-testid=readers-note]'));
     });
 
     // 11 ------------------------------------------------------------------------------------------------- reader
