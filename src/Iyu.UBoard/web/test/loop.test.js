@@ -55,7 +55,7 @@ test('the raw call of a step is the request that was sent, character for charact
 
   const query = result.steps.find(s => s.kind === 'query');
   const sent = world.dataRequests();
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 3, "the model's read, then the one look at each read the saved board draws from");
   assert.equal(query.call.url, sent[0].url);
   assert.equal(query.raw, `GET ${sent[0].url}`);
   assert.equal(sent[0].url, '/$data/Orders?$apply=groupby((OrderDate),aggregate(Total with sum as Revenue))');
@@ -87,7 +87,7 @@ test('the page never names the model and sends nothing but a turn', async () => 
     assert.ok(request.body.tools.every(tool => Object.keys(tool).sort().join() === 'description,edits,name,schema'), 'a tool is a name, words, a schema and whether it edits');
     assert.deepEqual(request.body.tools.filter(tool => tool.edits).map(tool => tool.name), ['patch_board'], 'only the board edit declares that it edits');
   }
-  assert.equal(world.requests.length, 6); // three model calls, the catalog, one read, one save
+  assert.equal(world.requests.length, 8); // three model calls, the catalog, one read, one save, and the look at the board's two reads
 });
 
 test('the model is offered the board tools of U-Board and the two data tools', async () => {

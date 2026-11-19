@@ -13,6 +13,9 @@
 //   - A save the host refuses because the board moved on is a structured conflict, never a bare string.
 //   - A read of something the person cannot read stops before any request. A read that would return rows without a page, or
 //     more than MAX_ROWS of them, is refused with advice; tables read one page of TABLE_PAGE rows.
+//   - What a saved edit drew is read back, per changed part, the way the viewer reads it, and goes to the model with the result of its edit (`rendered`):
+//     a tile that came out empty, 0 where the read holds other numbers, or with an axis the rows do not have is told while the model can still fix it.
+//     Corrections are bounded (MAX_RENDER_FIXES a turn); after that the model is told to report what it sees, not to edit again.
 //   - The number of model calls in one turn is capped. A turn the page ends itself is closed with the words it said, so the conversation
 //     the host keeps never holds a tool call without its result.
 import { applyJsonPatch } from '@iyulab/u-board/domain';
@@ -21,6 +24,7 @@ import { changedParts, partsTouched, removedParts } from './board-diff.js';
 import { BoardMovedOn, newBoard, openBoardSession } from './session.js';
 import { contextBlock, editContext } from './edit-context.js';
 import { endpointsFor } from './host-api.js';
+import { MAX_RENDER_FIXES, inspectRendering, renderedDetail, renderedForModel } from './render-check.js';
 import { fillVariables, variableDefaults, variablesMentioned } from './variables.js';
 import {
   DATA_ROOT, MAX_ROWS, TABLE_PAGE, buildODataUrl, bulkProblem, catalogForModel, closest, parseODataUrl, permissionProblem,
@@ -32,6 +36,7 @@ export { buildODataUrl, parseODataUrl, bulkProblem, permissionProblem, DATA_ROOT
 /** Where the routes are when the host left them at their default prefix. */
 export const DEFAULT_ENDPOINTS = endpointsFor('/uboard');
 const MAX_TOOL_TEXT = 12000;
+const INSPECT_TIMEOUT_MS = 10000;
 const MUTATING = new Set(['patch_board']); // edit_text is not offered: it would change a read's path without the read rules looking at it
 
 // ---------------------------------------------------------------- the two data tools of the screen
@@ -177,6 +182,8 @@ export function boardReadProblem(document, catalog) {
  *   emit       (event) => void — what the screen listens to
  *   now        () => ms        — the clock
  *   maxRounds  most model calls in one turn (default 10)
+ *   inspect    (args) => Promise<{ tiles }> — reads back what a saved edit drew (default: render-check.js); false: the edit's result carries no `rendered`
+ *   inspectTimeoutMs  how long that look may take before the edit's result is given without it (default 10000)
  *   signal     an AbortSignal for the requests (a turn may bring its own: `send(text, { signal })` — the person pressed stop)
  */
 export function createAssistant(deps) {
@@ -210,7 +217,7 @@ export function createAssistant(deps) {
   async function send(userText, options = {}) {
     turnNumber += 1;
     signal = options.signal ?? deps.signal;
-    const turn = { steps: [], rejections: 0, order: 0, emptyResults: [], failure: undefined, halted: false };
+    const turn = { steps: [], rejections: 0, order: 0, emptyResults: [], failure: undefined, halted: false, renderRounds: 0, rendering: new Map() };
 
     const startDocument = await session.document();
     const startRevision = session.known.revision;
@@ -290,6 +297,32 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
         ...(typeof total === 'number' ? { total } : {}),
         ...(rows.length > MAX_ROWS ? { truncated: `only the first ${MAX_ROWS} of ${rows.length} are shown — add $orderby and $top` } : {}),
       });
+    }
+
+    /** What the saved board drew in the parts this edit touched, for the model and for the step; undefined when there is nothing to say (or the look could not be made). */
+    async function lookAtRendering(document, marks, removed) {
+      for (const id of removed) turn.rendering.delete(id);
+      const ids = Object.keys(marks);
+      if (deps.inspect === false || ids.length === 0) return undefined;
+      const inspect = deps.inspect ?? inspectRendering;
+      let timer;
+      let inspection;
+      try {
+        inspection = await Promise.race([
+          inspect({ document, ids, fetcher: host, signal, now }),
+          new Promise(done => { timer = setTimeout(() => done(undefined), deps.inspectTimeoutMs ?? INSPECT_TIMEOUT_MS); }),
+        ]);
+      } catch {
+        return undefined; // a look that failed leaves the saved edit as it was: it is the model's tool result, not a failure of the edit
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!inspection || inspection.tiles.length === 0) return undefined;
+      for (const tile of inspection.tiles) turn.rendering.set(tile.id, tile);
+      const wrong = inspection.tiles.some(tile => tile.state === 'problem' || tile.state === 'check');
+      if (wrong) turn.renderRounds += 1;
+      const fixesLeft = Math.max(0, MAX_RENDER_FIXES - (turn.renderRounds - 1));
+      return { inspection, wrong, model: renderedForModel(inspection, { fixesLeft }) };
     }
 
     async function runBoardTool(step, name, args) {
@@ -401,7 +434,14 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
       step.saveCall = session.lastSave;
       lastDocument = after;
       emit({ type: 'board', revision, document: after, changed: marks, removed });
-      return result(text);
+      const looked = await lookAtRendering(after, marks, removed);
+      if (!looked) return result(text);
+      const sentence = renderedDetail(looked.inspection);
+      if (sentence) step.detail = step.detail ? `${step.detail} · ${sentence}` : sentence;
+      if (looked.wrong) step.outcome = 'drew-wrong';
+      step.rendering = looked.inspection.tiles.filter(tile => tile.state === 'problem' || tile.state === 'check').map(({ id, problem }) => ({ id, problem }));
+      return result(body && typeof body === 'object' && !Array.isArray(body) ? JSON.stringify({ rendered: looked.model, ...body }) : `${JSON.stringify({ rendered: looked.model })}
+${text}`);
     }
 
     async function runTool(step, name, args) {
@@ -524,6 +564,7 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
       document: endDocument,
       failure: turn.failure ?? null,
       emptyResults: turn.emptyResults,
+      renderProblems: [...turn.rendering.values()].filter(tile => (tile.state === 'problem' || tile.state === 'check') && endDocument.parts?.[tile.id]).map(({ id, kind, problem }) => ({ id, kind, problem })),
       rounds,
     };
     emit({ type: 'message', text: reply });

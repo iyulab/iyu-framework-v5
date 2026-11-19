@@ -33,7 +33,7 @@ export const calls = (...list) => ({ choices: [{ message: { role: 'assistant', c
 // ---- a first board: a KPI and a line, reading the host's OData
 export const FIRST_PATCH = [
   { op: 'add', path: '/data', value: {
-    kpi: { from: 'odata', path: '/$data/Orders?$apply=aggregate(Total with sum as Revenue)', list: '/value', fields: { Revenue: { label: 'Revenue' } } },
+    kpi: { from: 'odata', path: '/$data/Orders?$apply=aggregate(Total with sum as Revenue)', fields: { Revenue: { at: '/value/0/Revenue', label: 'Revenue' } } },
     monthly: { from: 'odata', path: '/$data/Orders?$apply=groupby((OrderDate),aggregate(Total with sum as Revenue))', list: '/value', key: 'OrderDate' },
   } },
   { op: 'add', path: '/parts/revenue', value: { as: 'stat', of: 'kpi', show: 'Revenue', title: 'Revenue' } },
@@ -49,12 +49,30 @@ export const badPatch = id => [
 ];
 
 export const REVENUE_ANSWER = { value: [{ Revenue: 1234.5 }] };
+export const MONTHLY_ANSWER = { value: [{ OrderDate: '2026-01', Revenue: 400 }, { OrderDate: '2026-02', Revenue: 834.5 }] };
+
+/** The host's data as the small sales domain answers it: a total is one row, a grouping by month is a row per month. */
+export const answerData = url => json(200, url.includes('groupby((OrderDate)') ? MONTHLY_ANSWER : REVENUE_ANSWER);
+
+/** What the tool results the model is about to read say: the JSON of each message that follows its last answer, in order (a result that is not JSON is its text). */
+const lastToolResults = messages => {
+  const results = [];
+  for (let i = messages.length - 1; i >= 0 && messages[i].role === 'tool'; i--) {
+    try {
+      results.unshift(JSON.parse(messages[i].content));
+    } catch {
+      results.unshift(messages[i].content);
+    }
+  }
+  return results;
+};
 
 /**
- * `model` is the queue of replies. `odata(url)` answers a read of /$data (default: one aggregate row).
+ * `model` is the queue of replies: a reply is a message (`say`, `calls`), or a function of what the model has just been shown — `({ messages, toolResults }) => reply` —
+ * for a model that answers what the tools said rather than a fixed script. `odata(url)` answers a read of /$data (default: one aggregate row).
  * The host keeps one board; `world.moveOn()` is another session saving it.
  */
-export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(200, REVENUE_ANSWER), catalogStatus = 200, modelStatus } = {}) {
+export function makeWorld({ model = [], catalog = CATALOG, odata = answerData, catalogStatus = 200, modelStatus } = {}) {
   const requests = [];
   const queue = [...model];
   const host = { revision: 0, document: undefined, name: 'Revenue overview' };
@@ -71,8 +89,9 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
     if (message !== undefined && asked.some(c => !answered.has(c.id))) throw new Error('the history holds a tool call without its result');
     if (final !== undefined) return { stop: 'Completed', text: final, history: [...messages, { role: 'assistant', content: final }] };
     request.model = { messages: [{ role: 'system', content: system }, ...messages], tools: tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.schema } })) };
-    const reply = queue.shift();
-    if (!reply) throw new Error('the scripted model has no reply left');
+    const next = queue.shift();
+    if (!next) throw new Error('the scripted model has no reply left');
+    const reply = typeof next === 'function' ? next({ messages, toolResults: lastToolResults(messages) }) : next;
     const said = reply.choices[0].message;
     const toolCalls = (said.tool_calls ?? []).map(c => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }));
     return { stop: toolCalls.length ? 'AwaitingHostTools' : 'Completed', text: said.content ?? '', toolCalls, history: [...messages, { role: 'assistant', content: said.content ?? null, ...(said.tool_calls ? { tool_calls: said.tool_calls } : {}) }] };
