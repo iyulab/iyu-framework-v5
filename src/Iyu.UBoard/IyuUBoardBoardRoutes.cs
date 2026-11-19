@@ -14,7 +14,7 @@ internal static class IyuUBoardBoardRoutes
     /// <summary>The largest document a request may carry, in bytes. A larger one is refused with 413.</summary>
     internal const int MaxDocumentBytes = 4 * 1024 * 1024;
 
-    internal static void Map(RouteGroupBuilder group)
+    internal static void Map(RouteGroupBuilder group, bool assistant)
     {
         var boards = group.MapGroup("boards");
         boards.AddEndpointFilter(RefusedValue);
@@ -127,12 +127,15 @@ internal static class IyuUBoardBoardRoutes
                 ["revision"] = found.Revision,
                 ["document"] = JsonNode.Parse(found.Document),
             })));
+
+        // The assistant's turn: only when the host registered one. With none the route is not there at all.
+        if (assistant) IyuUBoardTurnRoute.Map(one);
     }
 
-    /// <summary>Whether the caller may make boards at all — the question a screen asks to show or hide its "new board" button.</summary>
-    internal static void MapAccess(RouteGroupBuilder group) =>
+    /// <summary>What a screen asks first: whether the caller may make boards at all (to show or hide its "new board" button), and whether an assistant is registered (to show or leave out its chat).</summary>
+    internal static void MapAccess(RouteGroupBuilder group, bool assistant) =>
         group.MapGet("access", async (ClaimsPrincipal user, IBoardAccess access, CancellationToken cancellationToken) =>
-            Results.Json(new { Create = await access.AllowsAsync(user, BoardAction.Create, null, cancellationToken) }));
+            Results.Json(new { Create = await access.AllowsAsync(user, BoardAction.Create, null, cancellationToken), Assistant = assistant }));
 
     // null when the caller may do it. A caller who may not even view the board is told it is not there, whatever they asked; one who may
     // view it but not do this is told so.

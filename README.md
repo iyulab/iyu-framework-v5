@@ -2378,6 +2378,16 @@ source registered by the host; `Iyu.UBoard.MainServer` (not packed yet) describe
 (`Authorize`, `AuthorizeProperty`, or the fallback policy for a set that names none). What the caller may not read is left out. With
 `Catalog(showUnreadable: true)` it is listed and marked `"readable": false` instead, with no word about which policy guards it.
 
+**An assistant for a board's chat.** `IBoardAssistant` is the port a board's chat talks to: one turn of a conversation about the open board,
+answered with the tools the caller has to run or with words. `Iyu.UBoard` depends on no model library, so the model and the loop behind
+the port are an implementation's — register one and `MapIyuUBoard` also serves `POST {prefix}/boards/{id}/turn`; register none and the route is
+not mapped, and `GET {prefix}/access` answers `{ "create": …, "assistant": false }`, so a screen leaves its chat out. A turn is state-free: send the
+history an answer returned with the next request, either `message` or the `results` of the tools the last answer asked for (with an optional
+`final` that closes the turn with words of your own), and `tools`, each `{ name, description, schema, edits }`. The tools run where the caller is,
+as the person. Each turn is asked of `IBoardAccess` first: a board the caller may not view is 404, and a caller who may view but not edit gets an
+answer-only turn — the assistant is offered only the tools declared `"edits": false`, and the answer carries `"answerOnly": true`. That is
+the screen's own declaration, so it keeps an edit from being offered rather than preventing one; the save is what is refused (403).
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the

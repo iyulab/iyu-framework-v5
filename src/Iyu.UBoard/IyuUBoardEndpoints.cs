@@ -18,7 +18,10 @@ public static class IyuUBoardEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Each board route also asks the host's <see cref="IBoardAccess"/> — who may view, make, edit, publish and delete which board is the application's to say (a board the caller may not view is 404, a thing they may not do to a board they can view is 403, and a list holds only viewable boards). <c>GET {prefix}/access</c> answers whether the caller may make boards at all.
+    /// Each board route also asks the host's <see cref="IBoardAccess"/> — who may view, make, edit, publish and delete which board is the application's to say (a board the caller may not view is 404, a thing they may not do to a board they can view is 403, and a list holds only viewable boards). <c>GET {prefix}/access</c> answers <c>{ create, assistant }</c>: whether the caller may make boards at all, and whether an <see cref="IBoardAssistant"/> is registered.
+    /// </para>
+    /// <para>
+    /// With an <see cref="IBoardAssistant"/> registered, the routes also include <c>POST {prefix}/boards/{id}/turn</c>, one turn of the assistant's conversation about the board; with none the route is not mapped.
     /// </para>
     /// <para>
     /// The routes require a signed-in caller (or <see cref="IyuUBoardOptions.Policy"/>); there is no anonymous mode. A request
@@ -37,8 +40,10 @@ public static class IyuUBoardEndpoints
         group.AddEndpointFilter(IyuUBoardRequestRules.SameOrigin);
         if (settings.BoardsEnabled)
         {
-            IyuUBoardBoardRoutes.Map(group);
-            IyuUBoardBoardRoutes.MapAccess(group);
+            // An assistant is on when the host registered one; the port is looked for by type, so nothing is built to find out.
+            var assistant = endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>().IsService(typeof(IBoardAssistant));
+            IyuUBoardBoardRoutes.Map(group, assistant);
+            IyuUBoardBoardRoutes.MapAccess(group, assistant);
         }
         if (settings.CatalogEnabled) IyuUBoardCatalogRoute.Map(group);
         return group;
