@@ -817,9 +817,10 @@ async function main() {
       const row = page.locator(`tr[data-board="${boardId}"]`);
       check((await row.textContent()).includes('Revenue overview') && (await row.textContent()).includes('Can edit'), await row.textContent());
       equal(((await row.textContent()).match(/r12/g) ?? []).length, 2, 'latest and published revisions (the one saved and published by the fallback step is r12)');
+      await shot(page, 'list');
       await page.goto(`${origin}${SCREEN}/boards/not-a-board`);
       await page.waitForSelector('[data-testid=missing]');
-      await shot(page, 'list');
+      await shot(page, 'missing');
     });
 
     await step('the files the page loads are the library\'s: hashed, kept for good, with the notices beside them', async () => {
