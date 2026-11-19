@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Iyu.MainServer;
 
@@ -60,6 +62,9 @@ public sealed class IyuWriteExceptionHandler(IEnumerable<ISqlStateTranslator> tr
             DbUpdateConcurrencyException => new Answer(StatusCodes.Status409Conflict, ODataErrorCodes.ConcurrencyConflict,
                 "The data changed since it was read.",
                 "The row was changed or removed after it was read. Read it again and decide whether to reapply."),
+            // A table or view the database lacks — met by a read as the provider's own exception, by a write wrapped in
+            // a DbUpdateException — is the host's setup, not the data's state: answered as that on either path.
+            _ when DatabaseObjectMissing.Find(exception, _translators) is { } missing => MissingObjectAnswer(httpContext, exception, missing),
             DbUpdateException update => Classify(SqlStateOf(update), update),
             _ => null,
         };
@@ -84,6 +89,27 @@ public sealed class IyuWriteExceptionHandler(IEnumerable<ISqlStateTranslator> tr
     }
 
     private sealed record Answer(int Status, string Code, string Title, string Detail);
+
+    /// <summary>
+    /// The answer for a database that lacks a table or view the host maps. Always written to the log, once for the request,
+    /// with the provider's exception; the caller is told the object and what to do only where details are wanted — the
+    /// same rule as the OData error serializer's: <see cref="IyuMainServerOptions.IncludeODataErrorDetails"/>, else the
+    /// Development environment.
+    /// </summary>
+    private static Answer MissingObjectAnswer(HttpContext httpContext, Exception exception, DatabaseObjectMissing missing)
+    {
+        var services = httpContext.RequestServices;
+        missing.Report(services.GetRequiredService<ILoggerFactory>().CreateLogger<IyuWriteExceptionHandler>(), exception,
+            httpContext.Items);
+
+        var includeDetails = services.GetService<IyuMainServerOptions>()?.IncludeODataErrorDetails
+            ?? services.GetService<IHostEnvironment>()?.IsDevelopment() == true;
+        return includeDetails
+            ? new Answer(StatusCodes.Status500InternalServerError, DatabaseObjectMissing.Code,
+                "The database does not have an object this host maps.", missing.Detail)
+            : new Answer(StatusCodes.Status500InternalServerError, DatabaseObjectMissing.Code,
+                "An error occurred while processing your request.", "An error occurred while processing your request.");
+    }
 
     /// <summary>
     /// The SQLSTATE of the provider's exception inside <paramref name="exception"/> — as it reports it, or as a

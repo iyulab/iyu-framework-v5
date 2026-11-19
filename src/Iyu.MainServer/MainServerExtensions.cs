@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.OData;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Iyu.MainServer;
 
@@ -56,6 +57,9 @@ public static class MainServerExtensions
         // how it reads what the request was refused (see IyuStringSearchBinder).
         services.AddHttpContextAccessor();
         services.AddExceptionHandler<IyuWriteExceptionHandler>();
+        // SQLite reports no SQLSTATE; this names its "no such table" so the database that lacks a table is told as that.
+        // It names nothing else, so it changes the answer to no other failure.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISqlStateTranslator, SqliteSqlStateTranslator>());
         // A problem answered under the OData route is written as an OData error, like every refusal the
         // controller makes there (see IyuODataProblemDetailsWriter).
         AddODataProblemDetailsWriter(services, new IyuODataProblemDetailsWriter(options.ODataRoutePrefix, options));
