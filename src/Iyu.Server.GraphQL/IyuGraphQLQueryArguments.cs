@@ -41,18 +41,32 @@ internal static class IyuGraphQLQueryArguments
     /// has no filter here, and the output type serves it as a page of its own.
     /// </summary>
     internal static IReadOnlyList<PropertyInfo> Navigations(
-        Type type, Func<Type, bool> isServed, Func<Type, string, bool> isWithheld)
+        Type type, Func<Type, bool> isServed, Func<Type, string, bool> isWithheld, bool collections = false)
     {
         var navigations = new List<PropertyInfo>();
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (property.GetIndexParameters().Length != 0 || property.GetMethod is not { IsPublic: true }) continue;
             if (property.IsDefined(typeof(GraphQLIgnoreAttribute), inherit: true)) continue;
-            if (IsScalar(property.PropertyType) || !isServed(property.PropertyType)) continue;
+            if (IsScalar(property.PropertyType)) continue;
+            var target = collections ? ElementTypeOf(property.PropertyType) : property.PropertyType;
+            if (target is null || !isServed(target)) continue;
+            // Asked for single references a collection is not one, and asked for collections a single reference is not.
+            if (!collections && ElementTypeOf(property.PropertyType) is not null) continue;
             if (isWithheld(type, property.Name)) continue;
             navigations.Add(property);
         }
         return navigations;
+    }
+
+    /// <summary>The element type of a collection property (an array or an <c>IEnumerable&lt;T&gt;</c> other than <c>string</c>), or <see langword="null"/>.</summary>
+    internal static Type? ElementTypeOf(Type type)
+    {
+        if (type == typeof(string)) return null;
+        if (type.IsArray) return type.GetElementType();
+        return type.GetInterfaces().Append(type)
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            ?.GetGenericArguments()[0];
     }
 
     private static bool IsScalar(Type type)
@@ -104,7 +118,7 @@ internal static class IyuGraphQLQueryArguments
         var nodes = 0;
         string? why = null;
 
-        void Visit(IValueNode? node, int depth, IInputObjectTypeDefinition inputType, Type model)
+        void Visit(IValueNode? node, int depth, IInputObjectTypeDefinition inputType, Type model, bool isList = false)
         {
             if (why is not null || node is null) return;
             if (++nodes > maxNodes) { why = $"The {argument} condition is larger than {maxNodes} parts."; return; }
@@ -119,12 +133,32 @@ internal static class IyuGraphQLQueryArguments
                     // is not expected here at all. One that does turn up is read as what it holds, and one that cannot
                     // be read is refused - it is not something to wave through.
                     if (context.Variables.TryGetValue<IValueNode>(variable.Name.Value, out var value))
-                        Visit(value, depth + 1, inputType, model);
+                        Visit(value, depth + 1, inputType, model, isList);
                     else
                         why = $"The {argument} condition uses a variable that cannot be read.";
                     return;
                 case ListValueNode list:
-                    foreach (var item in list.Items) Visit(item, depth + 1, inputType, model);
+                    foreach (var item in list.Items) Visit(item, depth + 1, inputType, model, isList);
+                    return;
+                case ObjectValueNode obj when isList:
+                    // The wrapper a collection's condition is written in: some / all / none each hold a condition on the
+                    // element model, any is a plain yes-or-no on whether the collection has a row.
+                    foreach (var field in obj.Fields)
+                    {
+                        if (why is not null) return;
+                        var name = field.Name.Value;
+                        if (name is "some" or "all" or "none"
+                            && inputType.Fields.TryGetField(name, out var quantified)
+                            && quantified.Type.NamedType() is IInputObjectTypeDefinition elementInput)
+                            Visit(field.Value, depth + 1, elementInput, model);
+                        else if (name == "any" && inputType.Fields.TryGetField(name, out _))
+                            nodes += PartsOf(field.Value);
+                        else
+                        {
+                            why = $"The {argument} condition has a part this field cannot check ('{name}').";
+                            return;
+                        }
+                    }
                     return;
                 case ObjectValueNode obj:
                     foreach (var field in obj.Fields)
@@ -150,6 +184,13 @@ internal static class IyuGraphQLQueryArguments
                             // ten thousand parts of the database's work.
                             nodes += PartsOf(field.Value);
                             if (nodes > maxNodes) { why = $"The {argument} condition is larger than {maxNodes} parts."; return; }
+                        }
+                        else if (member is PropertyInfo collection && ElementTypeOf(collection.PropertyType) is { } element
+                                 && inputField.Type.NamedType() is IInputObjectTypeDefinition listInput)
+                        {
+                            // Crossing into a collection reads the model of its rows, whichever of some / all / none / any is asked.
+                            reads.Entered.Add(element);
+                            Visit(field.Value, depth + 1, listInput, element, isList: true);
                         }
                         else if (member is PropertyInfo reference && inputField.Type.NamedType() is IInputObjectTypeDefinition nested)
                         {
@@ -187,12 +228,14 @@ internal static class IyuGraphQLQueryArguments
     };
 
     internal static void ConfigureFilter<T>(
-        IFilterInputTypeDescriptor<T> descriptor, IReadOnlyList<PropertyInfo> columns, IReadOnlyList<PropertyInfo> navigations)
+        IFilterInputTypeDescriptor<T> descriptor, IReadOnlyList<PropertyInfo> columns, IReadOnlyList<PropertyInfo> navigations,
+        IReadOnlyList<PropertyInfo>? collections = null)
         where T : class
     {
         descriptor.BindFieldsExplicitly();
         foreach (var column in columns) descriptor.Field(Access<T>(column));
         foreach (var navigation in navigations) descriptor.Field(Access<T>(navigation));
+        foreach (var collection in collections ?? []) descriptor.Field(Access<T>(collection));
     }
 
     internal static void ConfigureSort<T>(

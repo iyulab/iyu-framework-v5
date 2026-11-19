@@ -434,7 +434,7 @@ public sealed class IyuGraphQLSchemaBuilder
             // One filter and one sort type per served model, built when the schema is: a condition that crosses a reference
             // lands on the target's own types, so every model's types follow the same exposure rules as its output type.
             executorBuilder.AddType(new HotChocolate.Data.Filters.FilterInputType<TRead>(d =>
-                IyuGraphQLQueryArguments.ConfigureFilter(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)))));
+                IyuGraphQLQueryArguments.ConfigureFilter(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)), CollectionsOf(typeof(TRead)))));
             executorBuilder.AddType(new HotChocolate.Data.Sorting.SortInputType<TRead>(d =>
                 IyuGraphQLQueryArguments.ConfigureSort(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)))));
         });
@@ -445,6 +445,9 @@ public sealed class IyuGraphQLSchemaBuilder
     private readonly List<Action<IRequestExecutorBuilder>> _inputTypes = new();
 
     private IReadOnlyList<PropertyInfo> ColumnsOf(Type type) => IyuGraphQLQueryArguments.Columns(type, IsWithheld);
+
+    private IReadOnlyList<PropertyInfo> CollectionsOf(Type type)
+        => IyuGraphQLQueryArguments.Navigations(type, t => _exposedTypes.ContainsKey(t), IsWithheld, collections: true);
 
     private IReadOnlyList<PropertyInfo> NavigationsOf(Type type)
         => IyuGraphQLQueryArguments.Navigations(type, t => _exposedTypes.ContainsKey(t), IsWithheld);

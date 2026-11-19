@@ -56,6 +56,8 @@ public sealed class GraphQLWhereOrderCrossingTests : IDisposable
 
     private const string CustomersPolicy = "customers.read";
     private const string CreditPolicy = "credit.read";
+    private const string PurchasesPolicy = "purchases.read";
+    private const string AmountPolicy = "amount.read";
     private readonly SharedMemorySqlite _db = new();
 
     public void Dispose() => _db.Dispose();
@@ -106,6 +108,8 @@ public sealed class GraphQLWhereOrderCrossingTests : IDisposable
         {
             o.AddPolicy(CustomersPolicy, p => p.RequireClaim("perm", CustomersPolicy));
             o.AddPolicy(CreditPolicy, p => p.RequireClaim("perm", CreditPolicy));
+            o.AddPolicy(PurchasesPolicy, p => p.RequireClaim("perm", PurchasesPolicy));
+            o.AddPolicy(AmountPolicy, p => p.RequireClaim("perm", AmountPolicy));
         });
         graphql.ApplyTo(services.AddGraphQLServer().ModifyRequestOptions(o => o.IncludeExceptionDetails = true));
         var sp = services.BuildServiceProvider();
@@ -176,7 +180,8 @@ public sealed class GraphQLWhereOrderCrossingTests : IDisposable
         Assert.DoesNotContain("warehouse:", purchaseFilter, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("warehouse:", purchaseSort, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("warehouseId:", purchaseFilter);
-        Assert.DoesNotContain("purchases", customerFilter, StringComparison.OrdinalIgnoreCase);   // a collection is not crossed here
+        Assert.Contains("purchases:", customerFilter);   // a collection is crossed through some / all / none / any
+        Assert.DoesNotContain("purchases:", Block(sdl, "input CustomerSortInput"));   // and is never something to sort by
         Assert.DoesNotContain("notes", customerFilter, StringComparison.OrdinalIgnoreCase);       // the target's own exposure rules apply
         Assert.Contains("credit:", customerFilter);
     }
@@ -353,6 +358,124 @@ public sealed class GraphQLWhereOrderCrossingTests : IDisposable
     }
 
     // ---- the request's reach ----
+
+    // ---- a collection: some / all / none / any ----
+
+    private static JsonElement Customers(string json) => JsonDocument.Parse(json).RootElement.GetProperty("data").GetProperty("customers");
+
+    private static string[] CustomerNames(string json)
+        => Customers(json).GetProperty("nodes").EnumerateArray().Select(n => n.GetProperty("name").GetString()!).Order().ToArray();
+
+    [Theory]
+    [InlineData("{ customers(where: { purchases: { some: { item: { eq: \"pen\" } } } }) { nodes { name } } }", "ann")]
+    [InlineData("{ customers(where: { purchases: { none: { item: { eq: \"pen\" } } } }) { nodes { name } } }", "bob")]
+    [InlineData("{ customers(where: { purchases: { all: { amount: { gte: 3 } } } }) { nodes { name } } }", "bob")]
+    [InlineData("{ customers(where: { purchases: { any: true } }) { nodes { name } } }", "ann,bob")]
+    [InlineData("{ customers(where: { purchases: { any: false } }) { nodes { name } } }", "")]
+    public async Task A_condition_on_a_collection_means_some_all_none_or_any_of_its_rows(string query, string expected)
+    {
+        await using var sp = await BuildAsync();
+        SetCurrentUser(sp, CustomersPolicy, CreditPolicy);
+
+        var json = await RunAsync(sp, query);
+
+        Assert.DoesNotContain("\"errors\"", json, StringComparison.Ordinal);
+        Assert.Equal(expected, string.Join(",", CustomerNames(json)));
+    }
+
+    [Fact]
+    public async Task A_collection_condition_narrows_the_total_too()
+    {
+        await using var sp = await BuildAsync();
+        SetCurrentUser(sp, CustomersPolicy, CreditPolicy);
+
+        var json = await RunAsync(sp, "{ customers(where: { purchases: { some: { amount: { gt: 0 } } } }) { totalCount nodes { name } } }");
+
+        Assert.Equal(2, Customers(json).GetProperty("totalCount").GetInt32());
+    }
+
+    public static TheoryData<string, string?> WaysToCrossIntoACollection => new()
+    {
+        { "{ customers(where: { purchases: { some: { item: { eq: \"pen\" } } } }) { totalCount } }", null },
+        { "{ customers(where: { purchases: { any: true } }) { totalCount } }", null },
+        { "{ customers(where: { purchases: { none: {} } }) { totalCount } }", null },
+        { "{ customers(where: { and: [{ name: { neq: \"x\" } }, { or: [{ purchases: { all: { item: { eq: \"pen\" } } } }] }] }) { totalCount } }", null },
+        { "query($w: CustomerFilterInput) { customers(where: $w) { totalCount } }", "w" },
+        { "query($w: CustomerFilterInput = { purchases: { some: { item: { eq: \"pen\" } } } }) { customers(where: $w) { totalCount } }", null },
+        { "{ ...F } fragment F on Query { customers(where: { purchases: { some: { item: { eq: \"pen\" } } } }) { totalCount } }", null },
+    };
+
+    private static Dictionary<string, object?>? CollectionVariablesFor(string? name) => name switch
+    {
+        "w" => new() { ["w"] = new Dictionary<string, object?> { ["purchases"] = new Dictionary<string, object?> { ["some"] = new Dictionary<string, object?> { ["item"] = new Dictionary<string, object?> { ["eq"] = "pen" } } } } },
+        _ => null,
+    };
+
+    [Theory]
+    [MemberData(nameof(WaysToCrossIntoACollection))]
+    public async Task A_caller_who_may_not_read_the_rows_of_a_collection_cannot_cross_into_it_and_no_query_runs(string query, string? variable)
+    {
+        await using var sp = await BuildAsync(configure: g => g.Restrict("purchases", PurchasesPolicy));
+        SetCurrentUser(sp, CustomersPolicy);   // may read customers, not purchases
+
+        var json = await RunAsync(sp, query, CollectionVariablesFor(variable));
+
+        Assert.Contains("\"AUTH_NOT_AUTHORIZED\"", json, StringComparison.Ordinal);
+        Assert.Equal(0, Volatile.Read(ref _counting.Commands));
+    }
+
+    [Theory]
+    [MemberData(nameof(WaysToCrossIntoACollection))]
+    public async Task The_same_collection_request_from_a_caller_who_may_read_it_is_answered(string query, string? variable)
+    {
+        await using var sp = await BuildAsync(configure: g => g.Restrict("purchases", PurchasesPolicy));
+        SetCurrentUser(sp, CustomersPolicy, PurchasesPolicy);
+
+        var json = await RunAsync(sp, query, CollectionVariablesFor(variable));
+
+        Assert.DoesNotContain("\"errors\"", json, StringComparison.Ordinal);
+        Assert.True(Volatile.Read(ref _counting.Commands) > 0);
+    }
+
+    [Theory]
+    [InlineData("{ customers(where: { purchases: { some: { amount: { gt: 1 } } } }) { totalCount } }")]
+    [InlineData("{ customers(where: { purchases: { all: { amount: { gt: 1 } } } }) { totalCount } }")]
+    [InlineData("{ customers(where: { purchases: { none: { and: [{ item: { eq: \"x\" } }, { amount: { gt: 1 } }] } } }) { totalCount } }")]
+    public async Task A_column_with_its_own_policy_among_the_rows_of_a_collection_needs_that_policy_too(string query)
+    {
+        await using var sp = await BuildAsync(configure: g => g.RestrictProperty(typeof(Purchase), nameof(Purchase.Amount), AmountPolicy));
+        SetCurrentUser(sp, CustomersPolicy);   // may read customers and their purchases, not the amount
+
+        var json = await RunAsync(sp, query);
+
+        Assert.Contains("\"AUTH_NOT_AUTHORIZED\"", json, StringComparison.Ordinal);
+        Assert.Equal(0, Volatile.Read(ref _counting.Commands));
+    }
+
+    [Fact]
+    public async Task Asking_only_whether_a_collection_has_a_row_names_no_column()
+    {
+        await using var sp = await BuildAsync(configure: g => g.RestrictProperty(typeof(Purchase), nameof(Purchase.Amount), AmountPolicy));
+        SetCurrentUser(sp, CustomersPolicy);
+
+        var json = await RunAsync(sp, "{ customers(where: { purchases: { any: true } }) { totalCount } }");
+
+        Assert.Equal(2, Customers(json).GetProperty("totalCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_condition_through_a_collection_puts_the_rows_model_in_the_reach()
+    {
+        await using var sp = await BuildAsync(configure: g => g.ComputeReach = true);
+        SetCurrentUser(sp, CustomersPolicy);
+        var http = sp.GetRequiredService<IHttpContextAccessor>().HttpContext!;
+
+        await RunAsync(sp, "{ customers(where: { purchases: { any: true } }) { totalCount } }");
+
+        var reach = http.Features.Get<IIyuGraphQLReachFeature>();
+        Assert.Equal(["customers"], reach!.AddressedQueries.ToArray());
+        Assert.Equal(["purchases"], reach.ReachedQueries.ToArray());
+    }
 
     [Fact]
     public async Task Root_fields_that_cross_into_different_models_in_one_request_each_leave_their_model_in_the_reach()
