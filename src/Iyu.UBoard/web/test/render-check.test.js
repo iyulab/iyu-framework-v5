@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAssistant } from '../src/agent-loop.js';
 import { MAX_RENDER_FIXES, inspectRendering, renderedForModel } from '../src/render-check.js';
+import { workflowRules } from '../src/prompt.js';
 import { FIRST_PATCH, calls, json, makeWorld, recorder, say } from '../testkit/world.js';
 
 // ---- a board and the answers its reads get
@@ -238,4 +239,9 @@ test('a board that draws as read is listed, in a line a part, and nothing is ask
   const told = JSON.parse(world.modelRequests()[1].body.messages.find(message => message.role === 'tool').content).rendered;
   assert.deepEqual(told, { checked: 2, drew: ['revenue: 1234.5', 'trend: 2 points · OrderDate 2026-01…2026-02 · Revenue 400…834.5'] });
   assert.deepEqual(result.renderProblems, []);
+});
+
+test('the rules tell a model that may edit what `rendered` is; one that may only answer is told nothing of it', () => {
+  assert.match(workflowRules({ canEdit: true }), /starts with `rendered`.*never state a number a tile does not show/s);
+  assert.equal(workflowRules({ canEdit: false }).includes('rendered'), false);
 });

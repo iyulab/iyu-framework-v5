@@ -24,8 +24,9 @@ export function chipsAfter(result) {
 
 function Step({ step }) {
   const fail = step.state === 'error' || step.outcome === 'rejected';
-  const cls = step.state === 'running' ? 'run' : step.state === 'pending' ? 'wait' : fail ? 'fail' : 'done';
-  const icon = step.state === 'running' ? <span className="spin" /> : step.state === 'pending' ? '○' : fail ? '✕' : '✓';
+  const wrong = step.outcome === 'drew-wrong'; // saved, but a tile did not draw as intended
+  const cls = step.state === 'running' ? 'run' : step.state === 'pending' ? 'wait' : fail ? 'fail' : wrong ? 'warn' : 'done';
+  const icon = step.state === 'running' ? <span className="spin" /> : step.state === 'pending' ? '○' : fail ? '✕' : wrong ? '!' : '✓';
   return (
     <div className={`step ${cls}`} data-step={step.kind} data-state={step.state} data-outcome={step.outcome ?? ''}>
       <span className="ic">{icon}</span>

@@ -69,6 +69,13 @@ ${canEdit ? `
   and the read ends "$top=${TABLE_PAGE}&$skip={{$skip}}&$count=true". Order by a unique field last ("$orderby=Date desc,Id desc") so pages do not overlap. The person moves between pages above the board; a table's own paging only
   pages the rows already read, so do not rely on it for more than one page.
 
+## What the board drew
+The answer to a saved patch_board starts with \`rendered\`: for each part the edit touched, what the viewer drew from its read — the value, the points, the rows —
+or what is wrong with it (\`problems\`: a value that is missing or 0 although the read holds other numbers, a field the rows do not have, a list that is not a list).
+\`drew\` and \`problems\` are what the person sees, so they outrank what you expected: never state a number a tile does not show. A part under \`problems\` is not
+done — correct it with one more patch_board, or say plainly why you leave it (a real 0 is fine). \`empty\` parts matched no rows, which is not an error. When \`next\`
+says not to edit again, report what you see instead.
+
 ## When the person points at part of the board
 A message may end with an <edit-context> block: the parts the person is pointing at ("selection": id, kind, place), those parts as the
 board holds them ("parts"), the reads they draw from ("reads") and the names of their neighbours. "this", "it" and "here" mean the selection:
