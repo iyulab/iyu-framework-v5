@@ -415,6 +415,8 @@ public sealed class BoardAssistantTurnTests
         using var slow = await host.TurnAsync("plan", "eve", Turn());
         host.Assistant.Failure = new InvalidOperationException("connection string Server=db.internal.example;Password=hunter2");
         using var broken = await host.TurnAsync("plan", "eve", Turn());
+        host.Assistant.Failure = new BoardAssistantException(BoardAssistantException.BadRequest, "message 3 of the history is not a message");
+        using var unreadable = await host.TurnAsync("plan", "eve", Turn());
 
         Assert.Equal(HttpStatusCode.TooManyRequests, busy.StatusCode);
         Assert.Equal("""{"error":"ratelimit"}""", await busy.Content.ReadAsStringAsync());
@@ -422,6 +424,8 @@ public sealed class BoardAssistantTurnTests
         Assert.Equal("""{"error":"timeout"}""", await slow.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.BadGateway, broken.StatusCode);
         Assert.Equal("""{"error":"unknown"}""", await broken.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, unreadable.StatusCode);
+        Assert.Equal("""{"error":"badrequest"}""", await unreadable.Content.ReadAsStringAsync());
     }
 
     [Fact]

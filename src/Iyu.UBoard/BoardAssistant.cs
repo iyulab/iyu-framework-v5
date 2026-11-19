@@ -111,6 +111,9 @@ public sealed class BoardAssistantException : Exception
     /// <summary>The kind of failure a port reports when its service says the caller is asking too often; the layer answers 429 for it.</summary>
     public const string RateLimit = "ratelimit";
 
+    /// <summary>The kind of failure for a turn the port cannot read — a history that is not one it gave. The layer answers 400 for it.</summary>
+    public const string BadRequest = "badrequest";
+
     /// <summary>The kind of failure for one the port cannot name.</summary>
     public const string Unknown = "unknown";
 

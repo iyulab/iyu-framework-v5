@@ -86,7 +86,12 @@ internal static partial class IyuUBoardTurnRoute
                 var kind = ex is BoardAssistantException failed ? failed.Kind : BoardAssistantException.Unknown;
                 return Results.Json(
                     new { error = kind },
-                    statusCode: kind == BoardAssistantException.RateLimit ? StatusCodes.Status429TooManyRequests : StatusCodes.Status502BadGateway);
+                    statusCode: kind switch
+                    {
+                        BoardAssistantException.RateLimit => StatusCodes.Status429TooManyRequests,
+                        BoardAssistantException.BadRequest => StatusCodes.Status400BadRequest,
+                        _ => StatusCodes.Status502BadGateway,
+                    });
             }
         })
         .AddEndpointFilter(IyuUBoardRequestRules.RequireJson);
