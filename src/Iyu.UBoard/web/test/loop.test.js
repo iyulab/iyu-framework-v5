@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAssistant, DEFAULT_ENDPOINTS } from '../src/agent-loop.js';
+import { createAssistant, DEFAULT_ENDPOINTS, newBoard } from '../src/agent-loop.js';
 import { FIRST_PATCH, calls, json, makeWorld, recorder, say } from '../testkit/world.js';
 
 const QUERY = { entity: 'Orders', apply: 'groupby((OrderDate),aggregate(Total with sum as Revenue))' };
@@ -71,7 +71,7 @@ test('the raw call of a step is the request that was sent, character for charact
   assert.equal(world.host.document.data.kpi.path, FIRST_PATCH[0].value.kpi.path);
 });
 
-test('the page never names the model, and every host request carries the signed-in person', async () => {
+test('the page never names the model and sends nothing but a turn', async () => {
   const world = makeWorld({ model: firstTurn() });
   const assistant = createAssistant(world.assistantDeps());
   await assistant.send('Show monthly revenue.');
@@ -88,10 +88,9 @@ test('the page never names the model, and every host request carries the signed-
     assert.deepEqual(request.body.tools.filter(tool => tool.edits).map(tool => tool.name), ['patch_board'], 'only the board edit declares that it edits');
   }
   assert.equal(world.requests.length, 6); // three model calls, the catalog, one read, one save
-  for (const request of world.requests) assert.equal(request.headers['X-Sample-User'], 'dev', request.url);
 });
 
-test('the model is offered the board tools of U-Board and this sample\'s two data tools', async () => {
+test('the model is offered the board tools of U-Board and the two data tools', async () => {
   const world = makeWorld({ model: [say('Hello.')] });
   const assistant = createAssistant(world.assistantDeps());
   await assistant.send('Hi');
@@ -212,4 +211,44 @@ test('the revision the model passes is ignored: the host keeps count', async () 
   const result = await assistant.send('Build it.');
   assert.equal(result.outcome, 'done');
   assert.equal(result.revision.to, 1);
+});
+
+// ---- what the person may do, and what the host has switched on
+
+const offered = world => world.modelRequests()[0].body.tools.map(tool => tool.function.name);
+
+test('a person who may not edit the board is offered no tool that edits it, and the model is told to answer', async () => {
+  const world = makeWorld({ model: [say('The board shows revenue.')] });
+  const assistant = createAssistant(world.assistantDeps({ canEdit: false }));
+  const result = await assistant.send('What does this board show?');
+
+  const names = offered(world);
+  assert.equal(names.includes('patch_board'), false);
+  for (const name of ['get_board', 'read_catalog', 'query_data']) assert.ok(names.includes(name), name);
+  const sent = world.requests.find(r => r.url === '/uboard/boards/revenue/turn').body;
+  assert.equal(sent.tools.some(tool => tool.edits), false, 'nothing declared as an edit');
+  assert.match(world.modelRequests()[0].body.messages[0].content, /may open and read it but not change it/);
+  assert.equal(result.outcome, 'done');
+  assert.deepEqual(result.revision, { from: 0, to: 0 });
+});
+
+test('a host with no source catalog gets no data tools, and a board edit is not held to a catalog nobody can read', async () => {
+  const world = makeWorld({ model: [calls(['patch_board', { patch: [{ op: 'add', path: '/parts/note', value: { as: 'label', title: 'Hello' } }, { op: 'add', path: '/layout/items/-', value: 'note' }] }]), say('Added a note.')] });
+  const assistant = createAssistant(world.assistantDeps({ catalog: false }));
+  const result = await assistant.send('Add a note.');
+
+  const names = offered(world);
+  assert.equal(names.includes('read_catalog') || names.includes('query_data'), false);
+  assert.equal(world.requests.some(r => r.url === DEFAULT_ENDPOINTS.catalog), false, 'the catalog is never asked for');
+  assert.equal(result.outcome, 'done');
+  assert.equal(world.host.revision, 1);
+});
+
+test('a board id with characters a path does not allow is one segment of every address', async () => {
+  const world = makeWorld({ model: [say('Hi.')] });
+  const seen = [];
+  const assistant = createAssistant({ ...world.assistantDeps({ board: { id: 'a b/c?d', loaded: newBoard('Odd') } }), fetch: (url, init) => { seen.push(url); return world.fetch(url, init); } });
+  await assistant.send('Hello.').catch(() => {});
+
+  assert.ok(seen.every(url => url.startsWith('/uboard/boards/a%20b%2Fc%3Fd')), seen.join(', '));
 });

@@ -9,7 +9,11 @@
 // A read is held as a plain `query` object. The URL is built from it once, and that same string is what is shown to the person
 // and what is sent — nothing rewrites it in between.
 
-export const DATA_ROOT = '/$data';
+/** Where the host serves its OData, as the browser asks for it. The host says (`access.dataRoot`); `/$data` until it has. */
+export let DATA_ROOT = '/$data';
+export function setDataRoot(root) {
+  DATA_ROOT = typeof root === 'string' && root.startsWith('/') ? root.replace(/\/+$/, '') : '/$data';
+}
 export const MAX_ROWS = 100;
 export const TABLE_PAGE = 50;
 

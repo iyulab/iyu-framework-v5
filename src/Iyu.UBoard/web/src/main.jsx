@@ -2,8 +2,14 @@ import { createRoot } from 'react-dom/client';
 import '@iyulab/house-style'; // the iyulab theme for the chat components; the page's own rules below are unlayered, so they win
 import './styles.css';
 import { App } from './App.jsx';
+import { endpointsFor, makeApi, pageConfig } from './host-api.js';
 
-createRoot(document.getElementById('root')).render(<App />);
+// The page's way to the host: the same origin's fetch (the browser sends whatever sign-in the host uses), the routes where the server says.
+const config = pageConfig();
+const endpoints = endpointsFor(config.prefix);
+const fetcher = (url, init) => fetch(url, init);
+
+createRoot(document.getElementById('root')).render(<App config={config} endpoints={endpoints} fetcher={fetcher} api={makeApi(fetcher, endpoints)} />);
 
 // Tooltips: anything with data-tip.
 const tip = document.getElementById('tip');

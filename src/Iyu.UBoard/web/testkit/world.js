@@ -4,7 +4,7 @@ import { newBoard } from '../src/session.js';
 
 const prop = (name, type, extra = {}) => ({ name, type, nullable: false, readable: true, ...extra });
 
-/** The catalog of the sample's domain, with one locked field per sensitive entity (the host's opt-in marking is on). */
+/** The catalog of a small sales domain, with one locked field per sensitive entity (the host's opt-in marking is on). */
 export const CATALOG = {
   entities: [
     {
@@ -119,7 +119,6 @@ export function makeWorld({ model = [], catalog = CATALOG, odata = () => json(20
     },
     assistantDeps: (extra = {}) => ({
       fetch,
-      userName: 'dev',
       board: { id: 'revenue', loaded: newBoard('Revenue overview') },
       ...extra,
     }),

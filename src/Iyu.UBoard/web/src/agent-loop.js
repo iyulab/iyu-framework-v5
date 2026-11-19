@@ -1,11 +1,9 @@
 // The assistant's tool runtime — the part of the chat panel that runs the model's tool calls and keeps the board honest. The model, the
-// conversation and the loop around them are the host's (IronHive.Agent behind one route); every tool here is a tool the host declared
-// without an implementation, because only this page can check a board edit, save it and read as the signed-in person.
+// conversation and the loop around them are the host's (an assistant registered behind the board's turn route); every tool here is a
+// tool this page declares to it without an implementation, because only this page can check a board edit, save it and read as the
+// signed-in person.
 // It is a plain module with no page in it: everything it touches (the network, the board session, the clock) is handed in, so a
 // script can play the model and the host and the whole conversation can be tested without a browser.
-//
-// TODO(move-to-library: the loop belongs with the viewer assets in Iyu.UBoard — a host should switch the assistant on, not
-// carry this file. It stays in the sample until the library ships viewer assets, which is a dependency decision still to be taken.)
 //
 // What the loop guarantees (the screens depend on each of these):
 //   - The page never names the model or lifts its limits: a request carries the conversation, the rules text and the tools, nothing else.
@@ -22,6 +20,7 @@ import { DATA_SOURCE_ID, buildSystemPrompt, workflowRules } from './prompt.js';
 import { changedParts, partsTouched, removedParts } from './board-diff.js';
 import { BoardMovedOn, newBoard, openBoardSession } from './session.js';
 import { contextBlock, editContext } from './edit-context.js';
+import { endpointsFor } from './host-api.js';
 import { fillVariables, variableDefaults, variablesMentioned } from './variables.js';
 import {
   DATA_ROOT, MAX_ROWS, TABLE_PAGE, buildODataUrl, bulkProblem, catalogForModel, closest, parseODataUrl, permissionProblem,
@@ -30,15 +29,12 @@ import {
 export { DATA_SOURCE_ID, buildSystemPrompt, workflowRules, changedParts, removedParts, partsTouched, newBoard, openBoardSession, BoardMovedOn };
 export { buildODataUrl, parseODataUrl, bulkProblem, permissionProblem, DATA_ROOT, MAX_ROWS, TABLE_PAGE };
 
-export const DEFAULT_ENDPOINTS = {
-  catalog: '/uboard/catalog',
-  boards: '/uboard/boards',
-};
-const USER_HEADER = 'X-Sample-User';
+/** Where the routes are when the host left them at their default prefix. */
+export const DEFAULT_ENDPOINTS = endpointsFor('/uboard');
 const MAX_TOOL_TEXT = 12000;
 const MUTATING = new Set(['patch_board']); // edit_text is not offered: it would change a read's path without the read rules looking at it
 
-// ---------------------------------------------------------------- the two tools of this sample
+// ---------------------------------------------------------------- the two data tools of the screen
 
 const QUERY_DATA = {
   type: 'function',
@@ -80,8 +76,14 @@ const READ_CATALOG = {
   },
 };
 
-/** The tool definitions a request carries: the board tools of the session plus this sample's two. */
-export const toolDefinitions = session => [READ_CATALOG, QUERY_DATA, ...session.functionTools];
+/**
+ * The tool definitions a request carries: the board tools of the session plus the two that read data. A person who may not edit the board is
+ * offered none that edits it; a host with no source catalog is offered no data tools (nothing could say what may be read).
+ */
+export const toolDefinitions = (session, { canEdit = true, catalog = true } = {}) => [
+  ...(catalog ? [READ_CATALOG, QUERY_DATA] : []),
+  ...session.functionTools.filter(tool => canEdit || !MUTATING.has(tool.function.name)),
+];
 
 /** What the model sent for query_data, checked and turned into a query; or what is wrong with it. */
 function queryFromArguments(args) {
@@ -168,9 +170,10 @@ export function boardReadProblem(document, catalog) {
 /**
  * deps:
  *   fetch      (url, init) => Response — the page's fetch. Every request to the host goes through it.
- *   userName   the signed-in person; sent as X-Sample-User on every request to the host.
  *   board      { id, loaded }  loaded is the host's board { name, revision, document } or newBoard(name)
  *   endpoints  { catalog, boards } — where the host serves them (defaults: DEFAULT_ENDPOINTS)
+ *   canEdit    whether the person may change this board (default true); false: the model is offered no tool that edits and told to answer
+ *   catalog    whether the host has a source catalog (default true); false: the model is offered no data tools
  *   emit       (event) => void — what the screen listens to
  *   now        () => ms        — the clock
  *   maxRounds  most model calls in one turn (default 10)
@@ -183,16 +186,13 @@ export function createAssistant(deps) {
   const maxRounds = deps.maxRounds ?? 10;
 
   let signal = deps.signal; // the turn's own when it brings one
-  const host = (url, init = {}) =>
-    deps.fetch(url, {
-      ...init,
-      headers: { ...(deps.userName ? { [USER_HEADER]: deps.userName } : {}), ...init.headers },
-      ...(signal ? { signal } : {}),
-    });
+  const canEdit = deps.canEdit !== false;
+  const hasCatalog = deps.catalog !== false;
+  const host = (url, init = {}) => deps.fetch(url, { ...init, ...(signal ? { signal } : {}) });
 
   const messages = []; // the conversation as the host last returned it: opaque to the page, handed back with the next request
   let session = openBoardSession({ id: deps.board.id, loaded: deps.board.loaded, host, boards: endpoints.boards });
-  let catalog; // kept for the session (a new sign-in is a new assistant); a read_catalog step always asks the host again
+  let catalog; // kept for the session; a read_catalog step always asks the host again
   let turnNumber = 0;
 
   // One GET per catalog step: a step that says it read the catalog did.
@@ -310,8 +310,8 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
           candidate = undefined; // the tool says what is wrong with the patch
         }
         if (candidate) {
-          if (!catalog) return result({ error: 'the catalog is not loaded — call read_catalog first' }, true);
-          const problem = boardReadProblem(candidate, catalog);
+          if (hasCatalog && !catalog) return result({ error: 'the catalog is not loaded — call read_catalog first' }, true);
+          const problem = hasCatalog ? boardReadProblem(candidate, catalog) : undefined;
           if (problem?.permission) {
             const denied = problem.permission;
             step.outcome = 'blocked';
@@ -432,7 +432,7 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
 
       // Plan: every call becomes a pending step before the first runs.
       const planned = [];
-      let catalogPlanned = Boolean(catalog); // loaded earlier this turn, or read by a step that comes before the one that needs it
+      let catalogPlanned = Boolean(catalog) || !hasCatalog; // loaded earlier this turn, or read by a step that comes before the one that needs it
       for (const call of toolCalls) {
         const name = call.function?.name;
         if (name === 'read_catalog') catalogPlanned = true;
@@ -532,12 +532,12 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
   }
 
   // ---- the host's turn route
-  const declared = () => toolDefinitions(session).map(tool => ({ name: tool.function.name, description: tool.function.description, schema: tool.function.parameters, edits: MUTATING.has(tool.function.name) })); // the host offers a person who may only view just the ones that do not edit
+  const declared = () => toolDefinitions(session, { canEdit, catalog: hasCatalog }).map(tool => ({ name: tool.function.name, description: tool.function.description, schema: tool.function.parameters, edits: MUTATING.has(tool.function.name) })); // the host offers a person who may only view just the ones that do not edit
   const turnRequest = (document, body) =>
-    host(`${endpoints.boards}/${deps.board.id}/turn`, {
+    host(`${endpoints.boards}/${encodeURIComponent(deps.board.id)}/turn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ system: buildSystemPrompt({ board: { revision: session.known.revision, document } }), history: messages, tools: declared(), ...body }),
+      body: JSON.stringify({ system: buildSystemPrompt({ board: { revision: session.known.revision, document }, canEdit }), history: messages, tools: declared(), ...body }),
     });
 
   async function callTurn(document, body) {

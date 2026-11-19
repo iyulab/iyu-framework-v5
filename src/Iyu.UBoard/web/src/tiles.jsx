@@ -5,15 +5,14 @@ import { useMemo, useState } from 'react';
 import { BoardView } from '@iyulab/u-board/viewer';
 import { isHttpRef, readHttpRef, requestPath, resolvedReading } from '@iyulab/u-board/picture';
 import { DATA_SOURCE_ID } from './agent-loop.js';
-import { hostFetch } from './host-api.js';
 import { tileReads } from './tile-data.js';
 import { choosable, fillVariables, pageNote, variableDefaults } from './variables.js';
 
 const readName = reference => (typeof reference === 'string' ? /^([^[\]]+)/.exec(reference)?.[1] : undefined);
 
-/** One adapter for the host's OData: a read's `path` is asked of the host as the signed-in person. `onAnswer(path, rows, count)`
+/** One adapter for the host's OData: a read's `path` is asked of the host as the signed-in person (`fetcher` is the page's fetch). `onAnswer(path, rows, count)`
  *  tells the page what came back, so a tile can say «nothing matches» and how many rows a page is of. */
-export function makeODataAdapter(onAnswer) {
+export function makeODataAdapter(onAnswer, fetcher = (url, init) => fetch(url, init)) {
   return {
     id: DATA_SOURCE_ID,
     async resolve(ref) {
@@ -21,7 +20,7 @@ export function makeODataAdapter(onAnswer) {
       const path = requestPath(ref, Date.now());
       let response;
       try {
-        response = await hostFetch(path);
+        response = await fetcher(path);
       } catch {
         return { value: undefined, quality: 'disconnected', reason: 'transport' };
       }

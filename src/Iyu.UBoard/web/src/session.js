@@ -21,8 +21,8 @@ export function newBoard(name) {
 }
 
 /**
- * `loaded` is the host's board (`{ name, revision, document }`) or `newBoard(name)`. `host(url, init)` is the page's fetch with
- * the person's identity on it. `boards` is where the host keeps boards (`/uboard/boards`).
+ * `loaded` is the host's board (`{ name, revision, document }`) or `newBoard(name)`. `host(url, init)` is the page's fetch. `boards`
+ * is where the host keeps boards (`/uboard/boards`).
  */
 export function openBoardSession({ id, loaded, host, boards }) {
   const known = { revision: loaded.revision };
@@ -50,7 +50,8 @@ export function openBoardSession({ id, loaded, host, boards }) {
     save: async document => {
       const creating = known.revision === 0;
       const method = creating ? 'POST' : 'PUT';
-      const url = creating ? `${boards}/${id}?name=${encodeURIComponent(loaded.name)}` : `${boards}/${id}?expected=${known.revision}`;
+      const at = `${boards}/${encodeURIComponent(id)}`;
+      const url = creating ? `${at}?name=${encodeURIComponent(loaded.name)}` : `${at}?expected=${known.revision}`;
       const response = await host(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(document) });
       session.lastSave = { method, url, status: response.status };
       if (response.status === 409) {
