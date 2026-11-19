@@ -219,7 +219,11 @@ class ScriptedModel {
 
 // ---------------------------------------------------------------- the run
 
-const shot = (page, name) => page.screenshot({ path: join(imagesDir, `uboard-chat-impl-${name}.png`) });
+// The viewer draws a chart in over about a second (a reference line grows across it); a picture taken sooner shows a half-drawn line.
+const shot = async (page, name) => {
+  await sleep(1600);
+  return page.screenshot({ path: join(imagesDir, `uboard-chat-impl-${name}.png`) });
+};
 
 async function main() {
   mkdirSync(imagesDir, { recursive: true });
