@@ -75,7 +75,7 @@ public sealed class BoardRoutesTests
         }
     }
 
-    private static async Task<Host> StartAsync(string? policy = null, bool boards = true)
+    private static async Task<Host> StartAsync(string? policy = null)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -85,20 +85,11 @@ public sealed class BoardRoutesTests
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, UserHeaderHandler>("Test", null);
         builder.Services.AddAuthorization(o => o.AddPolicy("boards.use", p => p.RequireClaim("perm", "boards")));
         builder.Services.AddDbContext<UBoardTestDb>(o => o.UseSqlite(connection));
-        if (boards)
-            builder.Services.AddIyuUBoard<UBoardTestDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>(o => o.Policy = policy);
-        else
-            builder.Services.AddIyuUBoard(o => o.Model(m =>
-            {
-                m.BaseUrl = new Uri("https://model.example.test/v1/");
-                m.ApiKey = "k";
-                m.ModelName = "m";
-            }));
+        builder.Services.AddIyuUBoard<UBoardTestDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>(o => o.Policy = policy);
 
         var app = builder.Build();
-        if (boards)
-            using (var scope = app.Services.CreateScope())
-                scope.ServiceProvider.GetRequiredService<UBoardTestDb>().Database.EnsureCreated();
+        using (var scope = app.Services.CreateScope())
+            scope.ServiceProvider.GetRequiredService<UBoardTestDb>().Database.EnsureCreated();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapIyuUBoard();
@@ -381,13 +372,5 @@ public sealed class BoardRoutesTests
         Assert.Equal("ada", (string?)(await Read(await host.SendAsync(HttpMethod.Get, "/a/revisions/1")))["createdBy"]);
         Assert.Equal("subject-7", (string?)(await Read(await host.SendAsync(HttpMethod.Get, "/b/revisions/1")))["createdBy"]);
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, large.StatusCode);
-    }
-
-    [Fact]
-    public async Task A_host_that_turned_on_only_the_model_has_no_board_routes()
-    {
-        await using var host = await StartAsync(boards: false);
-
-        Assert.Equal(HttpStatusCode.NotFound, (await host.SendAsync(HttpMethod.Get, "")).StatusCode);
     }
 }

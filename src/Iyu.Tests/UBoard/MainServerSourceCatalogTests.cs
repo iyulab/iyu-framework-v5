@@ -324,12 +324,8 @@ public sealed class MainServerSourceCatalogTests
         builder.WebHost.UseTestServer();
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderClaimAuthHandler>("Test", null);
         builder.Services.AddAuthorization();
-        builder.Services.AddIyuUBoard(o => o.Model(m =>
-        {
-            m.BaseUrl = new Uri("https://model.example.test/v1/");
-            m.ApiKey = "k";
-            m.ModelName = "m";
-        }));
+        builder.Services.AddSingleton<IBoardStore, NoBoards>();
+        builder.Services.AddIyuUBoard(o => o.Boards()); // another part is on; the catalog is not
         var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -360,5 +356,36 @@ public sealed class MainServerSourceCatalogTests
         services.AddIyuUBoardMainServerCatalog();
 
         Assert.Throws<InvalidOperationException>(() => services.AddIyuUBoardMainServerCatalog());
+    }
+
+    private sealed class NoBoards : IBoardStore
+    {
+        public Task<BoardChange> CreateAsync(string id, string name, string document, string createdBy, DateTimeOffset at, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<BoardRecord?> FindAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<BoardChange> SaveAsync(string id, string document, int expectedRevision, string createdBy, DateTimeOffset at, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<BoardRevisionRecord?> FindRevisionAsync(string id, int revision, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<BoardRevisionRecord>> ListRevisionsAsync(string id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<BoardPublicationRecord?> PublishAsync(string id, int? revision, string publishedBy, DateTimeOffset at, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<BoardPublicationRecord>> ListPublicationsAsync(string id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<BoardSummary>> ListAsync(int skip, int take, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<BoardChange> RenameAsync(string id, string name, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

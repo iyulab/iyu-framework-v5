@@ -7,8 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The model proxy is an ASP.NET Core route and uses its HttpClient factory, as the Lowline endpoints do. The shared framework also
-         brings the dependency-injection, options and hosting abstractions that registration and the start-up check use. -->
+    <!-- The board routes are ASP.NET Core routes, as the Lowline endpoints are. The shared framework also brings the
+         dependency-injection, options and hosting abstractions that registration and the start-up check use. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

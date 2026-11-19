@@ -226,9 +226,9 @@ public sealed class BoardChatSampleTests(BoardChatSampleHost host) : IClassFixtu
     }
 
     [Fact]
-    public async Task With_no_model_configured_the_model_route_is_not_there()
+    public async Task With_no_model_configured_the_assistants_route_is_not_there()
     {
-        using var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/uboard/model/chat/completions")
+        using var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/assistant/turn")
         {
             Content = new StringContent("""{"messages":[]}""", Encoding.UTF8, "application/json"),
         });
