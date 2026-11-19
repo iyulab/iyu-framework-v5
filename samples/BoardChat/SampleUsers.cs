@@ -20,11 +20,16 @@ public sealed class SampleUserHandler(IOptionsMonitor<AuthenticationSchemeOption
     }
 }
 
-/// <summary>Who may do what to a board: analysts and finance make and change boards; anyone signed in (a <c>viewer</c>) may open and ask.</summary>
+/// <summary>
+/// Who may do what to a board: analysts and finance make and change boards; anyone signed in (a <c>viewer</c>) may open and ask. A
+/// <c>partner</c> may open only the boards whose id starts with <c>shared-</c>; the others are not there for them.
+/// </summary>
 public sealed class SampleBoardAccess : Iyu.UBoard.IBoardAccess
 {
     public ValueTask<bool> AllowsAsync(ClaimsPrincipal user, Iyu.UBoard.BoardAction action, string? boardId, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(action == Iyu.UBoard.BoardAction.View || user.IsInRole("analyst") || user.IsInRole("finance"));
+        ValueTask.FromResult(action == Iyu.UBoard.BoardAction.View
+            ? !user.IsInRole("partner") || boardId?.StartsWith("shared-", StringComparison.Ordinal) == true
+            : user.IsInRole("analyst") || user.IsInRole("finance"));
 
     public ValueTask CreatedAsync(ClaimsPrincipal user, string boardId, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 }

@@ -1038,6 +1038,54 @@ async function main() {
       equal((await (await fetch(`${origin}/uboard/boards?take=500`, as('analyst'))).json()).length, total - 52, 'the boards made for this step are gone');
     });
 
+    await step('a host that hides boards: a person who may open two of many is shown those two, and an empty page that names where to go on is not an end', async () => {
+      // `partner` may open only the boards whose id starts with `shared-`. They sort after more than a page of boards that are hidden from
+      // them: a list that cut its page before hiding would show them nothing.
+      const hidden = Array.from({ length: 55 }, (_, n) => `hide-${String(n).padStart(2, '0')}`);
+      const shared = ['shared-1', 'shared-2'];
+      check((await Promise.all([...hidden, ...shared].map(id => makeBoard(id, `Board ${id}`)))).every(response => response.status === 201), 'the boards were made');
+      const asked = await fetch(`${origin}/uboard/boards?skip=0&take=50`, as('partner'));
+      equal((await asked.json()).map(row => row.id).join(','), shared.join(','), 'the host walks past the hidden boards and answers the two the person may open');
+      equal(asked.headers.get('X-UBoard-Next-Skip'), null, 'and nothing is left to look at');
+
+      const partner = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'partner' } });
+      await watch(partner);
+      const list = await partner.newPage();
+      watchConsole(list);
+      await list.goto(`${origin}${SCREEN}`);
+      await list.waitForSelector('tr[data-board]');
+      equal((await list.locator('tr[data-board]').evaluateAll(rows => rows.map(row => row.getAttribute('data-board')))).join(','), shared.join(','), 'the page lists the two boards');
+      equal(await list.locator('[data-testid=list-more]').count(), 0, 'with nothing more to offer');
+      equal(await list.locator('[data-testid=no-boards]').count(), 0, 'and no empty list');
+      await partner.close();
+
+      // A host that cuts its look short (it looks at a bounded number of boards per request) answers an empty page that says where to go
+      // on. The bound itself is held by the host's own tests; here the host's answer to the first request is replaced by that short one.
+      const cut = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'partner' } });
+      await watch(cut);
+      const short = await cut.newPage();
+      watchConsole(short);
+      let first = true;
+      await short.route('**/uboard/boards?*', async route => {
+        if (!first) return route.continue();
+        first = false;
+        await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'X-UBoard-Next-Skip': '0' }, body: '[]' });
+      });
+      await short.goto(`${origin}${SCREEN}`);
+      await short.waitForSelector('[data-testid=list-more]');
+      equal(await short.locator('[data-testid=no-boards]').count(), 0, 'the list does not say there are no boards while the host has more to look at');
+      equal(await short.locator('tr[data-board]').count(), 0, 'nothing is listed yet');
+      check((await short.textContent('[data-testid=list-more]')).includes('None of the boards looked at so far'), await short.textContent('[data-testid=list-more]'));
+      await shot(short, 'list-hidden').catch(() => {});
+      await short.click('[data-act=moreboards]');
+      await short.waitForFunction(() => !document.querySelector('[data-testid=list-more]'));
+      equal((await short.locator('tr[data-board]').evaluateAll(rows => rows.map(row => row.getAttribute('data-board')))).join(','), shared.join(','), 'the boards the person may open are listed once the host is asked again');
+      await cut.close();
+
+      await Promise.all([...hidden, ...shared].map(id => fetch(`${origin}/uboard/boards/${id}`, as('analyst', { method: 'DELETE' }))));
+      equal(await boardStatus('hide-00'), 404, 'the boards made for this step are gone');
+    });
+
     await step('assistant off: a host that names no model gives the board and no chat panel, and the page says nothing is wrong', async () => {
       // A second host, started the way a host that has not registered an assistant starts: the same screen, a board with content, no chat.
       const quietWork = mkdtempSync(join(tmpdir(), 'boardchat-e2e-quiet-'));

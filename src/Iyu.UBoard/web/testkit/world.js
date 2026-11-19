@@ -22,7 +22,10 @@ export const CATALOG_PLAIN = {
   entities: CATALOG.entities.map(entity => ({ ...entity, properties: entity.properties.filter(p => p.readable !== false) })),
 };
 
-export const json = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) });
+export const json = (status, body, headers = {}) => {
+  const named = new Map(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), String(value)]));
+  return { ok: status >= 200 && status < 300, status, headers: { get: name => named.get(name.toLowerCase()) ?? null }, json: async () => body, text: async () => JSON.stringify(body) };
+};
 
 // ---- the model's side
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } });

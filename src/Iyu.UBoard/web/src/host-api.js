@@ -24,6 +24,9 @@ export function newBoardId(name, random = Math.random) {
   return `${words || 'board'}-${Math.floor(random() * 0x10000).toString(16).padStart(4, '0')}`;
 }
 
+/** The header of the board list that names where the next page starts; the host leaves it out when there is no next page. */
+export const NEXT_SKIP_HEADER = 'X-UBoard-Next-Skip';
+
 const read = async response => (response.ok && response.status !== 204 ? response.json() : null);
 const pick = (object, name) => object?.[name] ?? object?.[name[0].toUpperCase() + name.slice(1)];
 
@@ -36,8 +39,16 @@ export function makeApi(fetcher, endpoints) {
       const answer = await read(await fetcher(endpoints.access));
       return { create: Boolean(pick(answer, 'create')), assistant: Boolean(pick(answer, 'assistant')), catalog: Boolean(pick(answer, 'catalog')), dataRoot: pick(answer, 'dataRoot') };
     },
-    /** One page of the boards the person may open. The host cuts the page before it hides what the person may not see, so a short page is not proof of the end. */
-    list: async ({ skip = 0, take = 100 } = {}) => (await read(await fetcher(`${endpoints.boards}?skip=${skip}&take=${take}`))) ?? [],
+    /**
+     * One page of the boards the person may open: `{ items, next }`. `next` is the offset to ask for the following page from, and is
+     * `null` only when the host has nothing more to look at — a short page, even an empty one, that carries it is not the end.
+     */
+    list: async ({ skip = 0, take = 100 } = {}) => {
+      const response = await fetcher(`${endpoints.boards}?skip=${skip}&take=${take}`);
+      const items = (await read(response)) ?? [];
+      const next = Number.parseInt(response.headers?.get?.(NEXT_SKIP_HEADER) ?? '', 10);
+      return { items, next: Number.isInteger(next) && next >= 0 ? next : null };
+    },
     /** Renames a board: `{ status, board }` — 200 with the board, 403 when the person may not edit it, 404 when it is gone, 400 for a name the host refuses. */
     rename: async (id, name) => {
       const response = await fetcher(`${board(id)}/name?name=${encodeURIComponent(name)}`, { method: 'PUT' });

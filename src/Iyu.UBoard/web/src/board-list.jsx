@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { emptyBoard } from '@iyulab/u-board/check';
 import { boardPage, newBoardId } from './host-api.js';
+import { addPage, readPage } from './list-paging.js';
 
 /** How many boards the list asks the host for at a time. */
 export const LIST_PAGE = 50;
@@ -10,27 +11,25 @@ const stop = event => event.stopPropagation();
 /** The boards the person may open, each with what they may do to it; a button for a new one only when the host lets them make one, and for a board a menu with what the host lets them do to it. */
 export function BoardList({ access, api, endpoints }) {
   const [boards, setBoards] = useState(null);
-  const [more, setMore] = useState(false); // the last page was full, so the host may hold more
+  const [next, setNext] = useState(null); // where the host says the next page starts; null when it has nothing more to look at. A short page is not the end: only this says so.
   const [loadingMore, setLoadingMore] = useState(false);
   const [dialog, setDialog] = useState(null); // { kind: 'new' } | { kind: 'rename' | 'delete', board }
-  const asked = useRef(0); // how many boards the host has been asked to skip so far
+  const more = next !== null;
   useEffect(() => {
     let live = true;
-    api.list({ skip: 0, take: LIST_PAGE }).then(rows => {
+    readPage(api, { skip: 0, take: LIST_PAGE }).then(page => {
       if (!live) return;
-      asked.current = LIST_PAGE;
-      setBoards(rows);
-      setMore(rows.length >= LIST_PAGE);
+      setBoards(page.items);
+      setNext(page.next);
     });
     return () => { live = false; };
   }, [api]);
 
   const showMore = async () => {
     setLoadingMore(true);
-    const rows = await api.list({ skip: asked.current, take: LIST_PAGE });
-    asked.current += LIST_PAGE;
-    setBoards(current => [...current, ...rows.filter(row => !current.some(have => have.id === row.id))]);
-    setMore(rows.length >= LIST_PAGE);
+    const page = await readPage(api, { skip: next, take: LIST_PAGE });
+    setBoards(current => addPage(current, page.items));
+    setNext(page.next);
     setLoadingMore(false);
   };
 
@@ -88,7 +87,7 @@ export function BoardList({ access, api, endpoints }) {
             ? access.assistant ? 'Describe what you want to see and the assistant builds it from your data.' : 'Open a board to read it, or make a new one.'
             : 'You can open and ask about boards here. Creating boards is not enabled for your account.'}
         </div>
-        {boards === null ? <p role="status">loading…</p> : boards.length === 0 ? (
+        {boards === null ? <p role="status">loading…</p> : boards.length === 0 && more ? null : boards.length === 0 ? (
           <div className="tile empty" style={{ minHeight: 300 }} data-testid="no-boards">
             <div>
               <h2 style={{ fontSize: 17 }}>No boards yet</h2>
@@ -119,7 +118,7 @@ export function BoardList({ access, api, endpoints }) {
         )}
         {more ? (
           <div className="more" data-testid="list-more">
-            <span>Showing the first {boards.length} boards.</span>
+            <span>{boards.length === 0 ? 'None of the boards looked at so far is one you may open.' : `Showing the first ${boards.length} boards.`}</span>
             <button className="btn sm" data-act="moreboards" disabled={loadingMore} onClick={showMore}>{loadingMore ? 'Loading…' : 'Show more'}</button>
           </div>
         ) : null}
