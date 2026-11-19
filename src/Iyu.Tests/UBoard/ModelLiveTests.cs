@@ -46,40 +46,51 @@ public sealed class ModelLiveTests(ITestOutputHelper output)
 {
     private const string Chat = "/uboard/model/chat/completions";
 
-    // One lookup for the whole class: the list of models is asked for once.
-    private static readonly Lazy<Task<string>> ModelName = new(DiscoverModelAsync);
+    // One lookup for the whole class: the list of models is asked for once. The address the environment names may be the service's
+    // root or its OpenAI-style prefix, so the list is asked for at the address and then under the usual prefixes; the first that
+    // answers with a list is the base the proxy is given. Which one it was is not reported.
+    private static readonly Lazy<Task<(string Base, string Model)>> Service = new(DiscoverAsync);
 
-    private static async Task<string> DiscoverModelAsync()
+    private static async Task<(string Base, string Model)> DiscoverAsync()
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-        using var request = new HttpRequestMessage(HttpMethod.Get, LiveModel.BaseUrl!.TrimEnd('/') + "/models");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", LiveModel.ApiKey);
-        HttpResponseMessage response;
-        try
+        var root = LiveModel.BaseUrl!.TrimEnd('/');
+        var refusals = new List<int>();
+        foreach (var candidate in new[] { root, root + "/v1", root + "/v1-openai" })
         {
-            response = await http.SendAsync(request);
-        }
-        catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException)
-        {
-            throw new InvalidOperationException("The live model service could not be reached to list its models (" + failure.GetType().Name + ").");
+            using var request = new HttpRequestMessage(HttpMethod.Get, candidate + "/models");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", LiveModel.ApiKey);
+            HttpResponseMessage response;
+            try
+            {
+                response = await http.SendAsync(request);
+            }
+            catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException)
+            {
+                throw new InvalidOperationException("The live model service could not be reached to list its models (" + failure.GetType().Name + ").");
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    refusals.Add((int)response.StatusCode);
+                    continue;
+                }
+
+                var listed = (JsonNode.Parse(await response.Content.ReadAsStringAsync()) as JsonObject)?["data"] as JsonArray ?? [];
+                // A chat model, not an embedding, ranking, speech or image one.
+                var name = listed.Select(m => (string?)m?["id"]).OfType<string>()
+                    .FirstOrDefault(id => !new[] { "embed", "rerank", "whisper", "tts", "bge", "clip", "image", "stable-diffusion" }
+                        .Any(skip => id.Contains(skip, StringComparison.OrdinalIgnoreCase)));
+                return name is null ? throw new InvalidOperationException("The live service listed no chat model.") : (candidate, name);
+            }
         }
 
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException($"Listing the live service's models answered {(int)response.StatusCode}.");
-
-            var listed = (JsonNode.Parse(await response.Content.ReadAsStringAsync()) as JsonObject)?["data"] as JsonArray ?? [];
-            // A chat model, not an embedding, ranking, speech or image one.
-            var names = listed.Select(m => (string?)m?["id"]).OfType<string>()
-                .Where(id => !new[] { "embed", "rerank", "whisper", "tts", "bge", "clip", "image", "stable-diffusion" }
-                    .Any(skip => id.Contains(skip, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-            return names.FirstOrDefault() ?? throw new InvalidOperationException("The live service listed no chat model.");
-        }
+        throw new InvalidOperationException("No address listed the live service's models; they answered " + string.Join(", ", refusals) + ".");
     }
 
-    private static async Task<WebApplication> StartProxyAsync(string model)
+    private static async Task<WebApplication> StartProxyAsync((string Base, string Model) service)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -87,9 +98,9 @@ public sealed class ModelLiveTests(ITestOutputHelper output)
         builder.Services.AddAuthorization();
         builder.Services.AddIyuUBoard(o => o.Model(m =>
         {
-            m.BaseUrl = new Uri(LiveModel.BaseUrl!);
+            m.BaseUrl = new Uri(service.Base);
             m.ApiKey = LiveModel.ApiKey;
-            m.ModelName = model;
+            m.ModelName = service.Model;
             m.MaxOutputTokens = 60;
             m.Timeout = TimeSpan.FromSeconds(90);
         }));
@@ -111,7 +122,7 @@ public sealed class ModelLiveTests(ITestOutputHelper output)
     [LiveModelFact]
     public async Task The_services_models_can_be_listed_and_a_chat_model_found()
     {
-        var name = await ModelName.Value;
+        var (_, name) = await Service.Value;
 
         Assert.False(string.IsNullOrWhiteSpace(name));
         output.WriteLine("LIVE: a chat model was found in the service's list.");
@@ -120,7 +131,7 @@ public sealed class ModelLiveTests(ITestOutputHelper output)
     [LiveModelFact]
     public async Task A_short_completion_through_the_proxy_comes_back_and_the_key_is_nowhere_in_it()
     {
-        await using var app = await StartProxyAsync(await ModelName.Value);
+        await using var app = await StartProxyAsync(await Service.Value);
         var body = new JsonObject
         {
             ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Reply with the single word: ok" }),
@@ -141,7 +152,7 @@ public sealed class ModelLiveTests(ITestOutputHelper output)
     [LiveModelFact]
     public async Task Whether_the_service_calls_a_tool_is_recorded_and_never_fails_the_run()
     {
-        await using var app = await StartProxyAsync(await ModelName.Value);
+        await using var app = await StartProxyAsync(await Service.Value);
         var body = JsonNode.Parse("""
             {"messages":[{"role":"user","content":"What time is it in UTC? Use the tool."}],
              "tools":[{"type":"function","function":{"name":"get_time","description":"Returns the current time in UTC.","parameters":{"type":"object","properties":{}}}}],
