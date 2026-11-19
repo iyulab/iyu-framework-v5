@@ -35,3 +35,8 @@ All notable changes to this package are documented here. The format follows
   the fallback list, and a paged board list. Bodies are the board as `{ id, name, revision, publishedRevision, document }`. The routes
   need a signed-in caller (or the policy in `IyuUBoardOptions.Policy`) and a same-origin request; a body must be JSON, a value the service
   refuses is 400, a document over 4 MiB is 413, and the history names the caller by name, else by the `sub` claim.
+- Ready-made board tables in `Iyu.UBoard.EntityFrameworkCore`: `IyuBoardRow`, `IyuBoardRevisionRow` and `IyuBoardPublicationRow`
+  (tables `IyuBoards`, `IyuBoardRevisions`, `IyuBoardPublications`), `ModelBuilder.ApplyIyuBoardTables()` for a context you write,
+  `DbContextOptionsBuilder.UseIyuBoardTables()` to add them to a context that is generated and not edited, and
+  `AddIyuUBoard<TContext>()` over them, so a host needs no row types of its own. The adapter now references
+  `Microsoft.EntityFrameworkCore.Relational` (the mapping names tables).

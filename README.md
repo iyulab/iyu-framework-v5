@@ -2339,7 +2339,12 @@ await boards.PublishAsync("plant", revision: 2, user);
 The three row types implement `IBoardRow`, `IBoardRevisionRow` and `IBoardPublicationRow`; the tables and their migrations are
 yours. The revision table must be unique over (`BoardId`, `Revision`) and the publication table over (`BoardId`, `Sequence`), in
 that order — as the primary key, or as a unique key or index beside a surrogate primary key of the table's own, whose value
-the database or EF makes. The board table is keyed on `Id` (a string).
+the database or EF makes. The board table is keyed on `Id` (a string).
+
+**Or use the tables the package ships.** `IyuBoardRow`, `IyuBoardRevisionRow` and `IyuBoardPublicationRow` map to `IyuBoards`,
+`IyuBoardRevisions` and `IyuBoardPublications`. In a context you write, call `modelBuilder.ApplyIyuBoardTables()` from `OnModelCreating`; for a
+generated context nobody edits, add `.UseIyuBoardTables()` to its options (it adds the tables to the model the context builds, and replaces the
+context's model customizer to do so). Then `builder.Services.AddIyuUBoard<AppDbContext>()` needs no row types of your own.
 
 - **A save names the revision it worked from.** A save made on a revision the board has moved past changes nothing and answers
   `Conflict` with the board as it stands. The database decides — of two saves made together on one revision exactly one wins.
