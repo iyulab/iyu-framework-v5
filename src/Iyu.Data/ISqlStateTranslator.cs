@@ -4,7 +4,7 @@ namespace Iyu.Data;
 
 /// <summary>
 /// Names the standard SQLSTATE of a data store error whose provider does not report one through
-/// <see cref="DbException.SqlState"/> — the code a write failure is classified by.
+/// <see cref="DbException.SqlState"/> — the code a write failure, or a table the database lacks, is classified by.
 /// </summary>
 /// <remarks>
 /// ADO.NET carries the standard class on <see cref="DbException.SqlState"/>, and a provider that sets it needs nothing

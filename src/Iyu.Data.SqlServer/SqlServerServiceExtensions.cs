@@ -8,7 +8,8 @@ public static class SqlServerServiceExtensions
     /// <summary>
     /// Registers <see cref="SqlServerSqlStateTranslator"/>, so a SQL Server write failure is classified by its standard
     /// SQLSTATE — a duplicate, a missing reference, a missing value or a value too long gets its own status and code
-    /// instead of the neutral conflict. Order relative to <c>AddIyuMainServer</c> does not matter.
+    /// instead of the neutral conflict, and a table or view the database lacks is answered as that instead of a bare 500.
+    /// Order relative to <c>AddIyuMainServer</c> does not matter.
     /// </summary>
     public static IServiceCollection AddIyuSqlServerErrors(this IServiceCollection services)
     {
