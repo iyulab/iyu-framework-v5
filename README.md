@@ -55,6 +55,53 @@ with M3L alone, run Schemorph on SQL you wrote yourself, run `mdd` and apply its
 reference only the `Iyu.*` packages a host needs. The one hard dependency is that mdd-booster reads models
 through the published `M3L.Native` NuGet package.
 
+## What comes with the stack
+
+What you declare, what the generator writes from it, and what the runtime does once the host references the packages.
+
+**The generator writes** — from the model, on every `mdd build`:
+
+- **Schema:** a table per model with its foreign keys, an index on each foreign key, the `@unique` and `@index` declarations,
+  `NOT NULL` unless the field says `?`, and the defaults the model gives; a read view that adds the lookup, rollup and
+  computed fields; a view that leaves out the rows whose `deleted_at` is set (below).
+- **Entities:** a write class over the table and a read class (`…Ext`) over the view, an interface both implement, the EF
+  mapping, a `DbContext` with a set for each, C# enums, and attributes for required, length and decimal digits.
+- **Registrations:** every entity's OData and GraphQL registration and OData controller, and — when the Api target is given a
+  key template — the permission-key constants. A field marked `@system` is kept off the generic write path.
+- **TypeScript,** if asked: entity types, enums and labels, a field schema, forms.
+
+**The runtime provides:**
+
+- **`Iyu.Core` and `Iyu.Data`:** `IyuEntity` (`Id`, `CreatedAt`, `UpdatedAt`) and `IyuDbContext`, which sets the two timestamps
+  on save, stores every `DateTimeOffset` as UTC and enums by their wire names; write rules and delete rules that run at save time.
+- **`Iyu.MainServer` with `Iyu.Server.OData`:** for each registered set `GET` with the OData query options, `POST`, `PATCH` and
+  `DELETE`; row limits and paging; `$metadata`; one error format with stable codes, and database write failures answered as
+  `400`, `409`, `412` or `422` by cause; per-entity and per-property authorization declared once; read-only sets and
+  restricted verbs; `@odata.etag` and `If-Match` for a set that has a row version.
+- **`Iyu.MainServer.GraphQL`:** a query field per entity, as a cursor connection. It reads; writes go through OData.
+- **Identity** (in `Iyu.MainServer`): cookie and bearer sessions, permission policies built from your catalog, service
+  clients, refresh tokens, external sign-in and session ends — each on by its own call, each asking for its own store.
+- **The optional modules** in «Layers»: file gateway, chat, scheduled reports, document templates and conversion, learning
+  from confirmed records, notifications, boards.
+
+**You write:**
+
+- The host: `Program`, the database and its provider, the connection string, deployment, and running the schema change.
+- The rules: write rules, delete rules, and an endpoint for any change that must not be a plain `PATCH`.
+- Who may do what: the permission names and which policy guards which entity; how a person signs in (there is no built-in
+  human sign-in endpoint); the stores of the identity surfaces you turn on.
+- The screens (the TypeScript output imports the components you name), and a partial class beside a generated entity.
+
+**Audit-style fields — which exist without being declared? None.** The model declares them; the runtime fills some in.
+
+| Field | Declare in the model | Then |
+|---|---|---|
+| `id` | `id: identifier @pk @generated` | The entity gets the property from `IyuEntity` |
+| `created_at`, `updated_at` | Both, as stored fields — once in an interface your models inherit, or in each model. The Sql target alone does not need them (the smallest model below has neither); the Model target refuses a model without them | The entity gets the properties from `IyuEntity`; the runtime sets `created_at` on insert and `updated_at` on every save, whatever the application assigned |
+| `deleted_at` | A nullable timestamp of that name | Reads and rollups skip the rows where it is set. Nothing in the runtime sets it, and a generic `DELETE` removes the row: soft delete is your code |
+| Row version | A field of type `rowversion` | The database maintains it; the runtime serves it as `@odata.etag` and honours `If-Match` |
+| Created by, updated by | Fields of your own | The stack has no such column: you fill them |
+
 ## From a model to a database
 
 Three tools, each reading the previous one's output as plain files:
