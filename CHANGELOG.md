@@ -31,10 +31,23 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), `Iyu.VaultAI` (a second policy for editing reports, an off switch for the schedule), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
+**Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData` (search through a reference; the `DatabaseObjectMissing` code), `Iyu.MainServer` (what a refused query says; a table the database lacks), `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (`totalCount`; a table the database lacks), `Iyu.VaultAI` (a second policy for editing reports, an off switch for the schedule), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
 
+- **A request on a database that lacks a table or view the host maps is answered `DatabaseObjectMissing` instead of a bare
+  `InternalServerError`.** A host pointed at a database whose schema was never applied answered every data request with a `500` whose
+  only cause — PostgreSQL `42P01`, SQL Server error 208, SQLite `no such table` — was in the server log. The failure is now named, on the
+  OData route (reads and writes) and in GraphQL (`errors[].extensions.code`): the status stays `500`, the envelope is unchanged, and
+  `error.code` is `DatabaseObjectMissing`. Where details are wanted — the Development environment, or
+  `IyuMainServerOptions.IncludeODataErrorDetails` for every surface — the message says so, first the fact and then the remedy: *«The
+  database has no table or view named 'x', which this host maps. The schema has not been applied to it. Apply the schema to the database,
+  then retry.»* Elsewhere the message stays the generic one and only the code differs. The provider's exception is written to the log at
+  Error level, once per request. Nothing else changes: any other exception is answered as before, and a caller a policy refuses is
+  refused before the database is asked. SQL Server hosts need `AddIyuSqlServerErrors()` for error 208, as for write failures; SQLite is
+  recognised without it. `IyuGraphQLSchemaBuilder.IncludeErrorDetails` sets the GraphQL side on a host that does not use
+  `AddIyuMainServer`. 🔇 no build-time signal: a client that matched the `InternalServerError` code of such a request now sees
+  `DatabaseObjectMissing`, and a write that met the missing table was answered `409 Conflict` and is now this `500`.
 - **Reports can be read by every signed-in user and edited by fewer (`VaultAI:ReportEditPolicy`, empty by default).** The module held
   reading, generating, editing and deleting to one policy, so a host that wanted editors to be administrators had to give
   everyone else no access at all. Naming a second policy makes `PATCH` on a report and `DELETE` of an output also need it, on

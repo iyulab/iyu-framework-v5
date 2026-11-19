@@ -800,6 +800,14 @@ builder.Services.AddIyuSqlServerErrors();   // order relative to AddIyuMainServe
 builder.Services.AddIyuMainServer<AppDbContext>(...);
 ```
 
+**A database without the schema** is the one failure that is neither a write's refusal nor a bare `500`. A request — a read or
+a write, on the OData route or in GraphQL — that fails because the database has no table or view the host maps (the schema was
+never applied: PostgreSQL `42P01`, SQL Server error 208 — which needs `AddIyuSqlServerErrors()` — or SQLite `no such table`) is
+answered `500` with `code` `DatabaseObjectMissing` (`ODataErrorCodes.DatabaseObjectMissing`; in GraphQL, `errors[].extensions.code`).
+In the Development environment — or wherever `IyuMainServerOptions.IncludeODataErrorDetails` is `true`, for every surface —
+the message names the object and says to apply the schema; elsewhere it is the generic message and only the code says what
+happened. The provider's own exception is in the server's log, once per request, at Error level.
+
 A write rule that refuses with
 `WriteRuleViolationException(code, message)` (`Iyu.Data.WriteRules`) is answered `422` with that
 code and message — written for the caller, so they are sent as they are. Every other unhandled
@@ -814,7 +822,7 @@ one format per route, so a client that reads `error.code` reads these too:
 {"error":{"code":"Conflict","message":"…","innererror":{"traceId":"00-…"}}}
 ```
 
-`error.code` is one of the codes above or `InternalServerError` (500) — all in `ODataErrorCodes` — and
+`error.code` is one of the codes above, `DatabaseObjectMissing` (500) or `InternalServerError` (500) — all in `ODataErrorCodes` — and
 `innererror.traceId` names the request in the server's logs. The rule is the route, not the cause:
 any `ProblemDetails` written for a request under the OData route comes out in this shape, including
 one your own exception handler writes; give it a `code` extension and that is the `error.code`.

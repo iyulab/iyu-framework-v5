@@ -33,7 +33,10 @@ namespace Iyu.MainServer;
 /// conflict is <c>409 ConcurrencyConflict</c>. A provider that reports no SQLSTATE is translated by a registered
 /// <see cref="ISqlStateTranslator"/> (SQL Server's: <c>Iyu.Data.SqlServer</c>). Anything else — no SQLSTATE and no
 /// translation, or a class not named here — stays the neutral <c>409 Conflict</c>, whose sentence names no cause. The provider's text never reaches
-/// the caller. An application classifies what this does not by registering its own <see cref="IExceptionHandler"/>
+/// the caller. <b>A table or view the database lacks</b> — met by a read, or by a write — is none of these: it is the host's
+/// setup, answered <c>500</c> with the code <see cref="DatabaseObjectMissing.Code"/>, whose message names the object only where
+/// details are wanted (<see cref="IyuMainServerOptions.IncludeODataErrorDetails"/>, else the Development environment), and
+/// whose provider exception is logged once per request at Error level. An application classifies what this does not by registering its own <see cref="IExceptionHandler"/>
 /// before <c>AddIyuMainServer</c>: handlers are asked in registration order.
 /// </para>
 /// <para>

@@ -194,7 +194,9 @@ public sealed class IyuMainServerOptions
     /// setting withholds is the part that only describes the server's internals. A failure the
     /// exception handling answers on the OData route always carries <c>innererror.traceId</c> — it names
     /// the request in the server's logs and describes nothing about the exception, so this setting does
-    /// not govern it.
+    /// not govern it. It does govern, on the OData route and in GraphQL alike, whether the message for a
+    /// database that lacks a table or view the host maps names the object and says to apply the schema
+    /// (<see cref="ODataErrorCodes.DatabaseObjectMissing"/>); the code is written either way.
     /// </remarks>
     public bool? IncludeODataErrorDetails { get; set; }
 
