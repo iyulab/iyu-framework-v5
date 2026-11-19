@@ -2370,6 +2370,14 @@ routes need a signed-in caller (or `IyuUBoardOptions.Policy`) and a same-origin 
 service refuses (a blank id, a document that is not JSON, a page out of range) is 400, and the history names the caller by name, else by
 the `sub` claim.
 
+**What a board can be built from.** `AddIyuUBoard(o => o.Boards().Catalog())` adds `GET {prefix}/catalog`, which lists the entities,
+properties and links a board can read as the signed-in caller may read them: `{ "entities": [ { "name", "readable", "properties":
+[ { "name", "type", "nullable", "readable", "members"? } ], "links": [ { "name", "target", "collection" } ] } ] }`. `Catalog()` needs a
+source registered by the host; `Iyu.UBoard.MainServer` (not packed yet) describes an `Iyu.MainServer` host with
+`services.AddIyuUBoardMainServerCatalog()` — the sets and properties of its OData model, kept to what the caller's read policies allow
+(`Authorize`, `AuthorizeProperty`, or the fallback policy for a set that names none). What the caller may not read is left out. With
+`Catalog(showUnreadable: true)` it is listed and marked `"readable": false` instead, with no word about which policy guards it.
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the

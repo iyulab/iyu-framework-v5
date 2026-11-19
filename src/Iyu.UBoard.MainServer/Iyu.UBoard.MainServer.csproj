@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Connects the Iyu.UBoard source catalog to Iyu.MainServer: what a board can be built from is the host's OData model, listed as the caller's read policies allow.</Description>
+    <PackageTags>iyu;board;odata;aspnetcore</PackageTags>
+    <RootNamespace>Iyu.UBoard.MainServer</RootNamespace>
+    <!-- Not packed yet, with the board layer it adapts: the packages ship when the first Iyu.UBoard release is decided. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Iyu.UBoard\Iyu.UBoard.csproj" />
+    <ProjectReference Include="..\Iyu.MainServer\Iyu.MainServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
+</Project>

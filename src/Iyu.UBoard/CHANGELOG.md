@@ -40,3 +40,10 @@ All notable changes to this package are documented here. The format follows
   `DbContextOptionsBuilder.UseIyuBoardTables()` to add them to a context that is generated and not edited, and
   `AddIyuUBoard<TContext>()` over them, so a host needs no row types of its own. The adapter now references
   `Microsoft.EntityFrameworkCore.Relational` (the mapping names tables).
+- A source catalog: `AddIyuUBoard(o => o.Catalog())` adds `GET {prefix}/catalog`, the entities, properties (name, type, nullable, readable,
+  and the members of an enum) and links a board can be built from, as the signed-in caller may read them. The port is `IBoardSourceCatalog`,
+  which a host implements for the way it serves its data; a host that does not register one does not start. Without `showUnreadable` an
+  entity or property the caller may not read is not listed; with it, it is listed and marked not readable, and nothing names the policy.
+- `Iyu.UBoard.MainServer`, an adapter that is not packed yet: `AddIyuUBoardMainServerCatalog()` implements the catalog over the OData
+  model of `Iyu.MainServer` and the read policies declared with `Authorize` and `AuthorizeProperty` (or the host's fallback policy), so the
+  catalog agrees with what the OData surface would let that caller read.

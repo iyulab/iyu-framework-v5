@@ -54,6 +54,7 @@ public static class IyuUBoardEndpoints
         group.AddEndpointFilter(IyuUBoardRequestRules.SameOrigin);
         if (settings.ModelEnabled) group.MapPost("model/chat/completions", ChatAsync).AddEndpointFilter(IyuUBoardRequestRules.RequireJson);
         if (settings.BoardsEnabled) IyuUBoardBoardRoutes.Map(group);
+        if (settings.CatalogEnabled) IyuUBoardCatalogRoute.Map(group);
         return group;
     }
 

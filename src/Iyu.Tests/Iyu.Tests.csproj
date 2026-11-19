@@ -40,6 +40,7 @@
     <ProjectReference Include="..\Iyu.Notifications.EntityFrameworkCore\Iyu.Notifications.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\Iyu.UBoard\Iyu.UBoard.csproj" />
     <ProjectReference Include="..\Iyu.UBoard.EntityFrameworkCore\Iyu.UBoard.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\Iyu.UBoard.MainServer\Iyu.UBoard.MainServer.csproj" />
     <ProjectReference Include="..\Iyu.MainServer.ML\Iyu.MainServer.ML.csproj" />
     <ProjectReference Include="..\Iyu.FileServer\Iyu.FileServer.csproj" />
     <ProjectReference Include="..\Iyu.FileServer.Azure\Iyu.FileServer.Azure.csproj" />

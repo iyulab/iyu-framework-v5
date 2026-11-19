@@ -14,6 +14,12 @@ public sealed class IyuUBoardOptions
     /// <summary>Whether the model proxy is on.</summary>
     public bool ModelEnabled { get; private set; }
 
+    /// <summary>Whether the source catalog route is on.</summary>
+    public bool CatalogEnabled { get; private set; }
+
+    /// <summary>Whether the catalog lists what the caller may not read, marked as not readable; meaningful when <see cref="CatalogEnabled"/> is true.</summary>
+    public bool ShowUnreadable { get; private set; }
+
     /// <summary>The model service the proxy talks to; meaningful when <see cref="ModelEnabled"/> is true.</summary>
     public IyuUBoardModelOptions ModelSettings { get; } = new();
 
@@ -34,6 +40,23 @@ public sealed class IyuUBoardOptions
     }
 
     /// <summary>
+    /// Turns on the source catalog: <c>GET {prefix}/catalog</c>, which lists the entities, properties and links a board can be built
+    /// from, as the signed-in caller may read them. It needs an <see cref="IBoardSourceCatalog"/> registered by the host (the
+    /// <c>Iyu.UBoard.MainServer</c> adapter describes an <c>Iyu.MainServer</c> host's OData model).
+    /// </summary>
+    /// <param name="showUnreadable">
+    /// False (the default): what the caller may not read is not listed. True: it is listed and marked <c>readable: false</c>, with no
+    /// word about which policy guards it — a host opts in because telling a person why they cannot build something is worth the
+    /// little it says about the host's rules.
+    /// </param>
+    public IyuUBoardOptions Catalog(bool showUnreadable = false)
+    {
+        CatalogEnabled = true;
+        ShowUnreadable = showUnreadable;
+        return this;
+    }
+
+    /// <summary>
     /// Turns on the model proxy: <c>POST {prefix}/model/chat/completions</c>, which sends an assistant's request to the model
     /// service named by <paramref name="configure"/> with the server's key. See <see cref="IyuUBoardModelOptions"/>.
     /// </summary>
@@ -50,7 +73,7 @@ internal sealed class IyuUBoardOptionsValidator : IValidateOptions<IyuUBoardOpti
 {
     public ValidateOptionsResult Validate(string? name, IyuUBoardOptions options)
     {
-        if (!options.BoardsEnabled && !options.ModelEnabled)
+        if (!options.BoardsEnabled && !options.ModelEnabled && !options.CatalogEnabled)
             return ValidateOptionsResult.Fail("turn on at least one part of the layer, for example IyuUBoardOptions.Boards");
 
         if (!options.ModelEnabled) return ValidateOptionsResult.Success;
@@ -82,7 +105,7 @@ public static class IyuUBoardServiceCollectionExtensions
     /// message names what is missing, never a value.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="configure">Names the parts: <see cref="IyuUBoardOptions.Boards"/>, <see cref="IyuUBoardOptions.Model"/>.</param>
+    /// <param name="configure">Names the parts: <see cref="IyuUBoardOptions.Boards"/>, <see cref="IyuUBoardOptions.Model"/>, <see cref="IyuUBoardOptions.Catalog"/>.</param>
     /// <remarks>
     /// <see cref="IyuUBoardOptions.Boards"/> needs an <see cref="IBoardStore"/>. The Entity Framework adapter provides one over the
     /// application's own tables; a host that keeps boards some other way registers its own.
@@ -105,6 +128,8 @@ public static class IyuUBoardServiceCollectionExtensions
             services.TryAddScoped<IyuBoardService>();
             services.AddHostedService<IyuUBoardPortsCheck>();
         }
+
+        if (chosen.CatalogEnabled) services.AddHostedService<IyuUBoardCatalogCheck>();
 
         if (chosen.ModelEnabled)
         {
