@@ -4,7 +4,8 @@ import { changedParts, createAssistant, newBoard } from './agent-loop.js';
 import { Chat, STARTERS, chipsAfter } from './chat.jsx';
 import { History, Reader } from './history.jsx';
 import { revisionNumber } from './host-api.js';
-import { Tiles, makeODataAdapter } from './tiles.jsx';
+import { makeODataAdapter } from './odata-adapter.js';
+import { Tiles } from './tiles.jsx';
 
 const hello = assistant => ({
   role: 'hello',

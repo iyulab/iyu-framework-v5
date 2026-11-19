@@ -3,72 +3,8 @@
 // are the board layout's own.
 import { useMemo, useState } from 'react';
 import { BoardView } from '@iyulab/u-board/viewer';
-import { isHttpRef, readHttpRef, requestPath, resolvedReading } from '@iyulab/u-board/picture';
-import { DATA_SOURCE_ID } from './agent-loop.js';
-import { tileReads } from './tile-data.js';
+import { gridItems, readsOfPart, tileBoard } from './tile-board.js';
 import { choosable, fillVariables, pageNote, variableDefaults } from './variables.js';
-
-const readName = reference => (typeof reference === 'string' ? /^([^[\]]+)/.exec(reference)?.[1] : undefined);
-
-/** One adapter for the host's OData: a read's `path` is asked of the host as the signed-in person (`fetcher` is the page's fetch). `onAnswer(path, rows, count)`
- *  tells the page what came back, so a tile can say «nothing matches» and how many rows a page is of. */
-export function makeODataAdapter(onAnswer, fetcher = (url, init) => fetch(url, init)) {
-  return {
-    id: DATA_SOURCE_ID,
-    async resolve(ref) {
-      if (!isHttpRef(ref)) return { value: undefined, quality: 'disconnected', reason: 'address' };
-      const path = requestPath(ref, Date.now());
-      let response;
-      try {
-        response = await fetcher(path);
-      } catch {
-        return { value: undefined, quality: 'disconnected', reason: 'transport' };
-      }
-      if (!response.ok) return { value: undefined, quality: 'disconnected', reason: response.status === 401 || response.status === 403 ? 'auth' : 'source', message: `the host answered ${response.status}` };
-      const body = await response.json();
-      const reading = readHttpRef(body, ref, Date.now());
-      if (!reading.ok) return { value: undefined, quality: 'disconnected', reason: reading.reason, message: reading.message };
-      const rows = Array.isArray(body.value) ? body.value.length : undefined;
-      onAnswer?.(ref.path, rows, body['@odata.count']);
-      return { ...resolvedReading(reading), meta: { source: 'the app\'s data service' } };
-    },
-  };
-}
-
-/** The board's grid as a list of `{ id, span }`; undefined for a layout this page does not tile (it is then drawn whole). */
-export function gridItems(document) {
-  if (document?.layout?.kind !== 'grid') return undefined;
-  const items = [];
-  for (const item of document.layout.items ?? []) {
-    if (typeof item === 'string') items.push({ id: item, span: 12 });
-    else if (Array.isArray(item) && typeof item[0] === 'string') items.push({ id: item[0], span: Number(item[1]) || 12 });
-    else return undefined;
-  }
-  return items.filter(({ id }) => document.parts?.[id]);
-}
-
-/** The reads of a part, by name. */
-export const readsOfPart = part => [readName(part.of), readName(part.each)].filter(Boolean);
-
-/** The board that draws one part: its reads, its variables, its look — and no title and no frame of its own (the tile has them). */
-export function tileBoard(document, id) {
-  const part = document.parts[id];
-  const reads = readsOfPart(part);
-  const keepTitle = part.as === 'label';
-  const { title, ...rest } = part;
-  return {
-    ...(document.variables && { variables: document.variables }),
-    ...(document.statuses && { statuses: document.statuses }),
-    ...(document.presets && { presets: document.presets }),
-    // The tile is the card: the viewer's own paper is left clear so the card shows, not a card in a card.
-    skin: { ...document.skin, palette: { paper: 'transparent', backdrop: 'transparent', ...document.skin?.palette } },
-    ...(document.board && { board: document.board }),
-    data: tileReads(document, part, reads),
-    parts: { [id]: { ...(keepTitle ? part : rest), frame: 'none' } },
-    layout: { kind: 'grid', items: [[id, 12]] },
-    ...(title !== undefined && { _title: title }),
-  };
-}
 
 function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count, rows, askedPath, adapters, variables, flat, selected, onSelect }) {
   const hasSkip = /[?&]\$skip=/.test(askedPath ?? '');
