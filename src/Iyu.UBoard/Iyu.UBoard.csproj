@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Host-neutral board storage for embedding a board viewer and editor - boards as opaque JSON documents with an append-only revision history, optimistic saves, and a publication pointer with a history to fall back through; it depends on neither Entity Framework Core nor Iyu.Core.</Description>
+    <Description>Host-neutral board storage and screen for embedding a board viewer and editor - boards as opaque JSON documents with an append-only revision history, optimistic saves, a publication pointer with a history to fall back through, access rules the application owns, a port for the assistant's turn, and the screen that manages boards; it depends on neither Entity Framework Core nor Iyu.Core.</Description>
     <PackageTags>iyu;board;revisions;publication</PackageTags>
     <RootNamespace>Iyu.UBoard</RootNamespace>
+    <!-- The screen's sources live in web/ and are built by npm; they are not part of the C# build, and web/node_modules is far too large to glob. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);web/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,5 +17,73 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Iyu.Tests" />
   </ItemGroup>
+
+  <!--
+    The board screen. The build runs npm over web/ and embeds what it writes (obj/uboard-web: the page, its scripts, styles and fonts, and
+    THIRD-PARTY-NOTICES.txt generated from the lockfile) as the resources "uboard-web/...". Nothing built is committed.
+
+    - Node.js on the path: `npm ci` (when the lockfile is newer than the installed packages) and `npm run build` run, and a failure of either
+      fails the build.
+    - No Node.js: the build still succeeds and says so. The library then has no screen: the routes that serve it answer an explicit
+      503 that names this, and the host logs it at start. Only `dotnet pack` refuses - a package without its screen must not be made.
+    - `-p:UBoardWeb=false` skips the screen on purpose (a build that only needs the C#); pack refuses that too.
+  -->
+  <PropertyGroup>
+    <UBoardWebDir>$(MSBuildProjectDirectory)/web/</UBoardWebDir>
+    <UBoardWebOut>$(MSBuildProjectDirectory)/obj/uboard-web/</UBoardWebOut>
+    <!-- Exists only when the last build embedded the screen, so a stale bundle on disk is not mistaken for one in the assembly. -->
+    <UBoardWebStamp>$(MSBuildProjectDirectory)/obj/uboard-web.embedded</UBoardWebStamp>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <UBoardWebSource Include="web/src/**;web/index.html;web/package.json;web/package-lock.json;web/vite.config.js;web/licenses.json;web/scripts/**" />
+  </ItemGroup>
+
+  <Target Name="UBoardWebBuild" BeforeTargets="AssignTargetPaths" DependsOnTargets="UBoardWebBegin;UBoardWebCheckNode;UBoardWebInstall;UBoardWebCompile;UBoardWebEmbed" />
+
+  <Target Name="UBoardWebBegin">
+    <Delete Files="$(UBoardWebStamp)" />
+  </Target>
+
+  <Target Name="UBoardWebCheckNode" Condition="'$(UBoardWeb)' != 'false'">
+    <Exec Command="node --version" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_UBoardNodeExit" />
+    </Exec>
+    <PropertyGroup>
+      <_UBoardNodeAvailable Condition="'$(_UBoardNodeExit)' == '0'">true</_UBoardNodeAvailable>
+    </PropertyGroup>
+    <Message Importance="high" Condition="'$(_UBoardNodeAvailable)' != 'true'"
+             Text="Iyu.UBoard: Node.js was not found, so the board screen is not built and not embedded. The library builds without it; the screen routes answer 503 until it is built, and dotnet pack refuses." />
+  </Target>
+
+  <Target Name="UBoardWebInstall" Condition="'$(_UBoardNodeAvailable)' == 'true'" Inputs="web/package-lock.json" Outputs="web/node_modules/.package-lock.json">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(UBoardWebDir)" />
+  </Target>
+
+  <Target Name="UBoardWebCompile" Condition="'$(_UBoardNodeAvailable)' == 'true'" Inputs="@(UBoardWebSource)" Outputs="$(UBoardWebOut)THIRD-PARTY-NOTICES.txt">
+    <Exec Command="npm run build" WorkingDirectory="$(UBoardWebDir)" />
+  </Target>
+
+  <Target Name="UBoardWebEmbed" Condition="'$(_UBoardNodeAvailable)' == 'true' And Exists('$(UBoardWebOut)index.html')">
+    <ItemGroup>
+      <_UBoardWebFile Include="$(UBoardWebOut)**" />
+      <EmbeddedResource Include="@(_UBoardWebFile)" WithCulture="false" LogicalName="uboard-web/$([System.String]::Copy('%(RecursiveDir)').Replace('\', '/'))%(Filename)%(Extension)" />
+    </ItemGroup>
+    <Touch Files="$(UBoardWebStamp)" AlwaysCreate="true" />
+  </Target>
+
+  <!-- A package without its screen must not be made: a stale or absent bundle is an error at pack time, whatever the build did. -->
+  <Target Name="UBoardWebRequireBundleToPack" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+    <Error Code="UBOARD001" Condition="'$(UBoardWeb)' == 'false'"
+           Text="Iyu.UBoard cannot be packed with -p:UBoardWeb=false: the package carries the board screen." />
+    <Error Code="UBOARD002" Condition="!Exists('$(UBoardWebStamp)')"
+           Text="Iyu.UBoard cannot be packed without the board screen: the last build did not embed it (Node.js was not found, or the screen was skipped). Install Node.js (22.12 or later), build, then pack." />
+  </Target>
+
+  <Target Name="UBoardWebPackNotices" BeforeTargets="_GetPackageFiles" Condition="'$(IsPackable)' != 'false' And Exists('$(UBoardWebOut)THIRD-PARTY-NOTICES.txt')">
+    <ItemGroup>
+      <None Include="$(UBoardWebOut)THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="\" Visible="false" />
+    </ItemGroup>
+  </Target>
 
 </Project>
