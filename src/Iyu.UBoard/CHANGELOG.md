@@ -25,7 +25,7 @@ All notable changes to this package are documented here. The format follows
   as it came, a stream as a stream. The page cannot choose the model or the key, only the fields an assistant needs pass, and the
   reply's length is closed: a `max_tokens` or `max_completion_tokens` above `MaxOutputTokens` is lowered to it, a value that is not a whole
   number above zero is refused with 400, and a request that names none is given the limit in `OutputLimitField` (`max_tokens` unless the
-  host says `max_completion_tokens`). A service that refuses answers 502 without its words, a rate limit 429, a slow
+  host says `max_completion_tokens`). A host can pin fields of its own to every request with `ExtraBody` — a model service's own switches such as `{"chat_template_kwargs":{"enable_thinking":false}}` to stop a reasoning model from thinking before it answers; the page cannot send them, the host's value wins where a field the page may send is also pinned, a pinned `max_tokens` is still held to `MaxOutputTokens`, and pinning `model`, `messages`, `stream`, `tools` or `tool_choice` does not start. A service that refuses answers 502 without its words, a rate limit 429, a slow
   service 504. The route requires a signed-in caller (or the policy named in `IyuUBoardOptions.Policy`), JSON, a request within
   `MaxRequestBytes`, and the same origin. A host that turns the model on without a key, an address or a model does not start; the
   message names what is missing, never a value. The package now references the ASP.NET Core shared framework for the route.

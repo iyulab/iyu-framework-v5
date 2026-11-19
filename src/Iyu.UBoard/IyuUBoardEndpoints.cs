@@ -78,6 +78,9 @@ public static class IyuUBoardEndpoints
         var outgoing = new JsonObject();
         foreach (var field in Passed)
             if (input[field] is { } value) outgoing[field] = value.DeepClone();
+        // The host's own fields win over the page's, and come before the length is closed: a pinned max_tokens is held to the limit too.
+        if (model.ExtraBody is not null)
+            foreach (var (field, value) in model.ExtraBody) outgoing[field] = value?.DeepClone();
         outgoing["model"] = model.ModelName;
         if (!LimitOutput(outgoing, model))
             return Results.Problem("max_tokens and max_completion_tokens must be whole numbers greater than zero.", statusCode: StatusCodes.Status400BadRequest);

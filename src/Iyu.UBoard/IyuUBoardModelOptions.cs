@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace Iyu.UBoard;
 
 /// <summary>
@@ -40,6 +42,16 @@ public sealed class IyuUBoardModelOptions
     /// field, lowered to <see cref="MaxOutputTokens"/> if it asks for more.
     /// </summary>
     public string OutputLimitField { get; set; } = "max_tokens";
+
+    /// <summary>
+    /// Fields the host adds to every request, for the switches a model service has beyond the chat-completions wire — for example
+    /// <c>{"chat_template_kwargs":{"enable_thinking":false}}</c> to stop a reasoning model from spending its time and tokens thinking
+    /// before it answers. They are the host's: the page cannot send them (a field outside the allow-list is dropped), and where a
+    /// field the page may send is also here, the host's value is the one the service gets. They are applied before the reply length
+    /// is closed, so a pinned <c>max_tokens</c> is still held to <see cref="MaxOutputTokens"/>. The page's own fields — <c>model</c>,
+    /// <c>messages</c>, <c>stream</c>, <c>tools</c> and <c>tool_choice</c> — cannot be pinned here.
+    /// </summary>
+    public JsonObject? ExtraBody { get; set; }
 
     /// <summary>How long a call to the model service may take before the host gives up on it (504).</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromMinutes(5);

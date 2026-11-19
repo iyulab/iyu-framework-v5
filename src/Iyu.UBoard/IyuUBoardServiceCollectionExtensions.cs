@@ -88,6 +88,9 @@ internal sealed class IyuUBoardOptionsValidator : IValidateOptions<IyuUBoardOpti
         if (model.MaxRequestBytes <= 0) missing.Add("MaxRequestBytes (greater than zero)");
         if (model.MaxOutputTokens <= 0) missing.Add("MaxOutputTokens (greater than zero)");
         if (model.OutputLimitField is not ("max_tokens" or "max_completion_tokens")) missing.Add("OutputLimitField (max_tokens or max_completion_tokens)");
+        if (model.ExtraBody is not null)
+            foreach (var field in new[] { "model", "messages", "stream", "tools", "tool_choice" })
+                if (model.ExtraBody.ContainsKey(field)) missing.Add($"ExtraBody without \"{field}\" (only the page writes that)");
         if (model.Timeout <= TimeSpan.Zero) missing.Add("Timeout (greater than zero)");
 
         return missing.Count == 0

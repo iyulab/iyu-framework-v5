@@ -199,6 +199,61 @@ public class ModelProxyTests
     }
 
     [Fact]
+    public async Task Fields_the_host_pins_go_to_the_service_with_every_request_and_the_page_cannot_change_them()
+    {
+        var (app, model) = await StartAsync(m => m.ExtraBody = JsonNode.Parse("""{"chat_template_kwargs":{"enable_thinking":false},"temperature":0.1}""")!.AsObject());
+        await using var _ = app;
+        // The page tries to turn thinking back on and to set the temperature; only the host's values reach the service.
+        var body = """{"messages":[{"role":"user","content":"hi"}],"chat_template_kwargs":{"enable_thinking":true},"temperature":0.9}""";
+
+        using var response = await app.GetTestServer().CreateClient().SendAsync(Post(body));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False((bool?)model.Body!["chat_template_kwargs"]!["enable_thinking"]);
+        Assert.Equal(0.1, (double?)model.Body["temperature"]);
+        Assert.Equal("the-host-model", (string?)model.Body["model"]);
+    }
+
+    [Fact]
+    public async Task Without_pinned_fields_a_field_outside_the_allow_list_is_still_dropped()
+    {
+        var (app, model) = await StartAsync();
+        await using var _ = app;
+
+        using var response = await app.GetTestServer().CreateClient()
+            .SendAsync(Post("""{"messages":[{"role":"user","content":"hi"}],"chat_template_kwargs":{"enable_thinking":true}}"""));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(model.Body!["chat_template_kwargs"]);
+    }
+
+    [Fact]
+    public async Task A_pinned_reply_length_is_still_held_to_the_hosts_limit()
+    {
+        var (app, model) = await StartAsync(m => m.ExtraBody = JsonNode.Parse("""{"max_tokens":999999}""")!.AsObject());
+        await using var _ = app;
+
+        using var response = await app.GetTestServer().CreateClient().SendAsync(Post(Ask));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1000, (int?)model.Body!["max_tokens"]);
+    }
+
+    [Theory]
+    [InlineData("model")]
+    [InlineData("messages")]
+    [InlineData("stream")]
+    [InlineData("tools")]
+    [InlineData("tool_choice")]
+    public async Task A_host_that_pins_a_field_the_page_alone_may_write_does_not_start(string field)
+    {
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => StartAsync(m => m.ExtraBody = JsonNode.Parse("{\"" + field + "\":\"x\"}")!.AsObject()));
+
+        Assert.Contains("ExtraBody", failure.ToString(), StringComparison.Ordinal);
+        Assert.Contains(field, failure.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_stream_is_passed_on_as_a_stream()
     {
         var (app, model) = await StartAsync();
