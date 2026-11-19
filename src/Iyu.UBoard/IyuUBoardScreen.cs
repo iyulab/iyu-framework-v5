@@ -94,12 +94,14 @@ internal sealed class IyuUBoardScreenCheck(IScreenAssets assets, ILoggerFactory 
 internal static class IyuUBoardScreenRoutes
 {
     /// <summary>
-    /// What a page may load and do: its own files and requests to its own host, nothing else. The page runs no inline script (what the server
-    /// writes into it are <c>&lt;meta&gt;</c> values), is framed by nobody, and cannot post a form elsewhere. Styles may be set on an element
-    /// (<c>style-src-attr</c>): the viewer and the chart library size things that way.
+    /// What a page may load and do: its own files and requests to its own host, nothing else. The page runs no inline script and no eval (what
+    /// the server writes into it are <c>&lt;meta&gt;</c> values), is framed by nobody, and cannot post a form elsewhere. Styles may be set on an
+    /// element (<c>style-src-attr</c>): the viewer and the chart library size things that way. The viewer also adds one <c>&lt;style&gt;</c> of its
+    /// own to the page when it loads, which a policy of <c>'self'</c> alone refuses: it is allowed by its hash, the one inline style the page
+    /// may have. A change of that style's text (a new version of the viewer) is caught by the browser run, which fails on any violation.
     /// </summary>
     internal const string ContentSecurityPolicy =
-        "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+        "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-Cg1lRYiYyYNdlp9/4ezti1dNZAPDJQ1rQ6FvBH3NZ6c='; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
 
     private const string AbsentMessage =
         "The board screen is not part of this build of Iyu.UBoard: the package was built without its web part (Node.js 22.12 or later was not found at build time). "

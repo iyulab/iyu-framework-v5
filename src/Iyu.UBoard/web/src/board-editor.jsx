@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { checkBoard } from '@iyulab/u-board/check';
 import { changedParts, createAssistant, newBoard } from './agent-loop.js';
 import { Chat, STARTERS, chipsAfter } from './chat.jsx';
 import { History, Reader } from './history.jsx';
@@ -78,6 +79,14 @@ export function BoardEditor({ id, access, api, endpoints, fetcher }) {
     }
   }, []);
 
+  // The assistant's board store takes only a board the viewer's check accepts, so a draft it refuses gets no assistant (the page says so, and a revision
+  // restored from the history makes one).
+  const startAssistant = useCallback((loaded, rights) => {
+    assistant.current = null;
+    if (!access.assistant || checkBoard(loaded.document).issues.length > 0) return;
+    assistant.current = createAssistant({ fetch: fetcher, endpoints, board: { id, loaded }, emit, canEdit: rights.edit, catalog: access.catalog });
+  }, [access, endpoints, fetcher, emit, id]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -90,16 +99,19 @@ export function BoardEditor({ id, access, api, endpoints, fetcher }) {
       setName(envelope.name);
       setCan(rights);
       setLive({ revision: loaded.revision, document: loaded.document });
-      if (access.assistant)
-        assistant.current = createAssistant({ fetch: fetcher, endpoints, board: { id, loaded }, emit, canEdit: rights.edit, catalog: access.catalog });
+      startAssistant(loaded, rights);
       await refresh();
       if (alive) setBoot(true);
     })();
     return () => { alive = false; };
-  }, [id, access, api, endpoints, fetcher, emit, refresh]);
+  }, [id, access, api, refresh, startAssistant]);
 
   const send = useCallback(async message => {
-    if (!message.trim() || !assistant.current) return;
+    if (!message.trim()) return;
+    if (!assistant.current) {
+      setThread(t => [...t.map(m => ({ ...m, chips: [] })), { role: 'u', text: message }, { role: 'a', steps: [], text: 'This draft does not pass the board check, so I cannot work on it. Open the history and go back to an earlier revision.', chips: [] }]);
+      return;
+    }
     const selection = selected;
     setSelected([]);
     stopping.current = new AbortController();
@@ -170,13 +182,16 @@ export function BoardEditor({ id, access, api, endpoints, fetcher }) {
     const old = await api.revision(id, n);
     const saved = await api.save(id, old.document, live.revision);
     if (saved.status === 403 || saved.status === 409) return;
-    assistant.current?.reload(saved.board);
+    if (assistant.current) assistant.current.reload(saved.board);
+    else startAssistant({ name: saved.board.name, revision: saved.board.revision, document: saved.board.document }, can);
     setLive({ revision: saved.board.revision, document: saved.board.document });
     setChanged({});
     setDrawer(false);
     await refresh();
   };
 
+  // A draft the viewer's check refuses (saved by an import or another client) is not drawn: the viewer would stop on it. History still opens, so an earlier revision can be restored.
+  const draftIssues = useMemo(() => checkBoard(live.document).issues, [live.document]);
   const reader = view === 'reader';
   const empty = Object.keys(live.document.parts ?? {}).length === 0;
   const chat = access.assistant;
@@ -219,13 +234,16 @@ export function BoardEditor({ id, access, api, endpoints, fetcher }) {
                 {banner?.kind === 'conflict' ? (
                   <div className="banner bad" data-testid="banner-conflict"><b>Not saved.</b><span className="grow">Another session saved r{banner.failure.serverRevision} while you were on r{banner.failure.workedFrom}. Your change was discarded, nothing was overwritten.</span><button className="btn sm" data-act="reload" onClick={reloadFromBanner}>Reload r{banner.failure.serverRevision}</button><button className="btn sm" data-act="history" onClick={() => setDrawer(true)}>Compare</button></div>
                 ) : null}
+                {draftIssues.length > 0 ? (
+                  <div className="banner bad" data-testid="banner-invalid"><b>This draft does not pass the board check.</b><span className="grow">{draftIssues[0].path ? `${draftIssues[0].path} — ` : ''}{draftIssues[0].message}. It is not drawn; open the history to go back to an earlier revision{can.edit && chat ? ', or ask the assistant to fix it' : ''}.</span></div>
+                ) : null}
                 {banner?.kind === 'notice' ? (
                   <div className="banner info" data-testid="banner-notice"><span className="grow">{banner.text}</span><button className="btn sm" data-act="dismiss" onClick={() => setBanner(null)}>Dismiss</button></div>
                 ) : null}
                 {banner?.kind === 'rejected' ? (
                   <div className="banner warn" data-testid="banner-rejected"><b>Edit rejected.</b><span className="grow">The board check refused the assistant's edit. The board is unchanged at r{banner.revision}.</span></div>
                 ) : null}
-                {empty ? (
+                {draftIssues.length > 0 ? null : empty ? (
                   <div className="tile empty" style={{ gridColumn: '1/-1', minHeight: 420 }} data-testid="empty-board"><div>
                     <svg width="96" height="72" viewBox="0 0 96 72" fill="none"><rect x="2" y="2" width="28" height="20" rx="5" stroke="var(--line)" strokeWidth="2" /><rect x="34" y="2" width="28" height="20" rx="5" stroke="var(--line)" strokeWidth="2" /><rect x="66" y="2" width="28" height="20" rx="5" stroke="var(--line)" strokeWidth="2" /><rect x="2" y="28" width="92" height="42" rx="6" stroke="var(--accent)" strokeWidth="2" strokeDasharray="5 4" /></svg>
                     <h2>This board is empty</h2>

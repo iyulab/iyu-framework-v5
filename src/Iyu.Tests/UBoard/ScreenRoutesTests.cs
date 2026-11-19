@@ -190,6 +190,8 @@ public sealed class ScreenRoutesTests
         Assert.Equal(IyuUBoardScreenRoutes.ContentSecurityPolicy, policy);
         Assert.Equal("'none'", directives["default-src"]);
         Assert.Equal("'self'", directives["script-src"]); // no inline script, no eval
+        Assert.Equal("'self' 'sha256-Cg1lRYiYyYNdlp9/4ezti1dNZAPDJQ1rQ6FvBH3NZ6c='", directives["style-src"]); // the one inline style the viewer adds, by its hash
+        Assert.DoesNotContain("'unsafe-inline'", directives["style-src"], StringComparison.Ordinal);
         Assert.Equal("'self'", directives["connect-src"]);
         Assert.Equal("'self'", directives["base-uri"]);
         Assert.Equal("'self'", directives["form-action"]);

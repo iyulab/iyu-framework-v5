@@ -1,3 +1,4 @@
+import './no-eval.js'; // first: before anything makes a schema
 import { createRoot } from 'react-dom/client';
 import '@iyulab/house-style'; // the iyulab theme for the chat components; the page's own rules below are unlayered, so they win
 import './styles.css';
