@@ -1595,7 +1595,8 @@ withheld by default is not in them, and a column is compared by its plain value 
 also cross a single reference to another served model — `where: { customer: { name: { eq: "x" } } }`, `order: { customer: { name: ASC } }` —
 and a collection, through `some`, `all`, `none` (a condition on its rows) or `any` (whether it has a row) — `where: { orders: { some:
 { total: { gt: 100 } } } }`; a collection is never something to sort by, and a reference to a model no query field serves cannot be
-crossed. Crossing reads the model it crosses into: that model's read policy (`Authorize`) applies to a caller who names it — the model
+crossed. One difference from OData stays: text is compared by equality, containment, prefix, suffix and membership, **not by
+range** (`name: { gt: "b" }` is refused as an unknown operation; numbers and dates do take `gt` / `gte` / `lt` / `lte`). Crossing reads the model it crosses into: that model's read policy (`Authorize`) applies to a caller who names it — the model
 of the rows, for a collection, even when the question is only `any` — then the policy of every column named inside it, and a request
 that crosses is recorded as having reached that model even when it selects nothing from it.
 
