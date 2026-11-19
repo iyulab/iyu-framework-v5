@@ -5,7 +5,7 @@
 // here with canned chat-completions replies (tool calls included), so no key and no model are needed. Everything the assistant
 // does with those replies — reading the catalog, querying, checking and saving the board — goes through the real loop and host.
 //
-//   node e2e/run.mjs        (from samples/BoardChat/web; prints E2E-OK steps=N)
+//   node e2e/run.mjs        (from samples/BoardChat/web; prints E2E-OK steps=N; BOARDCHAT_SHOTS_DIR chooses where the screenshots go)
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -18,7 +18,8 @@ import { calls, say } from '../testkit/world.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const web = resolve(here, '..');
 const sample = resolve(web, '..');
-const imagesDir = resolve(sample, '../../../dev-docs/iyu-framework-v5/images');
+// Screenshots go to BOARDCHAT_SHOTS_DIR when it is set, else to e2e/screenshots (not committed).
+const imagesDir = process.env.BOARDCHAT_SHOTS_DIR ? resolve(process.env.BOARDCHAT_SHOTS_DIR) : join(here, 'screenshots');
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 let steps = 0;
