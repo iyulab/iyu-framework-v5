@@ -6,6 +6,7 @@ import { BoardView } from '@iyulab/u-board/viewer';
 import { isHttpRef, readHttpRef, requestPath, resolvedReading } from '@iyulab/u-board/picture';
 import { DATA_SOURCE_ID } from './agent-loop.js';
 import { hostFetch } from './host-api.js';
+import { tileReads } from './tile-data.js';
 
 const readName = reference => (typeof reference === 'string' ? /^([^[\]]+)/.exec(reference)?.[1] : undefined);
 
@@ -62,7 +63,7 @@ export function tileBoard(document, id) {
     // The tile is the card: the viewer's own paper is left clear so the card shows, not a card in a card.
     skin: { ...document.skin, palette: { paper: 'transparent', backdrop: 'transparent', ...document.skin?.palette } },
     ...(document.board && { board: document.board }),
-    data: Object.fromEntries(reads.filter(name => document.data?.[name]).map(name => [name, document.data[name]])),
+    data: tileReads(document, part, reads),
     parts: { [id]: { ...(keepTitle ? part : rest), frame: 'none' } },
     layout: { kind: 'grid', items: [[id, 12]] },
     ...(title !== undefined && { _title: title }),
@@ -77,14 +78,17 @@ function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count
   const edited = Boolean(mark) && !loading;
   const badge = loading ? <span className="pill new">updating…</span> : edited ? <span className="pill new">{mark} in r{revision}</span> : null;
   const isLabel = part.as === 'label';
+  const isStat = part.as === 'stat';
   return (
     <section className={`tile ${edited ? 'edited' : ''}`} style={{ gridColumn: `span ${span}` }} data-id={id} data-kind={part.as} data-mark={mark ?? ''} data-loading={loading ? 'true' : 'false'}>
-      {!isLabel && (
+      {/* A stat draws its caption itself (the part's title, see tile-data.js), so its tile has no header row — only the mark. */}
+      {!isLabel && !isStat && (
         <div className="th">
           <span className="tt">{part.title ?? id}</span>
           {badge}
         </div>
       )}
+      {isStat && badge && <div className="corner">{badge}</div>}
       {loading ? (
         <div className="skel" style={{ height: part.as === 'stat' ? 70 : 220 }} />
       ) : emptyNote ? (
