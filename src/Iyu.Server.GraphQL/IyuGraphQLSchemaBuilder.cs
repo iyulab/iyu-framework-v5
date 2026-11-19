@@ -173,10 +173,17 @@ public sealed class IyuGraphQLSchemaBuilder
     {
         if (!ReachIsComputed || entered.Count == 0) return;
         var http = context.Services.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()?.HttpContext;
-        if (http?.Features.Get<IIyuGraphQLReachFeature>() is not { } earlier) return;
-        var crossed = entered.Select(QueryNameOf).Where(q => q is not null).Select(q => q!);
-        var reached = earlier.ReachedQueries.Union(crossed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        http.Features.Set<IIyuGraphQLReachFeature>(new IyuGraphQLReachFeature(earlier.AddressedQueries, reached));
+        if (http is null) return;
+        var crossed = entered.Select(QueryNameOf).Where(q => q is not null).Select(q => q!).ToList();
+        // Root fields of one request run side by side, and this is a read, a union and a write of one feature: without the lock
+        // two of them can each read the same record and the later write drops the other's models - an audit record that leaves
+        // out a read. The lock is on the feature collection, which belongs to this one request.
+        lock (http.Features)
+        {
+            if (http.Features.Get<IIyuGraphQLReachFeature>() is not { } earlier) return;
+            var reached = earlier.ReachedQueries.Union(crossed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            http.Features.Set<IIyuGraphQLReachFeature>(new IyuGraphQLReachFeature(earlier.AddressedQueries, reached));
+        }
     }
 
     private readonly List<(Type Type, PropertyInfo[] Properties)> _excluded = new();

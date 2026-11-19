@@ -355,6 +355,30 @@ public sealed class GraphQLWhereOrderCrossingTests : IDisposable
     // ---- the request's reach ----
 
     [Fact]
+    public async Task Root_fields_that_cross_into_different_models_in_one_request_each_leave_their_model_in_the_reach()
+    {
+        await using var sp = await BuildAsync(configure: g => g.ComputeReach = true);
+        const string query =
+            "{ a: purchases(where: { customer: { name: { eq: \"ann\" } } }) { totalCount } "
+            + "b: purchases(where: { replaces: { amount: { gt: 0 } } }) { totalCount } "
+            + "c: purchases(order: { customer: { name: ASC } }) { totalCount } "
+            + "d: purchases(order: { replaces: { amount: ASC } }) { totalCount } }";
+
+        for (var round = 0; round < 40; round++)
+        {
+            SetCurrentUser(sp, CustomersPolicy, CreditPolicy);   // a fresh request each round
+            var http = sp.GetRequiredService<IHttpContextAccessor>().HttpContext!;
+
+            var json = await RunAsync(sp, query);
+
+            Assert.DoesNotContain("\"errors\"", json, StringComparison.Ordinal);
+            var reach = http.Features.Get<IIyuGraphQLReachFeature>();
+            Assert.NotNull(reach);
+            Assert.Equal(["customers", "purchases"], reach!.ReachedQueries.ToArray());
+        }
+    }
+
+    [Fact]
     public async Task A_condition_that_crosses_into_a_model_puts_it_in_the_reach_even_when_it_is_refused()
     {
         await using var sp = await BuildAsync(configure: g => g.ComputeReach = true);
