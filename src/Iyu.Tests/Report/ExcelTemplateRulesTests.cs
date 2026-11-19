@@ -217,6 +217,12 @@ public class ExcelTemplateRulesTests
         Assert.Equal(XLPageOrientation.Landscape, sheet.PageSetup.PageOrientation);
     }
 
+    // A fixed 1x1 image, not one drawn at run time: an image library's native part needs system libraries that
+    // slim Linux images lack, and an exception thrown inside a registered function does not surface from
+    // CookDish (the library writes it into the cell as text) — the test would only see a picture count that is short.
+    private static readonly byte[] OnePixelPng = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
     [Fact]
     public void A_registered_function_is_called_once_per_record_and_can_put_a_picture_in_the_cell()
     {
@@ -231,10 +237,7 @@ public class ExcelTemplateRulesTests
         recipe.RegisterFunction("mark", (cell, value, parameters) =>
         {
             seen.Add(value);
-            using var bitmap = new SkiaSharp.SKBitmap(8, 8);
-            using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
-            using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
-            cell.Worksheet.AddPicture(data.AsStream()).MoveTo(cell);
+            cell.Worksheet.AddPicture(new MemoryStream(OnePixelPng)).MoveTo(cell);
             cell.Value = "";
         });
         recipe.AddVariable("Items", new[] { new { Code = "C1" }, new { Code = "C2" } });
