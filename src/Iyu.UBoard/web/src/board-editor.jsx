@@ -16,12 +16,12 @@ const hello = assistant => ({
  * offered follows what the host says the person may do (`can`): the host enforces every one of them, so a button left out here is a
  * courtesy and one left in would be refused there.
  */
-export function BoardEditor({ id, nameHint, access, api, endpoints, fetcher }) {
+export function BoardEditor({ id, access, api, endpoints, fetcher }) {
   const [boot, setBoot] = useState(false);
   const [missing, setMissing] = useState(false);
-  const [name, setName] = useState(nameHint ?? id);
+  const [name, setName] = useState(id);
   const [can, setCan] = useState({ edit: false, publish: false, delete: false });
-  const [live, setLive] = useState({ revision: 0, document: newBoard(name).document });
+  const [live, setLive] = useState({ revision: 0, document: newBoard(id).document });
   const liveRef = useRef(live);
   liveRef.current = live;
   const [changed, setChanged] = useState({});
@@ -83,11 +83,11 @@ export function BoardEditor({ id, nameHint, access, api, endpoints, fetcher }) {
     (async () => {
       const envelope = await api.board(id);
       if (!alive) return;
-      if (!envelope && !access.create) return setMissing(true);
-      const boardName = envelope?.name ?? nameHint ?? id;
-      const loaded = envelope ? { name: envelope.name, revision: envelope.revision, document: envelope.document } : newBoard(boardName);
-      const rights = envelope?.can ?? { edit: access.create, publish: access.create, delete: false };
-      setName(boardName);
+      // A board is made before it is opened (the list's dialog makes it), so one the host does not hold is not here, or not the person's.
+      if (!envelope) return setMissing(true);
+      const loaded = { name: envelope.name, revision: envelope.revision, document: envelope.document };
+      const rights = envelope.can ?? { edit: false, publish: false, delete: false };
+      setName(envelope.name);
       setCan(rights);
       setLive({ revision: loaded.revision, document: loaded.document });
       if (access.assistant)
@@ -96,7 +96,7 @@ export function BoardEditor({ id, nameHint, access, api, endpoints, fetcher }) {
       if (alive) setBoot(true);
     })();
     return () => { alive = false; };
-  }, [id, nameHint, access, api, endpoints, fetcher, emit, refresh]);
+  }, [id, access, api, endpoints, fetcher, emit, refresh]);
 
   const send = useCallback(async message => {
     if (!message.trim() || !assistant.current) return;

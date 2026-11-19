@@ -18,7 +18,11 @@ public static class IyuUBoardEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Each board route also asks the host's <see cref="IBoardAccess"/> — who may view, make, edit, publish and delete which board is the application's to say (a board the caller may not view is 404, a thing they may not do to a board they can view is 403, and a list holds only viewable boards). <c>GET {prefix}/access</c> answers <c>{ create, assistant }</c>: whether the caller may make boards at all, and whether an <see cref="IBoardAssistant"/> is registered.
+    /// Each board route also asks the host's <see cref="IBoardAccess"/> — who may view, make, edit, publish and delete which board is the application's to say (a board the caller may not view is 404, a thing they may not do to a board they can view is 403, and a list holds only viewable boards). <c>GET {prefix}/access</c> answers <c>{ create, assistant, catalog, dataRoot }</c>: whether the caller may make boards at all, whether an <see cref="IBoardAssistant"/> is registered, whether the source catalog is on, and where the host serves its OData.
+    /// </para>
+    /// <para>
+    /// With <see cref="IyuUBoardOptions.Screen"/> on, <c>{prefix}/ui</c> serves the board screen: the list of boards, <c>{prefix}/ui/boards/{id}</c> for each board, the files they load and the third-party notices.
+    /// A board's page is asked of <see cref="IBoardAccess"/> like the board's data (404 for a person who may not view it, or, for an id nothing holds yet, may not make it), and carries a restrictive Content-Security-Policy.
     /// </para>
     /// <para>
     /// With an <see cref="IBoardAssistant"/> registered, the routes also include <c>POST {prefix}/boards/{id}/turn</c>, one turn of the assistant's conversation about the board; with none the route is not mapped.
@@ -43,7 +47,8 @@ public static class IyuUBoardEndpoints
             // An assistant is on when the host registered one; the port is looked for by type, so nothing is built to find out.
             var assistant = endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>().IsService(typeof(IBoardAssistant));
             IyuUBoardBoardRoutes.Map(group, assistant);
-            IyuUBoardBoardRoutes.MapAccess(group, assistant);
+            IyuUBoardBoardRoutes.MapAccess(group, assistant, settings);
+            if (settings.ScreenEnabled) IyuUBoardScreenRoutes.Map(group, prefix.Trim('/') is { Length: > 0 } trimmed ? "/" + trimmed : "");
         }
         if (settings.CatalogEnabled) IyuUBoardCatalogRoute.Map(group);
         return group;

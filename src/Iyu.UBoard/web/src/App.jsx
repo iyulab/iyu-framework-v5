@@ -22,6 +22,6 @@ export function App({ config, endpoints, fetcher, api }) {
 
   if (!access) return <p className="loading" role="status">loading…</p>;
   return config.board
-    ? <BoardEditor id={config.board} nameHint={new URLSearchParams(location.search).get('name') ?? undefined} access={access} api={api} endpoints={endpoints} fetcher={fetcher} />
+    ? <BoardEditor id={config.board} access={access} api={api} endpoints={endpoints} fetcher={fetcher} />
     : <BoardList access={access} api={api} endpoints={endpoints} />;
 }

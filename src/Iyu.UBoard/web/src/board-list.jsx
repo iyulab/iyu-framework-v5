@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { emptyBoard } from '@iyulab/u-board/check';
 import { boardPage, newBoardId } from './host-api.js';
 
 /** The boards the person may open, each with what they may do to it; a button for a new one only when the host lets them make one. */
@@ -13,9 +14,19 @@ export function BoardList({ access, api, endpoints }) {
 
   const create = access.create;
   const open = id => { location.assign(boardPage(endpoints, id)); };
-  const start = name => {
+  // A board is made when the dialog is confirmed — an empty one, which the host's rules then give to the person who made it — and then opened.
+  // An id someone else took is tried again with another tail; a refusal is said in the dialog.
+  const start = async name => {
     const trimmed = name.trim();
-    if (trimmed) location.assign(boardPage(endpoints, newBoardId(trimmed), trimmed));
+    if (!trimmed) return 'A board needs a name.';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const id = newBoardId(trimmed);
+      const { status } = await api.create(id, trimmed, emptyBoard('grid'));
+      if (status === 201) return location.assign(boardPage(endpoints, id));
+      if (status === 403) return 'Your account may not make boards.';
+      if (status !== 409) return `The board could not be made (${status}).`;
+    }
+    return 'The board could not be made: its name keeps meeting another board. Try another name.';
   };
 
   return (
@@ -67,18 +78,26 @@ export function BoardList({ access, api, endpoints }) {
 
 function NewBoard({ onCancel, onCreate }) {
   const [name, setName] = useState('');
+  const [working, setWorking] = useState(false);
+  const [problem, setProblem] = useState('');
   const input = useRef(null);
   useEffect(() => { input.current?.focus(); }, []);
-  const submit = event => { event.preventDefault(); onCreate(name); };
+  const submit = async event => {
+    event.preventDefault();
+    setWorking(true);
+    setProblem((await onCreate(name)) ?? '');
+    setWorking(false);
+  };
   return (
     <div className="modal" data-act="closedialog" onClick={onCancel}>
       <form className="card" onClick={event => event.stopPropagation()} onSubmit={submit} data-testid="new-board-dialog" role="dialog" aria-label="New board">
         <h3 style={{ margin: '0 0 10px' }}>New board</h3>
         <label className="field">Name<input ref={input} value={name} maxLength={120} onChange={event => setName(event.target.value)} aria-label="Board name" /></label>
         <div className="note" style={{ marginBottom: 14 }}>Who can edit this board is decided by your application. For this one: <b>you</b>, as its creator, unless your application says otherwise.</div>
+        {problem ? <div className="banner bad" role="alert" data-testid="new-board-problem">{problem}</div> : null}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn" data-act="closedialog" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn primary" data-act="createboard" disabled={!name.trim()}>Create and start</button>
+          <button type="submit" className="btn primary" data-act="createboard" disabled={!name.trim() || working}>Create and start</button>
         </div>
       </form>
     </div>

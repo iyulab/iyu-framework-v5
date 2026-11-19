@@ -132,10 +132,20 @@ internal static class IyuUBoardBoardRoutes
         if (assistant) IyuUBoardTurnRoute.Map(one);
     }
 
-    /// <summary>What a screen asks first: whether the caller may make boards at all (to show or hide its "new board" button), and whether an assistant is registered (to show or leave out its chat).</summary>
-    internal static void MapAccess(RouteGroupBuilder group, bool assistant) =>
+    /// <summary>
+    /// What a screen asks first: whether the caller may make boards at all (to show or hide its "new board" button), whether an assistant is
+    /// registered (to show or leave out its chat), whether the source catalog is on (what the assistant may read is described there) and where
+    /// the host serves its OData (what the boards read their values from).
+    /// </summary>
+    internal static void MapAccess(RouteGroupBuilder group, bool assistant, IyuUBoardOptions settings) =>
         group.MapGet("access", async (ClaimsPrincipal user, IBoardAccess access, CancellationToken cancellationToken) =>
-            Results.Json(new { Create = await access.AllowsAsync(user, BoardAction.Create, null, cancellationToken), Assistant = assistant }));
+            Results.Json(new
+            {
+                Create = await access.AllowsAsync(user, BoardAction.Create, null, cancellationToken),
+                Assistant = assistant,
+                Catalog = settings.CatalogEnabled,
+                settings.DataRoot,
+            }));
 
     // null when the caller may do it. A caller who may not even view the board is told it is not there, whatever they asked; one who may
     // view it but not do this is told so.

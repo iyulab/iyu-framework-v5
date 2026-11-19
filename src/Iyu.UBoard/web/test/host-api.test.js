@@ -12,11 +12,10 @@ test('the page learns where the routes are, and which board it is for, from what
   assert.equal(pageConfig(name => (name === 'uboard-board' ? '' : undefined)).board, undefined);
 });
 
-test('a board\'s page address holds its id as one path segment, and a new board carries its name', () => {
+test('a board\'s page address holds its id as one path segment', () => {
   const endpoints = endpointsFor('/uboard');
   assert.equal(boardPage(endpoints, 'revenue'), '/uboard/ui/boards/revenue');
   assert.equal(boardPage(endpoints, 'a b/c'), '/uboard/ui/boards/a%20b%2Fc');
-  assert.equal(boardPage(endpoints, 'q4-1a2b', 'Q4 & more'), '/uboard/ui/boards/q4-1a2b?name=Q4%20%26%20more');
 });
 
 test('a new board\'s id is made of the words of its name and a short tail, and is never empty', () => {

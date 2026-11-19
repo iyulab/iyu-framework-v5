@@ -16,7 +16,7 @@ export function pageConfig(read = meta) {
 export const endpointsFor = prefix => ({ catalog: `${prefix}/catalog`, boards: `${prefix}/boards`, access: `${prefix}/access`, screen: `${prefix}/ui` });
 
 /** The address of a board's page. An id is one path segment, whatever characters it holds. */
-export const boardPage = (endpoints, id, name) => `${endpoints.screen}/boards/${encodeURIComponent(id)}${name ? `?name=${encodeURIComponent(name)}` : ''}`;
+export const boardPage = (endpoints, id) => `${endpoints.screen}/boards/${encodeURIComponent(id)}`;
 
 /** A new board's id from the name the person typed: words and digits joined by dashes, with a short random tail so two boards of one name do not meet. */
 export function newBoardId(name, random = Math.random) {
@@ -45,6 +45,11 @@ export function makeApi(fetcher, endpoints) {
     revision: async (id, number) => read(await fetcher(`${board(id)}/revisions/${number}`)),
     published: async id => read(await fetcher(`${board(id)}/published`)),
     fallback: async id => (await read(await fetcher(`${board(id)}/fallback`))) ?? [],
+    /** Makes a board: `{ status, board }` — 201 with the board, 409 when the id is taken, 403 when the person may not make boards. */
+    create: async (id, name, document) => {
+      const response = await fetcher(`${board(id)}?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document) });
+      return { status: response.status, board: response.ok ? await response.json() : null };
+    },
     /** Resolves to the host's answer — `{ status, line }`; a refusal (403) is told, not thrown. */
     publish: async (id, number) => {
       const response = await fetcher(`${board(id)}/publish?revision=${number}`, { method: 'POST' });
