@@ -2394,7 +2394,10 @@ for any OpenAI-compatible model service — the address, key, model and reply li
 `{prefix}/ui` lists the boards the caller may open (and makes a new one when `IBoardAccess` lets them), and `{prefix}/ui/boards/{id}` is one board — the
 viewer, its revision history, publishing and rolling back, and, when an assistant is registered, a chat that answers questions or changes the board by
 talking. The application decides who may do what (`IBoardAccess`); the screen shows only what the caller may do and the routes enforce it, so a person who may
-only read a board gets an answer-only chat and no Publish, and a person who may not make boards gets no new-board button. A page is 404 for a person who may not
+only read a board gets an answer-only chat and no Publish, and a person who may not make boards gets no new-board button. A row of the list has a menu with Rename and
+Delete for the people `IBoardAccess` lets do them (a delete asks first and takes the board's whole history with it), and the list is read 50 boards at a time. After the
+assistant saves an edit the screen draws the parts it touched the way the viewer does and hands the assistant what each one drew, so a total that comes out empty or a
+chart over a field its rows do not have is corrected in the same turn instead of being left for the person to find. A page is 404 for a person who may not
 view the board, the same as for a board that is not there, and carries a restrictive `Content-Security-Policy` (its own host only, no inline script, no
 framing). `Screen("/odata")` names where the host serves its OData if it is not `/$data`. The screen is built from web sources when the package is built, with Node.js
 22.12 or later, and embedded; a build without Node.js still builds and runs, but has no screen — its routes answer 503 and the host logs it at start — and

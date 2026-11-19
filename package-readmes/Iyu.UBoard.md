@@ -2,6 +2,8 @@
 
 Host-neutral board storage and screen for embedding a board viewer and editor - boards as opaque JSON documents with an append-only revision history, optimistic saves, a publication pointer with a history to fall back through, access rules the application owns, a port for the assistant's turn, and the screen that manages boards; it depends on neither Entity Framework Core nor Iyu.Core.
 
+The screen's board list renames and deletes as far as the application allows, and the assistant in its editor is shown what its edit actually drew, so a tile that comes out empty is corrected in the same turn.
+
 ```
 dotnet add package Iyu.UBoard
 ```

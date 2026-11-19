@@ -322,6 +322,14 @@ const shot = async (page, name) => {
   await sleep(1600);
   return page.screenshot({ path: join(imagesDir, `uboard-chat-impl-${name}.png`) });
 };
+// One picture per state the design's mock-up fixes, named after it (`state-<name>`), taken as the person would see it.
+const stateShot = async (page, name) => {
+  await sleep(1600);
+  const path = join(imagesDir, `state-${name}.png`);
+  await page.screenshot({ path });
+  states.push(path);
+};
+const states = [];
 
 async function main() {
   mkdirSync(imagesDir, { recursive: true });
@@ -421,6 +429,7 @@ async function main() {
       equal(await page.locator('.top [data-act=newboard]').count(), 1, 'a new-board button');
       equal(await page.locator('.cat').count(), 0, 'no catalog pane: the catalog is the assistant\'s tool, not a screen');
       await shot(page, 'list-empty');
+      await stateShot(page, 'no-boards');
     });
 
     await step('a new board: a name, then an empty board that is the person\'s to edit, with starters and no revision of content yet', async () => {
@@ -428,6 +437,8 @@ async function main() {
       await page.waitForSelector('[data-testid=new-board-dialog]');
       equal(await page.locator('[data-act=createboard]').isDisabled(), true, 'a board needs a name');
       await page.fill('[aria-label="Board name"]', 'Revenue overview');
+      check((await page.textContent('[data-testid=new-board-dialog]')).includes('Who can edit this board is decided by your application'), 'the dialog says edit rights are the application\'s to decide');
+      await stateShot(page, 'new-board-dialog');
       await page.click('[data-act=createboard]');
       await page.waitForSelector('[data-testid=empty-board]');
       const where = new URL(page.url());
@@ -781,6 +792,8 @@ async function main() {
       check((await viewerList.textContent('[data-testid=list-sub]')).includes('Creating boards is not enabled'), 'the list says why');
       check((await viewerList.textContent('tr[data-board] .acc')).includes('Read only'), 'the row says read only');
       await shot(viewer, 'readonly');
+      await stateShot(viewer, 'read-only');
+      await stateShot(viewerList, 'cant-create');
       await readOnly.close();
     });
 
@@ -852,10 +865,18 @@ async function main() {
     await step('a question is answered and the board is not changed; the answer says so', async () => {
       await page.click('[data-act=editor]');
       await page.waitForSelector('[data-testid=chat]');
-      model.load([say('Revenue is highest in the east, and the board already shows it.')]);
+      // The answer rests on one read, which stays in the chat as the call it made.
+      model.load([
+        calls(['read_catalog', {}], ['query_data', { entity: 'Orders', apply: `${FROM_2026}groupby((RegionName),aggregate(Total with sum as Revenue))`, orderby: 'Revenue desc', top: 1 }]),
+        say('The region at the top of that read is the highest, and the board already shows it.'),
+      ]);
       const revision = await hostRevision();
       await say_('Which region is highest?');
       equal(await page.locator('#msgs [data-role=assistant]:last-of-type [data-testid=answer-only]').count(), 1, 'the answer is labelled as one');
+      equal((await lastSteps()).filter(row => row.kind === 'query').length, 1, 'the call it read is in the chat');
+      await page.locator('#msgs [data-role=assistant]:last-of-type .step[data-step=query] summary').click();
+      await page.evaluate(() => { const messages = document.querySelector('#msgs'); messages.scrollTop = messages.scrollHeight; }); // opening the call made the chat taller
+      await stateShot(page, 'question-answered');
       equal(await hostRevision(), revision, 'nothing was saved');
       check(model.requests.at(-1).body.tools.some(tool => tool.function.name === 'patch_board'), 'an editor is offered the edit tool, a question just does not use it');
     });
@@ -911,6 +932,7 @@ async function main() {
       check((await row.textContent()).includes('Revenue overview') && (await row.textContent()).includes('Can edit'), await row.textContent());
       equal(((await row.textContent()).match(/r12/g) ?? []).length, 2, 'latest and published revisions (the one saved and published by the fallback step is r12)');
       await shot(page, 'list');
+      await stateShot(page, 'board-list');
       await page.goto(`${origin}${SCREEN}/boards/not-a-board`);
       await page.waitForSelector('[data-testid=missing]');
       await shot(page, 'missing');
@@ -1016,6 +1038,35 @@ async function main() {
       equal((await (await fetch(`${origin}/uboard/boards?take=500`, as('analyst'))).json()).length, total - 52, 'the boards made for this step are gone');
     });
 
+    await step('assistant off: a host that names no model gives the board and no chat panel, and the page says nothing is wrong', async () => {
+      // A second host, started the way a host that has not registered an assistant starts: the same screen, a board with content, no chat.
+      const quietWork = mkdtempSync(join(tmpdir(), 'boardchat-e2e-quiet-'));
+      const quietPort = await freePort();
+      const quietHost = await startHost(quietPort, quietWork, '');
+      const quietOrigin = `http://127.0.0.1:${quietPort}`;
+      try {
+        const source = await (await fetch(`${origin}/uboard/boards/render-feedback`, as('analyst'))).json();
+        equal((await fetch(`${quietOrigin}/uboard/boards/render-feedback?name=${encodeURIComponent(source.name)}`, as('analyst', { method: 'POST', body: JSON.stringify(source.document) }))).status, 201, 'a board with content on the quiet host');
+        equal((await (await fetch(`${quietOrigin}/uboard/access`, as('analyst'))).json()).assistant, false, 'the host says the assistant is off');
+        const quietContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'analyst' } });
+        await watch(quietContext);
+        const quiet = await quietContext.newPage();
+        watchConsole(quiet);
+        await quiet.goto(`${quietOrigin}${SCREEN}/boards/render-feedback`);
+        await quiet.waitForSelector('[data-testid=grid] .tile');
+        equal(await quiet.locator('[data-testid=chat]').count(), 0, 'no chat panel');
+        equal(await quiet.locator('u-prompt').count(), 0, 'no prompt');
+        equal(await quiet.locator('[data-testid=banner-invalid]').count(), 0, 'nothing is reported broken');
+        check(await quiet.locator('header [data-act=history]').count() > 0 && await quiet.locator('header [data-act=publish]').count() > 0, 'the rest of the screen is the same');
+        await stateShot(quiet, 'assistant-off');
+        await quietContext.close();
+      } finally {
+        quietHost.kill();
+        await sleep(500);
+        rmSync(quietWork, { recursive: true, force: true });
+      }
+    });
+
     await step('the files the page loads are the library\'s: hashed, kept for good, with the notices beside them', async () => {
       const html = await (await fetch(`${origin}${SCREEN}`, { headers: { 'X-Sample-User': 'analyst' } })).text();
       const files = [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+)"/g)].map(m => m[1]);
@@ -1049,6 +1100,7 @@ async function main() {
     });
 
     console.log(`E2E-OK steps=${steps}`);
+    console.log(`states:\n${states.map(path => `  ${path}`).join('\n')}`);
   } finally {
     await browser.close().catch(() => {});
     hostProcess.kill();

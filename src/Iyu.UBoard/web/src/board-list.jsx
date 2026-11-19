@@ -92,7 +92,7 @@ export function BoardList({ access, api, endpoints }) {
           <div className="tile empty" style={{ minHeight: 300 }} data-testid="no-boards">
             <div>
               <h2 style={{ fontSize: 17 }}>No boards yet</h2>
-              <p style={{ margin: '0 0 12px', color: 'var(--muted)' }}>{create ? 'Make the first one.' : 'Nothing has been shared with you yet.'}</p>
+              <p style={{ margin: '0 0 12px', color: 'var(--muted)' }}>{create ? (access.assistant ? 'Start with a sentence — “monthly revenue with KPIs”.' : 'Make the first one.') : 'Nothing has been shared with you yet.'}</p>
               {create ? <button className="btn primary" data-act="newboard" onClick={() => setDialog({ kind: 'new' })}>＋ New board</button> : null}
             </div>
           </div>
