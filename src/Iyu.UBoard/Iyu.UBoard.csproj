@@ -7,11 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Registration, options and the start-up check need the dependency-injection, options and hosting abstractions, the same
-         family and version the other host-neutral modules take. Nothing here reaches for the web stack or a data-access library. -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+    <!-- The model proxy is an ASP.NET Core route and uses its HttpClient factory, as the Lowline endpoints do. The shared framework also
+         brings the dependency-injection, options and hosting abstractions that registration and the start-up check use. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

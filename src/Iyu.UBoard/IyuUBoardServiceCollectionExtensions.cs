@@ -11,6 +11,18 @@ public sealed class IyuUBoardOptions
     /// <summary>Whether the board store is on.</summary>
     public bool BoardsEnabled { get; private set; }
 
+    /// <summary>Whether the model proxy is on.</summary>
+    public bool ModelEnabled { get; private set; }
+
+    /// <summary>The model service the proxy talks to; meaningful when <see cref="ModelEnabled"/> is true.</summary>
+    public IyuUBoardModelOptions ModelSettings { get; } = new();
+
+    /// <summary>
+    /// The authorization policy the routes require, by name. When it is left empty the routes require a signed-in caller; there
+    /// is no anonymous mode.
+    /// </summary>
+    public string? Policy { get; set; }
+
     /// <summary>
     /// Turns on the board store: <see cref="IyuBoardService"/> over the host's <see cref="IBoardStore"/>, for a host that keeps the
     /// boards of an embedded viewer and editor itself.
@@ -20,14 +32,45 @@ public sealed class IyuUBoardOptions
         BoardsEnabled = true;
         return this;
     }
+
+    /// <summary>
+    /// Turns on the model proxy: <c>POST {prefix}/model/chat/completions</c>, which sends an assistant's request to the model
+    /// service named by <paramref name="configure"/> with the server's key. See <see cref="IyuUBoardModelOptions"/>.
+    /// </summary>
+    public IyuUBoardOptions Model(Action<IyuUBoardModelOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        ModelEnabled = true;
+        configure(ModelSettings);
+        return this;
+    }
 }
 
 internal sealed class IyuUBoardOptionsValidator : IValidateOptions<IyuUBoardOptions>
 {
-    public ValidateOptionsResult Validate(string? name, IyuUBoardOptions options) =>
-        options.BoardsEnabled
+    public ValidateOptionsResult Validate(string? name, IyuUBoardOptions options)
+    {
+        if (!options.BoardsEnabled && !options.ModelEnabled)
+            return ValidateOptionsResult.Fail("turn on at least one part of the layer, for example IyuUBoardOptions.Boards");
+
+        if (!options.ModelEnabled) return ValidateOptionsResult.Success;
+
+        // Name what is missing, never a value: a key that is wrong must not reach a log.
+        var model = options.ModelSettings;
+        var missing = new List<string>();
+        if (model.BaseUrl is null || !model.BaseUrl.IsAbsoluteUri || model.BaseUrl.Scheme is not ("http" or "https"))
+            missing.Add("BaseUrl (an absolute http or https address)");
+        if (string.IsNullOrWhiteSpace(model.ApiKey)) missing.Add("ApiKey");
+        if (string.IsNullOrWhiteSpace(model.ModelName)) missing.Add("ModelName");
+        if (model.MaxRequestBytes <= 0) missing.Add("MaxRequestBytes (greater than zero)");
+        if (model.MaxOutputTokens <= 0) missing.Add("MaxOutputTokens (greater than zero)");
+        if (model.OutputLimitField is not ("max_tokens" or "max_completion_tokens")) missing.Add("OutputLimitField (max_tokens or max_completion_tokens)");
+        if (model.Timeout <= TimeSpan.Zero) missing.Add("Timeout (greater than zero)");
+
+        return missing.Count == 0
             ? ValidateOptionsResult.Success
-            : ValidateOptionsResult.Fail("turn on at least one part of the layer, for example IyuUBoardOptions.Boards");
+            : ValidateOptionsResult.Fail("IyuUBoardOptions.Model needs: " + string.Join(", ", missing));
+    }
 }
 
 /// <summary>Turns the board layer on for a host.</summary>
@@ -39,7 +82,7 @@ public static class IyuUBoardServiceCollectionExtensions
     /// message names what is missing, never a value.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="configure">Names the parts: <see cref="IyuUBoardOptions.Boards"/>.</param>
+    /// <param name="configure">Names the parts: <see cref="IyuUBoardOptions.Boards"/>, <see cref="IyuUBoardOptions.Model"/>.</param>
     /// <remarks>
     /// <see cref="IyuUBoardOptions.Boards"/> needs an <see cref="IBoardStore"/>. The Entity Framework adapter provides one over the
     /// application's own tables; a host that keeps boards some other way registers its own.
@@ -61,6 +104,13 @@ public static class IyuUBoardServiceCollectionExtensions
         {
             services.TryAddScoped<IyuBoardService>();
             services.AddHostedService<IyuUBoardPortsCheck>();
+        }
+
+        if (chosen.ModelEnabled)
+        {
+            // The host owns the handler (proxy, certificates, test doubles): it configures this named client like any other.
+            services.AddHttpClient(IyuUBoardEndpoints.ModelClientName, (provider, client) =>
+                client.Timeout = provider.GetRequiredService<IOptions<IyuUBoardOptions>>().Value.ModelSettings.Timeout);
         }
 
         return services;
