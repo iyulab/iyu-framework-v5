@@ -72,9 +72,13 @@ internal sealed class EFBoardModelCheck : IHostedService
                 return;
             }
 
-            var actual = mapped.FindPrimaryKey()?.Properties.Select(p => p.Name).ToArray();
-            if (actual is null || !actual.SequenceEqual(key))
-                problems.Add($"give {entity.Name} ({role}) the key ({string.Join(", ", key)}) in that order");
+            // What the store relies on is that the columns are unique, in that order — not that they are the primary key. A table
+            // keyed on a surrogate column of its own, with a unique key or index over the pair, holds the same fact: two saves on one
+            // revision cannot both be written. A surrogate's value is the database's or EF's to make; the store does not set it.
+            var unique = mapped.GetKeys().Select(k => k.Properties)
+                .Concat(mapped.GetIndexes().Where(i => i.IsUnique).Select(i => i.Properties));
+            if (!unique.Any(columns => columns.Select(p => p.Name).SequenceEqual(key)))
+                problems.Add($"give {entity.Name} ({role}) a primary key, unique key or unique index over ({string.Join(", ", key)}) in that order");
         }
     }
 

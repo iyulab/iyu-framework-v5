@@ -93,6 +93,78 @@ public class UBoardWrongKeyDb(DbContextOptions<UBoardWrongKeyDb> options) : DbCo
     }
 }
 
+/// <summary>A revision row keyed on a surrogate column of its own, with the (board, revision) pair unique — the shape a generated schema takes.</summary>
+public class UBoardSurrogateRevisionRow : IBoardRevisionRow
+{
+    public int Id { get; set; }
+
+    public string BoardId { get; set; } = "";
+
+    public int Revision { get; set; }
+
+    public string Document { get; set; } = "";
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public string CreatedBy { get; set; } = "";
+
+    /// <summary>A column of the application's own: nullable, so a row the store makes without it is still valid.</summary>
+    public string? ReadPermission { get; set; }
+}
+
+public class UBoardSurrogatePublicationRow : IBoardPublicationRow
+{
+    public int Id { get; set; }
+
+    public string BoardId { get; set; } = "";
+
+    public int Sequence { get; set; }
+
+    public int? Revision { get; set; }
+
+    public DateTimeOffset PublishedAt { get; set; }
+
+    public string PublishedBy { get; set; } = "";
+}
+
+/// <summary>A context whose revision and publication tables are keyed on a surrogate, the pair carried by a unique index.</summary>
+public class UBoardSurrogateKeyDb(DbContextOptions<UBoardSurrogateKeyDb> options) : DbContext(options)
+{
+    public DbSet<UBoardRow> Boards => Set<UBoardRow>();
+
+    public DbSet<UBoardSurrogateRevisionRow> Revisions => Set<UBoardSurrogateRevisionRow>();
+
+    public DbSet<UBoardSurrogatePublicationRow> Publications => Set<UBoardSurrogatePublicationRow>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UBoardRow>().HasKey(b => b.Id);
+        modelBuilder.Entity<UBoardSurrogateRevisionRow>().HasKey(r => r.Id);
+        modelBuilder.Entity<UBoardSurrogateRevisionRow>().HasIndex(r => new { r.BoardId, r.Revision }).IsUnique();
+        modelBuilder.Entity<UBoardSurrogatePublicationRow>().HasKey(p => p.Id);
+        modelBuilder.Entity<UBoardSurrogatePublicationRow>().HasIndex(p => new { p.BoardId, p.Sequence }).IsUnique();
+    }
+}
+
+/// <summary>Like <see cref="UBoardSurrogateKeyDb"/> but the pair is not unique, so nothing stops two saves on one revision.</summary>
+public class UBoardNonUniquePairDb(DbContextOptions<UBoardNonUniquePairDb> options) : DbContext(options)
+{
+    public DbSet<UBoardRow> Boards => Set<UBoardRow>();
+
+    public DbSet<UBoardSurrogateRevisionRow> Revisions => Set<UBoardSurrogateRevisionRow>();
+
+    public DbSet<UBoardSurrogatePublicationRow> Publications => Set<UBoardSurrogatePublicationRow>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UBoardRow>().HasKey(b => b.Id);
+        modelBuilder.Entity<UBoardSurrogateRevisionRow>().HasKey(r => r.Id);
+        modelBuilder.Entity<UBoardSurrogateRevisionRow>().HasIndex(r => new { r.BoardId, r.Revision });
+        modelBuilder.Entity<UBoardSurrogatePublicationRow>().HasKey(p => p.Id);
+        modelBuilder.Entity<UBoardSurrogatePublicationRow>().HasIndex(p => new { p.BoardId, p.Sequence }).IsUnique();
+    }
+}
+
 /// <summary>An execution strategy that claims to retry, as the ones for SQL Server and PostgreSQL do, so a user transaction must go through it.</summary>
 internal sealed class RetryingTestStrategy(ExecutionStrategyDependencies dependencies)
     : ExecutionStrategy(dependencies, 3, TimeSpan.Zero)
@@ -452,6 +524,78 @@ public abstract class EFBoardStoreContract : IDisposable
         Assert.Contains("UBoardRevisionRow", failure.Message);
         Assert.Contains("(BoardId, Revision)", failure.Message);
         Assert.DoesNotContain("UBoardPublicationRow", failure.Message);
+        await Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// The store's one demand on the application's tables is that the (board, revision) and (board, sequence) pairs are unique, in that
+/// order. A schema keyed on a surrogate with the pair as a unique index meets it, and the saves are decided as they are on the
+/// composite key.
+/// </summary>
+public sealed class EFBoardStoreSurrogateKeyTests : IDisposable
+{
+    private readonly string _file = Path.Combine(Path.GetTempPath(), $"iyu-uboard-{Guid.NewGuid():N}.db");
+
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools();
+        File.Delete(_file);
+    }
+
+    private ServiceProvider Start<TContext>()
+        where TContext : DbContext
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDbContext<TContext>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddIyuUBoard<TContext, UBoardRow, UBoardSurrogateRevisionRow, UBoardSurrogatePublicationRow>();
+        var provider = services.BuildServiceProvider(validateScopes: true);
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TContext>().Database.EnsureCreated();
+        return provider;
+    }
+
+    private static async Task<T> Board<T>(ServiceProvider provider, Func<IyuBoardService, Task<T>> work)
+    {
+        using var scope = provider.CreateScope();
+        return await work(scope.ServiceProvider.GetRequiredService<IyuBoardService>());
+    }
+
+    [Fact]
+    public async Task A_surrogate_key_with_the_pair_unique_starts_the_host_and_saves_as_on_the_composite_key()
+    {
+        using var provider = Start<UBoardSurrogateKeyDb>();
+        provider.GetServices<IHostedService>().ToList();   // the model check runs here and does not throw
+
+        await Board(provider, s => s.CreateAsync("plant", "Plant", """{"t":"a"}""", "ana"));
+        var saved = await Board(provider, s => s.SaveAsync("plant", """{"t":"b"}""", 1, "bo"));
+        var stale = await Board(provider, s => s.SaveAsync("plant", """{"t":"c"}""", 1, "cy"));
+        var published = await Board(provider, s => s.PublishAsync("plant", 2, "bo"));
+        var again = await Board(provider, s => s.WithdrawAsync("plant", "bo"));
+
+        Assert.True(saved.Succeeded);
+        Assert.Equal(BoardChangeStatus.Conflict, stale.Status);
+        Assert.Equal(2, (await Board(provider, s => s.ListRevisionsAsync("plant"))).Count);
+        Assert.NotNull(published);
+        Assert.NotNull(again);
+        Assert.Equal(2, (await Board(provider, s => s.ListPublicationsAsync("plant"))).Count);
+    }
+
+    [Fact]
+    public async Task A_pair_that_is_not_unique_stops_the_host_naming_the_table()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDbContext<UBoardNonUniquePairDb>(o => o.UseSqlite($"Data Source={_file}"));
+        services.AddIyuUBoard<UBoardNonUniquePairDb, UBoardRow, UBoardSurrogateRevisionRow, UBoardSurrogatePublicationRow>();
+        using var provider = services.BuildServiceProvider();
+
+        var failure = Assert.Throws<InvalidOperationException>(() => provider.GetServices<IHostedService>().ToList());
+
+        Assert.Contains("UBoardSurrogateRevisionRow", failure.Message);
+        Assert.Contains("(BoardId, Revision)", failure.Message);
+        Assert.DoesNotContain("UBoardSurrogatePublicationRow", failure.Message);
         await Task.CompletedTask;
     }
 }

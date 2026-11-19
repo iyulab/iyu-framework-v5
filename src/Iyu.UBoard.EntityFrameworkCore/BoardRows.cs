@@ -23,8 +23,10 @@ public interface IBoardRow
 }
 
 /// <summary>
-/// One revision of a board, as the application's own table holds it. The table needs a composite key over
-/// (<see cref="BoardId"/>, <see cref="Revision"/>), in that order: the key is what makes two saves on one revision unable to both succeed.
+/// One revision of a board, as the application's own table holds it. The table needs a unique key over
+/// (<see cref="BoardId"/>, <see cref="Revision"/>), in that order — the primary key, or an alternate key or unique index beside a
+/// surrogate primary key of the table's own (whose value the database or EF makes; the store does not set it). That uniqueness is what
+/// makes two saves on one revision unable to both succeed.
 /// </summary>
 public interface IBoardRevisionRow
 {
@@ -45,8 +47,8 @@ public interface IBoardRevisionRow
 }
 
 /// <summary>
-/// One line of a board's publication history, as the application's own table holds it. The table needs a composite key over
-/// (<see cref="BoardId"/>, <see cref="Sequence"/>), in that order.
+/// One line of a board's publication history, as the application's own table holds it. The table needs a unique key over
+/// (<see cref="BoardId"/>, <see cref="Sequence"/>), in that order — the primary key, or a unique key or index beside a surrogate one.
 /// </summary>
 public interface IBoardPublicationRow
 {
