@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Host-neutral board storage for embedding a board viewer and editor - boards as opaque JSON documents with an append-only revision history, optimistic saves, and a publication pointer with a history to fall back through; it depends on neither Entity Framework Core nor Iyu.Core.</Description>
+    <PackageTags>iyu;board;revisions;publication</PackageTags>
+    <RootNamespace>Iyu.UBoard</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Registration, options and the start-up check need the dependency-injection, options and hosting abstractions, the same
+         family and version the other host-neutral modules take. Nothing here reaches for the web stack or a data-access library. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
+</Project>

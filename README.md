@@ -8,7 +8,7 @@ chat, scheduled reports, office-document template rendering, and document-to-PDF
 conversion.
 
 Targets .NET 10. The projects ship as separate NuGet packages and share one version, except
-`Iyu.Lowline` and `Iyu.Notifications`, which do not depend on the rest and are each versioned on their own line.
+`Iyu.Lowline`, `Iyu.Notifications` and `Iyu.UBoard`, which do not depend on the rest and are each versioned on their own line.
 
 ## Role in the stack
 
@@ -116,6 +116,7 @@ The C# half is what the rest of this page is about: «Minimum consumer» below w
 | `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
 | `Iyu.Notifications` | `AddIyuNotifications` — host-neutral notification routing: events declared in code, recipients resolved from users and roles (and from kinds the application resolves itself), an inbox with read and handled state, and a record of events nobody could be reached for; assumes no storage technology (see «Telling people what happened») |
 | `Iyu.Notifications.EntityFrameworkCore` | `AddIyuNotifications<TContext, TInbox, TUnreached, TTarget>` — the inbox, the unreached record and the administrators' target table over the application's own Entity Framework tables. Reference it only if they live in your `DbContext` |
+| `Iyu.UBoard` | `AddIyuUBoard(o => o.Boards())` — host-neutral board storage for embedding a board viewer and editor: boards as opaque JSON documents, an append-only revision history, saves that name the revision they worked from, and a publication pointer with a history to fall back through; assumes no storage technology (see «Keeping boards and their history») |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
@@ -2280,6 +2281,41 @@ transaction you began on the same context an item is committed or rolled back wi
 - **SQLite** cannot order or compare a `DateTimeOffset` column in SQL, which the inbox listing and the clean-up do: map those
   columns as a number (`DateTimeOffsetToBinaryConverter`) in a context that runs on SQLite. SQL Server and PostgreSQL need nothing.
 
+## Keeping boards and their history (`Iyu.UBoard`)
+
+*Implemented and tested, not yet published: the two packages below are built from this repository and do not ship until their
+first release.*
+
+An application that embeds a board viewer and editor has to keep the boards somewhere: the document as it stands, every earlier
+revision so an edit can be undone, which revision readers see, and a way to fall back when a published revision turns out to be
+one the viewer refuses. `Iyu.UBoard` owns that bookkeeping and never looks inside a document; `Iyu.UBoard.EntityFrameworkCore`
+keeps it in tables of your own `DbContext`.
+
+```csharp
+builder.Services.AddIyuUBoard<AppDbContext, BoardRow, BoardRevisionRow, BoardPublicationRow>();
+
+// in a request:
+var made = await boards.CreateAsync("plant", "Plant overview", firstDocumentJson, user);
+var saved = await boards.SaveAsync("plant", editedJson, expectedRevision: 1, user);
+if (saved.Status == BoardChangeStatus.Conflict) { /* saved.Board is the board as it now stands: reload and try again */ }
+await boards.PublishAsync("plant", revision: 2, user);
+```
+
+The three row types implement `IBoardRow`, `IBoardRevisionRow` and `IBoardPublicationRow`; the tables and their migrations are
+yours. The revision table's key is (`BoardId`, `Revision`) and the publication table's is (`BoardId`, `Sequence`), in that order.
+
+- **A save names the revision it worked from.** A save made on a revision the board has moved past changes nothing and answers
+  `Conflict` with the board as it stands. The database decides — of two saves made together on one revision exactly one wins.
+- **Revisions only accumulate.** Rolling a publication back is publishing an older revision: the history gains a line and the
+  board's pointer moves, and no revision is touched. `WithdrawAsync` adds a line that names no revision.
+- **A lower revision number is not necessarily a published one.** `FindLastAcceptedPublicationAsync` walks the publication
+  history, newest first, for the newest earlier publication that your function accepts, so a draft is never mistaken for a fallback.
+- **Documents are opaque.** Only that the text is JSON is checked; what a valid board is belongs to the board language.
+- **The host does not start** if `AddIyuUBoard` names no part, if the store is not registered, or if your context does not map the
+  three tables with those keys. Nothing is registered until you call it.
+- **Transactions.** A call joins the transaction you began on the same context; without one it begins its own through the context's
+  execution strategy. On a context with a retrying strategy, begin your own transaction through the strategy as well.
+
 ## Previewing a model change
 
 Rebuilding after a model change overwrites the generated files, and applying them changes the
@@ -2318,7 +2354,7 @@ actually touched — are in
 [CHANGELOG.md](https://github.com/iyulab/iyu-framework-v5/blob/main/CHANGELOG.md), a copy
 of which ships inside every package.
 
-All `Iyu.*` packages except `Iyu.Lowline` and `Iyu.Notifications` (each on its own line, with its changelog shipped inside it) share one version, so a new number does not by itself mean the
+All `Iyu.*` packages except `Iyu.Lowline`, `Iyu.Notifications` and `Iyu.UBoard` (each on its own line, with its changelog shipped inside it) share one version, so a new number does not by itself mean the
 code you depend on moved. Each release entry opens with **Packages affected**; if yours is
 not listed, the upgrade is a version bump and nothing else. When skipping releases, read
 every entry between your current version and the target — each one states its own breaking
