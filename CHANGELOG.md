@@ -60,7 +60,9 @@ onward; earlier entries state the same consequence in prose where it applies.
   to page a whole set to find rows can now ask: `where` (`{ rank: { eq: 2 } }`, with `and` / `or`) and `order` (`[{ rank: DESC }]`)
   on every query field, as OData's `$filter` and `$orderby` do. A sorted request is a stable slice — the key is the last
   criterion — and `totalCount` counts what the condition lets through. The input types name the columns the output type shows
-  and no others (nothing `Exclude`d or withheld by default), and only plain-valued columns, not navigations. A column's read
+  and no others (nothing `Exclude`d or withheld by default), compared by plain value; a condition or an ordering can also cross a
+  single reference to another served model (`where: { customer: { name: … } }`), though not a collection. Crossing takes the target
+  model's read policy, then the policy of each column named in it, and the request's reach records the model. A column's read
   policy (`AuthorizeProperty`) holds for naming it in a condition or an ordering, by any way of writing the request — inline, in a
   variable, in `and` / `or`, in a fragment — and a caller who fails it is refused before a query runs. A condition is bounded
   (`MaxConditionDepth` 10, `MaxConditionNodes` 200, counted on the value sent). Nothing changes for a host that does not turn it on.

@@ -128,26 +128,55 @@ public sealed class IyuGraphQLSchemaBuilder
 
     private async ValueTask RefuseUnreadableConditionsAsync<TRead>(HotChocolate.Resolvers.IMiddlewareContext context)
     {
-        var named = new HashSet<string>(StringComparer.Ordinal);
+        var columns = new HashSet<(Type Model, string Column)>();
+        var entered = new HashSet<Type>();
         foreach (var argument in new[] { "where", "order" })
         {
-            named.UnionWith(IyuGraphQLQueryArguments.NamedColumns(context, argument, MaxConditionDepth, MaxConditionNodes, out var refusal));
+            var reads = IyuGraphQLQueryArguments.Read(context, argument, typeof(TRead), MaxConditionDepth, MaxConditionNodes, out var refusal);
             if (refusal is not null)
                 throw new HotChocolate.GraphQLException(HotChocolate.ErrorBuilder.New()
                     .SetMessage(refusal).SetCode("IYU_CONDITION_REFUSED").SetPath(context.Path).Build());
+            columns.UnionWith(reads.Columns);
+            entered.UnionWith(reads.Entered);
         }
 
-        foreach (var column in named)
+        // A condition that crosses into another model reads that model, so the request has reached it - recorded before the
+        // checks, as the rest of the reach is, so a refused request carries it too.
+        RecordCrossing(context, entered);
+
+        // Crossing into a model takes that model's own read policy, as selecting into it does.
+        foreach (var model in entered)
         {
-            // Naming a column in a condition or an ordering reads it, a bit at a time: it takes the column's own read policy.
-            if (!_propertyPolicies.TryGetValue((typeof(TRead), column), out var policy)) continue;
-            var allowed = await IyuGraphQLPolicyAuthorizationHandler
-                .EvaluateAsync(context.Services, new HotChocolate.Authorization.AuthorizeDirective(policy)).ConfigureAwait(false);
-            if (allowed != HotChocolate.Authorization.AuthorizeResult.Allowed)
-                throw new HotChocolate.GraphQLException(HotChocolate.ErrorBuilder.New()
-                    .SetMessage("The current user is not authorized to access this resource.")
-                    .SetCode("AUTH_NOT_AUTHORIZED").SetPath(context.Path).Build());
+            if (QueryNameOf(model) is not { } query || _authorizePolicies[query] is not { } entityPolicy) continue;
+            await RequireAsync(context, entityPolicy).ConfigureAwait(false);
         }
+
+        // Naming a column in a condition or an ordering reads it, a bit at a time: it takes the column's own read policy.
+        foreach (var column in columns)
+        {
+            if (!_propertyPolicies.TryGetValue(column, out var policy)) continue;
+            await RequireAsync(context, policy).ConfigureAwait(false);
+        }
+    }
+
+    private static async ValueTask RequireAsync(HotChocolate.Resolvers.IMiddlewareContext context, string policy)
+    {
+        var allowed = await IyuGraphQLPolicyAuthorizationHandler
+            .EvaluateAsync(context.Services, new HotChocolate.Authorization.AuthorizeDirective(policy)).ConfigureAwait(false);
+        if (allowed != HotChocolate.Authorization.AuthorizeResult.Allowed)
+            throw new HotChocolate.GraphQLException(HotChocolate.ErrorBuilder.New()
+                .SetMessage("The current user is not authorized to access this resource.")
+                .SetCode("AUTH_NOT_AUTHORIZED").SetPath(context.Path).Build());
+    }
+
+    private void RecordCrossing(HotChocolate.Resolvers.IMiddlewareContext context, IReadOnlyCollection<Type> entered)
+    {
+        if (!ReachIsComputed || entered.Count == 0) return;
+        var http = context.Services.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()?.HttpContext;
+        if (http?.Features.Get<IIyuGraphQLReachFeature>() is not { } earlier) return;
+        var crossed = entered.Select(QueryNameOf).Where(q => q is not null).Select(q => q!);
+        var reached = earlier.ReachedQueries.Union(crossed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        http.Features.Set<IIyuGraphQLReachFeature>(new IyuGraphQLReachFeature(earlier.AddressedQueries, reached));
     }
 
     private readonly List<(Type Type, PropertyInfo[] Properties)> _excluded = new();
@@ -319,12 +348,12 @@ public sealed class IyuGraphQLSchemaBuilder
                 .UseProjection();
             if (WhereAndOrder)
             {
-                // The input types name the columns the output type shows and no others (see IyuGraphQLQueryArguments).
-                var columns = IyuGraphQLQueryArguments.Columns(typeof(TRead), IsWithheld);
+                // The input types are registered once per served model (see RegisterInputTypes) and name the columns and
+                // references the output type shows and no others.
                 // Declared outer to inner: the sort the caller names is applied by the innermost step, then the key is
                 // appended as the last criterion — a page is a slice of an ordering, and it is only the same slice
                 // on the next request if the ordering is total.
-                field.UseFiltering<TRead>(d => IyuGraphQLQueryArguments.ConfigureFilter(d, columns))
+                field.UseFiltering<TRead>()
                      .Use(next => async context =>
                      {
                          await next(context).ConfigureAwait(false);
@@ -336,7 +365,7 @@ public sealed class IyuGraphQLSchemaBuilder
                              throw new InvalidOperationException(
                                  $"Query field '{context.Selection.Field.Name}' produced a {context.Result.GetType().Name} where a query was expected, so its key cannot be appended to the ordering.");
                      })
-                     .UseSorting<TRead>(d => IyuGraphQLQueryArguments.ConfigureSort(d, columns))
+                     .UseSorting<TRead>()
                      .Resolve(ctx => ctx.Service<IyuDbContext>().Set<TRead>().AsNoTracking());
             }
             else field.Resolve(ResolveQueryable<TRead>);
@@ -393,8 +422,25 @@ public sealed class IyuGraphQLSchemaBuilder
             if (typeof(TRead).GetProperty(nameof(IKeyed.Id)) is { } id) d.Field(id).IsProjected(true);
         }));
 
+        _inputTypes.Add(executorBuilder =>
+        {
+            // One filter and one sort type per served model, built when the schema is: a condition that crosses a reference
+            // lands on the target's own types, so every model's types follow the same exposure rules as its output type.
+            executorBuilder.AddType(new HotChocolate.Data.Filters.FilterInputType<TRead>(d =>
+                IyuGraphQLQueryArguments.ConfigureFilter(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)))));
+            executorBuilder.AddType(new HotChocolate.Data.Sorting.SortInputType<TRead>(d =>
+                IyuGraphQLQueryArguments.ConfigureSort(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)))));
+        });
+
         ApplyPropertyDescriptions<TRead>();
     }
+
+    private readonly List<Action<IRequestExecutorBuilder>> _inputTypes = new();
+
+    private IReadOnlyList<PropertyInfo> ColumnsOf(Type type) => IyuGraphQLQueryArguments.Columns(type, IsWithheld);
+
+    private IReadOnlyList<PropertyInfo> NavigationsOf(Type type)
+        => IyuGraphQLQueryArguments.Navigations(type, t => _exposedTypes.ContainsKey(t), IsWithheld);
 
     /// <summary>
     /// A collection navigation is a connection paged like the target's own query field. Projected into the parent's
@@ -747,6 +793,7 @@ public sealed class IyuGraphQLSchemaBuilder
             foreach (var build in fieldBuilders) build(descriptor);
         });
         foreach (var authorize in _typeAuthorizers.ToArray()) authorize(executorBuilder);
+        if (WhereAndOrder) foreach (var register in _inputTypes.ToArray()) register(executorBuilder);
         foreach (var (type, properties) in _exposures)
         {
             EnsureExposed(type);

@@ -15,7 +15,9 @@ namespace Iyu.Server.GraphQL;
 /// <para>
 /// <b>Reached</b> is selecting, not returning: a field named in the document counts whether or not a variable-driven
 /// <c>@skip</c>/<c>@include</c> later drops it. The list may name an entity a request did not finally read, never leave
-/// out one it did. Arguments are not followed — what a filter or order argument reaches is not part of this answer.
+/// out one it did. The arguments of a field are not read from the document, but with <c>where</c>/<c>order</c> turned on a
+/// condition that crosses a reference into another served model adds that model once the field runs - recorded before the
+/// read policies are checked, so a refused request carries it too.
 /// </para>
 /// <para>
 /// Names are the query names the entities are registered under (<see cref="IyuGraphQLSchemaBuilder.AddEntityPair{TRead,TWrite}"/>),

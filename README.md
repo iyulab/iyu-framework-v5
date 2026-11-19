@@ -1591,7 +1591,11 @@ and an `order` argument (`[{ rank: DESC }]`), the GraphQL counterparts of OData'
 schema is the one it always was, and there is no per-field switch. A request that sorts is still a stable slice: the key is
 the last criterion, so a page is the same rows on the next request and `after` neither repeats nor skips one. `totalCount` counts
 the rows the condition lets through. The input types name the columns the output type shows — a column removed with `Exclude` or
-withheld by default is not in them, and only plain values (text, numbers, dates, enums, ids) can be compared, not navigations.
+withheld by default is not in them, and a column is compared by its plain value (text, numbers, dates, enums, ids). A condition can
+also cross a single reference to another served model — `where: { customer: { name: { eq: "x" } } }`, `order: { customer: { name: ASC } }` —
+but not a collection, and not a reference to a model no query field serves. Crossing reads the model it crosses into: that model's read
+policy (`Authorize`) applies to a caller who names it, then the policy of every column named inside it, and a request that crosses is
+recorded as having reached that model even when it selects nothing from it.
 
 A column in a condition or an ordering is a column read, a bit at a time, so it takes the column's own read policy
 (`AuthorizeProperty`): a caller who does not satisfy it is refused with `AUTH_NOT_AUTHORIZED` **before any query runs** — whether the
