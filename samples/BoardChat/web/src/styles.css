@@ -58,6 +58,13 @@ code,.mono{font-family:ui-monospace,"Cascadia Mono",Menlo,Consolas,monospace;fon
 .th .tt{font-weight:620}.th .ts{color:var(--faint);font-size:12.5px}
 .th .pill{margin-left:auto}
 .tile .corner{position:absolute;top:12px;right:14px;z-index:1}
+.tile.pointable{cursor:pointer}
+.tile.pointable:hover{border-color:var(--c2)}
+.tile.selected{box-shadow:0 0 0 3px var(--c2)}
+.pointing{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:5px 8px 5px 10px;border-radius:10px;background:var(--surface2);border:1px solid var(--c2);font-size:12.5px;color:var(--muted)}
+.pointing b{color:var(--ink);font-weight:620}
+.pointing button{margin-left:auto;border:0;background:none;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:0 4px}
+.m.u .on{display:block;margin-top:3px;font-size:11.5px;opacity:.85}
 .vars{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:14px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
 .vars .var{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
 .vars select{border:1px solid var(--line);border-radius:8px;background:var(--surface2);color:var(--ink);padding:3px 8px;font:inherit}

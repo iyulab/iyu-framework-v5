@@ -190,6 +190,11 @@ const VARIABLE_FILTER = [
   ] }]),
   say('The status is now one board variable: pick it above the board and Revenue by region is asked again for that status.'),
 ];
+// The person points at a tile and says «this»: the model gets the edit context and changes that part.
+const POINTED = [
+  calls(['patch_board', { patch: [{ op: 'replace', path: '/parts/rev/as', value: 'chart.line' }] }]),
+  say('Changed the monthly revenue chart to a line chart.'),
+];
 const SKIP_OPTIONS = Array.from({ length: 13 }, (_, n) => String(n * 50));
 const VARIABLE_PAGING = [
   calls(['patch_board', { patch: [
@@ -534,6 +539,8 @@ async function main() {
       const page1 = await firstRow();
       await page.selectOption('select[data-var=skip]', '50');
       await page.waitForFunction(() => document.querySelector('.tile[data-id=orders] [data-testid=page-note]')?.textContent.includes('Showing 51–100 of 640'));
+      // The page note and the rows are drawn from the same answer, but not in the same frame: wait for the rows to change.
+      await page.waitForFunction(first => document.querySelector('.tile[data-id=orders] tbody tr')?.textContent !== first, page1);
       const page2 = await firstRow();
       check(page1 !== page2, 'the second page starts with another row');
       const reads = odata.map(url => decodeURIComponent(url)).filter(url => url.includes('$skip='));
@@ -544,12 +551,37 @@ async function main() {
       check((await note()).includes('Showing 51–100 of 640'), await note());
     });
 
+    // 9c ------------------------------------------------------------------------------------------------- pointing
+    await step('pointing: a click selects a tile, the chip says what, and the model gets the edit context with the message', async () => {
+      model.load(POINTED);
+      await page.click('.tile[data-id=rev]');
+      equal(await page.getAttribute('.tile[data-id=rev]', 'data-selected'), 'true', 'the tile is selected');
+      const chip = await page.textContent('[data-testid=selection-chip]');
+      check(chip.includes('Pointing at') && chip.includes('Monthly revenue'), chip);
+      await shot(page, 'pointing');
+      const before = model.requests.length;
+      await say_('Make this one a line chart.');
+      const sent = model.requests.slice(before).flatMap(r => r.body.messages).find(m => m.role === 'user' && m.content.startsWith('Make this one a line chart.'));
+      check(sent, 'the message reached the model');
+      check(sent.content.includes('<edit-context>') && sent.content.includes('"id":"rev"'), 'the edit context names the selected part');
+      const context = JSON.parse(sent.content.slice(sent.content.indexOf('<edit-context>') + 15, sent.content.lastIndexOf('</edit-context>')));
+      equal(context.selection.length, 1, 'one part selected');
+      check(context.neighbours.some(n => n.id === 'region') && context.neighbours.every(n => n.id !== 'rev'), 'the neighbours are named, the selection is not among them');
+      check(context.reads.month && !context.reads.region, 'the read the part uses is carried, the neighbours reads are not');
+      check(context.untrusted.rev?.title?.includes('Monthly revenue'), 'the title travels as data');
+      equal(await hostRevision(), 10, 'host at r10');
+      equal((await api('')).body.document.parts.rev.as, 'chart.line', 'the pointed part changed');
+      check((await page.locator('[data-role=user]').last().locator('[data-testid=user-on]').textContent()).includes('Monthly revenue'), 'the message says what it was about');
+      equal(await page.locator('[data-testid=selection-chip]').count(), 0, 'pointing is cleared once the message is sent');
+      equal(await page.locator('.tile[data-selected=true]').count(), 0, 'no tile stays selected');
+    });
+
     // 10 ------------------------------------------------------------------------------------------------- history
-    await step('history drawer: revisions r1…r9 with who saved them, compare shows what a revision changed', async () => {
+    await step('history drawer: revisions r1…r10 with who saved them, compare shows what a revision changed', async () => {
       await page.click('header [data-act=history]');
       await page.waitForSelector('[data-testid=drawer]');
-      equal(await page.locator('[data-testid=drawer] .dr').count(), 9, 'nine revisions');
-      check((await page.textContent('[data-testid=drawer] .dr[data-rev="9"]')).includes('draft'), 'r9 is the draft');
+      equal(await page.locator('[data-testid=drawer] .dr').count(), 10, 'ten revisions');
+      check((await page.textContent('[data-testid=drawer] .dr[data-rev="10"]')).includes('draft'), 'r10 is the draft');
       await page.click('[data-testid=drawer] .dr[data-rev="2"] [data-act=compare]');
       const text = await page.textContent('[data-testid=compare]');
       check(text.includes('rev (edited)') && text.includes('top (new)') && text.includes('region (new)'), text);
@@ -574,7 +606,7 @@ async function main() {
       equal((await api('/published')).body.revision, 2, 'rolled back to r2');
       const history = (await api('/publications')).body;
       equal(history.length, 3, 'the host kept three publication events');
-      check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r2 · you are editing r9'), await page.textContent('[data-testid=readers-note]'));
+      check((await page.textContent('[data-testid=readers-note]')).includes('Readers see r2 · you are editing r10'), await page.textContent('[data-testid=readers-note]'));
     });
 
     // 11 ------------------------------------------------------------------------------------------------- reader

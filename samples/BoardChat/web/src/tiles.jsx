@@ -71,7 +71,7 @@ export function tileBoard(document, id) {
   };
 }
 
-function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count, rows, askedPath, adapters, variables, flat }) {
+function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count, rows, askedPath, adapters, variables, flat, selected, onSelect }) {
   const hasSkip = /[?&]\$skip=/.test(askedPath ?? '');
   const stable = useMemo(() => {
     const { _title, ...clean } = board;
@@ -82,7 +82,7 @@ function Tile({ id, span, part, board, mark, revision, loading, emptyNote, count
   const isLabel = part.as === 'label';
   const isStat = part.as === 'stat';
   return (
-    <section className={`tile ${edited ? 'edited' : ''}`} style={{ gridColumn: `span ${span}` }} data-id={id} data-kind={part.as} data-mark={mark ?? ''} data-loading={loading ? 'true' : 'false'}>
+    <section className={`tile ${edited ? 'edited' : ''} ${selected ? 'selected' : ''} ${onSelect ? 'pointable' : ''}`} data-selected={selected ? 'true' : undefined} tabIndex={onSelect ? 0 : undefined} role={onSelect ? 'button' : undefined} aria-pressed={onSelect ? Boolean(selected) : undefined} onClick={onSelect ? () => onSelect(id) : undefined} onKeyDown={onSelect ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(id); } } : undefined} style={{ gridColumn: `span ${span}` }} data-id={id} data-kind={part.as} data-mark={mark ?? ''} data-loading={loading ? 'true' : 'false'}>
       {/* A stat draws its caption itself (the part's title, see tile-data.js), so its tile has no header row — only the mark. */}
       {!isLabel && !isStat && (
         <div className="th">
@@ -127,7 +127,7 @@ function VariableBar({ variables, values, onChoose }) {
   );
 }
 
-export function Tiles({ document, adapters, changed = {}, revision, loadIds = [], answers = {}, variables, flat }) {
+export function Tiles({ document, adapters, changed = {}, revision, loadIds = [], answers = {}, variables, flat, selected = [], onSelect }) {
   const [chosen, setChosen] = useState({});
   const defaults = useMemo(() => variableDefaults(document?.variables), [JSON.stringify(document?.variables)]); // eslint-disable-line react-hooks/exhaustive-deps
   // A choice the board no longer offers (its options changed) falls back to the default.
@@ -164,6 +164,8 @@ export function Tiles({ document, adapters, changed = {}, revision, loadIds = []
               adapters={adapters}
               variables={values}
               flat={flat}
+              selected={selected.includes(id)}
+              onSelect={onSelect}
             />
           );
         })}

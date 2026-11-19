@@ -56,7 +56,7 @@ function Step({ step }) {
   );
 }
 
-function Chat({ thread, revision, busy, onSend, onChip, text, setText }) {
+function Chat({ thread, revision, busy, onSend, onChip, text, setText, pointing = [], onClearPointing }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -71,7 +71,7 @@ function Chat({ thread, revision, busy, onSend, onChip, text, setText }) {
       </div>
       <div className="msgs" id="msgs" ref={ref}>
         {thread.map((m, i) => {
-          if (m.role === 'u') return <div key={i} className="m u" data-role="user">{m.text}</div>;
+          if (m.role === 'u') return <div key={i} className="m u" data-role="user">{m.text}{m.on?.length ? <span className="on" data-testid="user-on">on {m.on.map(o => o.title ?? o.id).join(', ')}</span> : null}</div>;
           const last = i === thread.length - 1;
           return (
             <div key={i} className="m a" data-role="assistant">
@@ -89,8 +89,11 @@ function Chat({ thread, revision, busy, onSend, onChip, text, setText }) {
       </div>
       <div className="compose">
         <div className="ctx"><span>📌</span>The open board is sent with every message<span className="grow" /><span data-testid="ctx-rev">{revision ? `r${revision}` : ''}</span></div>
+        {pointing.length ? (
+          <div className="pointing" data-testid="selection-chip"><span>Pointing at</span><b>{pointing.map(p => p.title ?? p.id).join(', ')}</b><button aria-label="Clear selection" data-act="clear-selection" onClick={onClearPointing}>×</button></div>
+        ) : null}
         <div className="box">
-          <textarea id="inp" rows={1} placeholder="Ask for a chart, a filter, a change…" aria-label="Message the assistant" value={text} disabled={busy}
+          <textarea id="inp" rows={1} placeholder={pointing.length ? 'Say what to change about this…' : 'Ask for a chart, a filter, a change…'} aria-label="Message the assistant" value={text} disabled={busy}
             onChange={event => setText(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSend(); } }} />
           <button className="btn primary" data-act="send" aria-label="Send" disabled={busy || !text.trim()} onClick={onSend}>Send</button>
@@ -193,12 +196,15 @@ export function App() {
   const [boot, setBoot] = useState(false);
   const [catalog, setCatalog] = useState(null);
   const [live, setLive] = useState({ revision: 0, document: newBoard(BOARD.name).document });
+  const liveRef = useRef(live);
+  liveRef.current = live;
   const [changed, setChanged] = useState({});
   const [loadIds, setLoadIds] = useState([]);
   const [answers, setAnswers] = useState({});
   const [thread, setThread] = useState([{ role: 'hello', text: 'Hi — I can build a board from your data. Ask for what you want to see, and refine it as you go.', chips: ['Monthly revenue with KPIs', 'Top products this year', 'Customers by signup month', 'Orders needing attention'] }]);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
+  const [selected, setSelected] = useState([]);
   const [view, setView] = useState('editor');
   const [drawer, setDrawer] = useState(false);
   const [modal, setModal] = useState(null);
@@ -225,7 +231,8 @@ export function App() {
     if (event.type === 'turn-start') {
       setBusy(true);
       setBanner(null);
-      setThread(t => [...t.map(m => ({ ...m, chips: [] })), { role: 'u', text: event.text }, { role: 'a', steps: [], text: null, chips: [] }]);
+      const on = (event.selection ?? []).map(id => ({ id, title: liveRef.current?.document?.parts?.[id]?.title }));
+      setThread(t => [...t.map(m => ({ ...m, chips: [] })), { role: 'u', text: event.text, on }, { role: 'a', steps: [], text: null, chips: [] }]);
     } else if (event.type === 'step') {
       setThread(t => {
         const next = [...t];
@@ -267,7 +274,9 @@ export function App() {
   const send = useCallback(async message => {
     if (!message.trim() || !assistant.current) return;
     setText('');
-    const result = await assistant.current.send(message);
+    const selection = selected;
+    setSelected([]);
+    const result = await assistant.current.send(message, { selection });
     if (result.revision.to !== result.revision.from) successes.current += 1;
     setLoadIds([]);
     setThread(t => {
@@ -278,7 +287,7 @@ export function App() {
     });
     setBusy(false);
     await refresh();
-  }, [refresh]);
+  }, [refresh, selected]);
 
   const onChip = useCallback(async chip => {
     if (chip === 'Cancel') {
@@ -391,7 +400,7 @@ export function App() {
                     <button className="btn primary" data-send="0" disabled={busy} onClick={() => onChip('Monthly revenue with KPIs')}>Try: monthly revenue with KPIs</button>
                   </div></div>
                 ) : (
-                  <Tiles document={live.document} adapters={adaptersRef.current} answers={answers} changed={changed} revision={live.revision} loadIds={loadIds} />
+                  <Tiles document={live.document} adapters={adaptersRef.current} answers={answers} changed={changed} revision={live.revision} loadIds={loadIds} selected={selected} onSelect={id => !busy && setSelected(current => (current.includes(id) ? [] : [id]))} />
                 )}
                 {drawer ? <History revisions={revisions} current={live.revision} published={published} onClose={() => setDrawer(false)} onPublish={setModal} onRestore={doRestore} onCompare={doCompare} compare={compare} /> : null}
               </div>
@@ -405,7 +414,7 @@ export function App() {
               </div>
             </div>
           )}
-          {reader ? null : <Chat thread={thread} revision={live.revision} busy={busy} onSend={() => send(text)} onChip={onChip} text={text} setText={setText} />}
+          {reader ? null : <Chat thread={thread} revision={live.revision} busy={busy} onSend={() => send(text)} onChip={onChip} text={text} setText={setText} pointing={selected.filter(id => live.document.parts?.[id]).map(id => ({ id, title: live.document.parts[id].title }))} onClearPointing={() => setSelected([])} />}
         </div>
       </div>
       {modal ? (
