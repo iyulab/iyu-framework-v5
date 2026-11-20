@@ -2073,6 +2073,11 @@ fills small templates and pins them:
   barcode your application generates. The cell is a working cell, not the final one, so size
   an image to a merged cell after the fill, from the workbook. `Iyu.Report` generates no
   barcodes and brings no library for it.
+- **A function that throws does not fail the fill.** The library catches the exception, writes
+  `Function error: <the exception's message>` into the cell and carries on, so `CookDish()`
+  returns a file in which that cell holds the text. A function that can fail — one that needs a
+  native library the host may not have, say — should catch and report its own errors, or its
+  result should be checked in the saved file.
 
 ## Document conversion (`Iyu.DocConvert`)
 

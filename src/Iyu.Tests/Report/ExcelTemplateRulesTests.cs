@@ -248,4 +248,31 @@ public class ExcelTemplateRulesTests
         Assert.Equal(new object?[] { "C1", "C2" }, seen);
         Assert.Equal(2, result.Worksheet("Q").Pictures.Count);
     }
+
+    [Fact]
+    public void A_registered_function_that_throws_does_not_fail_the_fill_and_its_message_lands_in_the_cell()
+    {
+        using var template = new XLWorkbook();
+        var ws = template.AddWorksheet("Q");
+        ws.Cell("A4").Value = "{{item.Code|boom}}";
+        ws.Range("A4:B5").AddToNamed("Items", XLScope.Worksheet);
+        using var templateStream = Save(template);
+        using var chef = CreateChef();
+        using var recipe = chef.LoadExcelTemplate(templateStream);
+        var seen = new List<object?>();
+        recipe.RegisterFunction("boom", (cell, value, parameters) =>
+        {
+            seen.Add(value);
+            throw new InvalidOperationException("the function failed");
+        });
+        recipe.AddVariable("Items", new[] { new { Code = "C1" }, new { Code = "C2" } });
+
+        using var dish = recipe.CookDish();
+        using var result = Reopen(dish);
+
+        Assert.Equal(new object?[] { "C1", "C2" }, seen);
+        var sheet = result.Worksheet("Q");
+        Assert.Equal("Function error: the function failed", sheet.Cell("A4").GetString());
+        Assert.Equal("Function error: the function failed", sheet.Cell("A5").GetString());
+    }
 }
