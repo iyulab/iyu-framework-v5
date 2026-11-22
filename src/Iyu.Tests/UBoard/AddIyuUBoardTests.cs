@@ -50,6 +50,7 @@ public sealed class AddIyuUBoardTests
     {
         var builder = Host();
         builder.Services.AddSingleton<IBoardStore, NoStore>();
+        builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         builder.Services.AddIyuUBoard(o => o.Boards());
         using var app = builder.Build();
 
@@ -75,6 +76,7 @@ public sealed class AddIyuUBoardTests
     public async Task The_board_store_without_a_store_does_not_start_and_the_message_names_it()
     {
         var builder = Host();
+        builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         builder.Services.AddIyuUBoard(o => o.Boards());
         using var app = builder.Build();
 
@@ -87,6 +89,7 @@ public sealed class AddIyuUBoardTests
     public async Task The_store_may_be_registered_after_the_layer_is_turned_on()
     {
         var builder = Host();
+        builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         builder.Services.AddIyuUBoard(o => o.Boards());
         builder.Services.AddSingleton<IBoardStore, NoStore>();
         using var app = builder.Build();

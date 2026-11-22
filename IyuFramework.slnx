@@ -10,7 +10,9 @@
   <Project Path="src/Iyu.Notifications.EntityFrameworkCore/Iyu.Notifications.EntityFrameworkCore.csproj" />
   <Project Path="src/Iyu.UBoard/Iyu.UBoard.csproj" />
   <Project Path="src/Iyu.UBoard.EntityFrameworkCore/Iyu.UBoard.EntityFrameworkCore.csproj" />
+  <Project Path="src/Iyu.UBoard.IronHive/Iyu.UBoard.IronHive.csproj" />
   <Project Path="src/Iyu.MainServer.ML/Iyu.MainServer.ML.csproj" />
+  <Project Path="src/Iyu.UBoard.MainServer/Iyu.UBoard.MainServer.csproj" />
   <Project Path="src/Iyu.Core/Iyu.Core.csproj" />
   <Project Path="src/Iyu.Data/Iyu.Data.csproj" />
   <Project Path="src/Iyu.Data.SqlServer/Iyu.Data.SqlServer.csproj" />
@@ -26,6 +28,7 @@
   <Project Path="src/Iyu.DocConvert/Iyu.DocConvert.csproj" />
   <Project Path="src/Iyu.Tests/Iyu.Tests.csproj" />
   <Folder Name="/samples/">
+    <Project Path="samples/BoardChat/BoardChat.csproj" />
     <Project Path="samples/UBoardEmbed/UBoardEmbed.csproj" />
   </Folder>
 </Solution>

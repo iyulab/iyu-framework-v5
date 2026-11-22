@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Fills the Iyu.UBoard assistant port with IronHive.Agent and IronProw: a board's chat answered by any OpenAI-compatible model service the host names, with the host's own key, model and limits.</Description>
+    <PackageTags>iyu;board;assistant;ironhive;ironprow</PackageTags>
+    <RootNamespace>Iyu.UBoard.IronHive</RootNamespace>
+    <!-- TODO: leave unpackable until the first Iyu.UBoard release is approved, with the packages it adapts. Remove this line in the
+         change that approves the first release (the uboard tag of release.yml then publishes it with them). -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The loop that talks to the model, and the gateway to the model service behind it. Only this adapter carries them: the neutral
+         Iyu.UBoard package depends on no model library, so a host that wants another model library writes another adapter. -->
+    <PackageReference Include="IronHive.Agent" Version="0.83.0" />
+    <PackageReference Include="IronProw.Core" Version="0.20.0" />
+    <PackageReference Include="IronProw.IronHive" Version="0.20.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Iyu.UBoard\Iyu.UBoard.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Iyu.Tests" />
+  </ItemGroup>
+
+</Project>

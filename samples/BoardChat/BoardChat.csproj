@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>BoardChat</RootNamespace>
+    <!-- The model is the input of the generator, not of this build. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);model/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Iyu.MainServer\Iyu.MainServer.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard\Iyu.UBoard.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard.EntityFrameworkCore\Iyu.UBoard.EntityFrameworkCore.csproj" />
+    <!-- The assistant: IronHive.Agent over a model service, behind the library's own turn route. -->
+    <ProjectReference Include="..\..\src\Iyu.UBoard.IronHive\Iyu.UBoard.IronHive.csproj" />
+    <ProjectReference Include="..\..\src\Iyu.UBoard.MainServer\Iyu.UBoard.MainServer.csproj" />
+  </ItemGroup>
+
+</Project>

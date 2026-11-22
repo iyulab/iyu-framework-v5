@@ -14,6 +14,7 @@
     <!-- The store reads and writes through the application's own DbContext, so the application already references Entity
          Framework Core; this package states the floor it was built against. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup>
