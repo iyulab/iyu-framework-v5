@@ -2532,6 +2532,7 @@ keeps it in tables of your own `DbContext`.
 <!-- uboard-sample -->
 ```csharp
 builder.Services.AddIyuUBoard<AppDbContext, BoardRow, BoardRevisionRow, BoardPublicationRow>();
+builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();   // who may do what to which board is yours to say; this one lets every signed-in person
 
 // in a request:
 var made = await boards.CreateAsync("plant", "Plant overview", firstDocumentJson, user);
@@ -2560,7 +2561,7 @@ context's model customizer to do so). Then `builder.Services.AddIyuUBoard<AppDbC
 - **Listing, renaming and deleting.** `ListAsync(skip, take)` returns boards by id without their documents. `RenameAsync` changes
   the name only — no revision is made. `DeleteAsync` removes the board with every revision and its whole publication history in one
   step; a host that must keep that history as a record does not call it and hides the board with a column of its own.
-- **The host does not start** if `AddIyuUBoard` names no part, if the store is not registered, or if your context does not map the
+- **The host does not start** if `AddIyuUBoard` names no part, if the store or the `IBoardAccess` is not registered (silence is not permission: a host with no board-level rules registers `EveryoneSignedInBoardAccess` by name, as above), or if your context does not map the
   three tables with those keys. Nothing is registered until you call it.
 - **Transactions.** A call joins the transaction you began on the same context; without one it begins its own through the context's
   execution strategy. On a context with a retrying strategy, begin your own transaction through the strategy as well.
