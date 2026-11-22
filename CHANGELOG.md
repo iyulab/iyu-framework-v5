@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), and `Iyu.VaultAI` (embed channels).
+**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), `Iyu.VaultAI` (embed channels), and dependency patch releases in `Iyu.Data.SqlServer` and `Iyu.FileServer.Azure`.
 
 ### Added
 
@@ -68,6 +68,12 @@ onward; earlier entries state the same consequence in prose where it applies.
   policy (`AuthorizeProperty`) holds for naming it in a condition or an ordering, by any way of writing the request — inline, in a
   variable, in `and` / `or`, in a fragment — and a caller who fails it is refused before a query runs. A condition is bounded
   (`MaxConditionDepth` 10, `MaxConditionNodes` 200, counted on the value sent). Nothing changes for a host that does not turn it on.
+
+### Changed
+
+- `Iyu.Server.GraphQL` follows HotChocolate 16.7.5 → 16.7.7 (patch releases; the GraphQL tests pass unchanged).
+- `Iyu.Data.SqlServer` follows Microsoft.Data.SqlClient 7.1.1 → 7.1.2 (a patch release).
+- `Iyu.FileServer.Azure` follows Azure.Storage.Blobs 12.30.1 → 12.30.2 (a patch release).
 
 ## [0.50.0] - 2026-11-22
 
