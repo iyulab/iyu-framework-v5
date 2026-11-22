@@ -13,6 +13,8 @@ minimum version of this package, which its own release notes state.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-22
+
 ### Added
 
 - **First release.** Host-neutral notification routing for an application that has to tell the right people when something

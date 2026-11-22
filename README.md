@@ -129,8 +129,8 @@ mkdir -p my-app/schema/model && cd my-app/schema/model
 # save tables.m3l.md (the model, below) and mdd.json (after it) in this folder
 
 mdd build .                                   # writes ../db/dbo/Tables_gen/*.sql
-schemorph diff  --url "$CONN" --schema ../db  # prints the plan; changes nothing
-schemorph apply --url "$CONN" --schema ../db  # runs it
+schemorph diff  --url "$CONN" --desired ../db  # prints the plan; changes nothing
+schemorph apply --url "$CONN" --desired ../db  # runs it
 ```
 
 `tables.m3l.md` — the smallest model that produces a table (the
@@ -186,9 +186,9 @@ Once a database exists, every change to the data follows the same loop:
    not validate stops the build before anything is written.
 3. **Review what changed** — `git diff` over the generated folders, or the copy-based preview in «Previewing a model
    change» below if you want to see it before the originals are touched. A one-field change touches only that entity's files.
-4. **Preview the database change** — `schemorph diff --url "$CONN" --schema ../db`: nothing is applied, and a change
+4. **Preview the database change** — `schemorph diff --url "$CONN" --desired ../db`: nothing is applied, and a change
    that would delete data is left out of the plan until `--allow-destructive` is given.
-5. **Apply it** — `schemorph apply --url "$CONN" --schema ../db` (add `--expect-plan <hash>` to apply only the plan you
+5. **Apply it** — `schemorph apply --url "$CONN" --desired ../db` (add `--expect-plan <hash>` to apply only the plan you
    reviewed).
 6. **Build and test the application**, then commit the model and the generated files together.
 
@@ -2423,9 +2423,6 @@ not been run; a Debian-based image such as `mcr.microsoft.com/dotnet/aspnet` rem
 
 ## Telling people what happened (`Iyu.Notifications`)
 
-*Implemented and tested, not yet published: the two packages below are built from this repository and do not ship until their
-first release.*
-
 An application that has to tell the right people when something happens builds the same plumbing each time: a table of who
 should hear about what, an inbox per person, a way to mark an item read, a way to close a request that needs action, and a place
 where an event that reached nobody does not vanish. `Iyu.Notifications` owns that plumbing and knows nothing of your domain;
@@ -2520,7 +2517,7 @@ cp -r my-app/schema my-app/schema-preview            # 1. the whole folder: mode
 cp new-tables.m3l.md my-app/schema-preview/model/tables.m3l.md   # 2. only the copy gets the new model
 mdd build my-app/schema-preview/model                 # 3. generate into the copy — the original files stay as they are
 git diff --no-index my-app/schema my-app/schema-preview          # 4a. what the generated files would become
-schemorph diff --schema my-app/schema-preview/db \
+schemorph diff --desired my-app/schema-preview/db \
                --pre my-app/schema-preview/pre         # 4b. what that would do to the database (--pre only if pre/ exists)
 ```
 
@@ -2584,7 +2581,7 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.49.0**. Unit and integration tests run against every project on each
+Version **0.50.0**. Unit and integration tests run against every project on each
 build, and warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
 scheduled-report modules are all in place and consumed in production.
 

@@ -31,6 +31,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-11-22
+
 **Packages affected:** `Iyu.FileServer` (Azure Blob backend moved out), `Iyu.Server.OData` (search through a reference), `Iyu.MainServer` (what a refused query says), `Iyu.Server.GraphQL` (`totalCount`), `Iyu.VaultAI` (a second policy for editing reports, an off switch for the schedule), and the new `Iyu.FileServer.Azure` and `Iyu.Notifications.EntityFrameworkCore`.
 
 ### Added
