@@ -51,7 +51,11 @@ public sealed class GraphQLSurface : IIyuMainServerSurface
         // (RequestExecutorWarmupService eagerly builds it), which would crash the whole host, not just
         // this surface. Only wire GraphQL when there is something to expose; MapEndpoints matches it.
         if (Schema.QueryNames.Count > 0)
+        {
+            // What the OData error serializer reads: one setting says where the server's details are wanted, on every surface.
+            Schema.IncludeErrorDetails ??= options.IncludeODataErrorDetails;
             Schema.ApplyTo(services.AddGraphQLServer());
+        }
     }
 
     /// <inheritdoc />

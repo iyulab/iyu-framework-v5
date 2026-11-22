@@ -106,6 +106,15 @@ public static class ODataErrorCodes
     public const string MethodNotAllowed = "MethodNotAllowed";
 
     /// <summary>
+    /// <c>500</c> — the database does not have a table or view this host maps, so the request (a read or a write) could not
+    /// run: the schema was never applied to it (SQLSTATE <c>42P01</c> or <c>42S02</c>). Where details are wanted — the
+    /// Development environment, or <c>IncludeODataErrorDetails</c> — <c>error.message</c> names the object and says to apply
+    /// the schema; elsewhere it says nothing about the cause. Sending the request again fails the same way until the schema
+    /// is applied.
+    /// </summary>
+    public const string DatabaseObjectMissing = Iyu.Data.DatabaseObjectMissing.Code;
+
+    /// <summary>
     /// <c>500</c> — the request failed on the server. <c>error.innererror.traceId</c> names it in the
     /// server's logs; the body says nothing about the cause.
     /// </summary>

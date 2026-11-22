@@ -5,7 +5,8 @@ namespace Iyu.Data.SqlServer;
 
 /// <summary>
 /// Names the standard SQLSTATE of a SQL Server error. SQL Server's client reports the server's own error number
-/// (<see cref="SqlException.Number"/>) and no SQLSTATE, so a write failure there would otherwise be unclassified.
+/// (<see cref="SqlException.Number"/>) and no SQLSTATE, so a failure there — a refused write, a table the database lacks —
+/// would otherwise be unclassified.
 /// </summary>
 /// <remarks>
 /// <list type="table">
@@ -16,6 +17,7 @@ namespace Iyu.Data.SqlServer;
 /// <item><term>2628, 8152</term><description><c>22001</c> — a value too long for its column</description></item>
 /// <item><term>8115, 220</term><description><c>22003</c> — a number past what its type holds (arithmetic overflow)</description></item>
 /// <item><term>1205</term><description><c>40001</c> — chosen as a deadlock victim</description></item>
+/// <item><term>208</term><description><c>42S02</c> — <c>Invalid object name</c>: the table or view does not exist</description></item>
 /// </list>
 /// Error 547 is told apart by the constraint kind the message names (<c>FOREIGN KEY</c>, <c>REFERENCE</c>,
 /// <c>CHECK</c>) — SQL Server's English text. A server whose messages are in another language leaves 547 untranslated,
@@ -36,6 +38,7 @@ public sealed class SqlServerSqlStateTranslator : ISqlStateTranslator
         2628 or 8152 => "22001",
         8115 or 220 => "22003",
         1205 => "40001",
+        208 => "42S02",
         _ => null,
     };
 }

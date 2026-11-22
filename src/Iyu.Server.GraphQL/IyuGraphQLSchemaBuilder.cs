@@ -104,6 +104,14 @@ public sealed class IyuGraphQLSchemaBuilder
     internal bool ReachIsComputed => ComputeReach || _usesAuthorization;
 
     /// <summary>
+    /// Whether the error for a field that failed on a table or view the database lacks names the object and says to apply the
+    /// schema. <see langword="null"/> (the default) says it only when the host environment is Development;
+    /// <see langword="true"/> or <see langword="false"/> overrides that. The error's <c>code</c>
+    /// (<see cref="Iyu.Data.DatabaseObjectMissing.Code"/>) is written either way.
+    /// </summary>
+    public bool? IncludeErrorDetails { get; set; }
+
+    /// <summary>
     /// The most fields one document may select once its fragments are expanded; a request whose document selects more is
     /// refused with the error code <c>IYU_DOCUMENT_TOO_LARGE</c> before the executor validates or runs it. Defaults to
     /// 10,000 — far above what a client writes by hand or generates for a screen.
@@ -678,6 +686,8 @@ public sealed class IyuGraphQLSchemaBuilder
             executorBuilder.AddIyuGraphQLAuthorization();
         // The reach is recorded on the request's HttpContext, found through the accessor as the authorization handler does.
         executorBuilder.Services.AddHttpContextAccessor();
+        // A field that failed on a table the database lacks says so by its code; every other error is left as it is.
+        executorBuilder.AddErrorFilter(services => new IyuGraphQLDatabaseErrorFilter(services, () => IncludeErrorDetails));
         executorBuilder.UseRequest(
             next => context => IyuGraphQLRequestMiddleware.InvokeAsync(this, next, context),
             key: IyuGraphQLRequestMiddleware.Key, after: HotChocolate.Execution.WellKnownRequestMiddleware.DocumentParserMiddleware);
