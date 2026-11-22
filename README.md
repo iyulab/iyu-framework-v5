@@ -1598,6 +1598,28 @@ The executor's cost analysis counts the nesting the same way: with both pages le
 nested selection usually exceeds the maximum cost and is refused (`HC0047`), so a client names `first`
 on both levels (`customers(first: 10) { nodes { orders(first: 5) { … } } }`).
 
+**GraphQL query fields can take a condition and an ordering (`where`, `order`) — off until the host turns it on.**
+`options.GraphQL.WhereAndOrder = true` gives every query field a `where` argument (`{ name: { eq: "x" }, and: […], or: […] }`)
+and an `order` argument (`[{ rank: DESC }]`), the GraphQL counterparts of OData's `$filter` and `$orderby`; with it left off the
+schema is the one it always was, and there is no per-field switch. A request that sorts is still a stable slice: the key is
+the last criterion, so a page is the same rows on the next request and `after` neither repeats nor skips one. `totalCount` counts
+the rows the condition lets through. The input types name the columns the output type shows — a column removed with `Exclude` or
+withheld by default is not in them, and a column is compared by its plain value (text, numbers, dates, enums, ids). A condition can
+also cross a single reference to another served model — `where: { customer: { name: { eq: "x" } } }`, `order: { customer: { name: ASC } }` —
+and a collection, through `some`, `all`, `none` (a condition on its rows) or `any` (whether it has a row) — `where: { orders: { some:
+{ total: { gt: 100 } } } }`; a collection is never something to sort by, and a reference to a model no query field serves cannot be
+crossed. One difference from OData stays: text is compared by equality, containment, prefix, suffix and membership, **not by
+range** (`name: { gt: "b" }` is refused as an unknown operation; numbers and dates do take `gt` / `gte` / `lt` / `lte`). Crossing reads the model it crosses into: that model's read policy (`Authorize`) applies to a caller who names it — the model
+of the rows, for a collection, even when the question is only `any` — then the policy of every column named inside it, and a request
+that crosses is recorded as having reached that model even when it selects nothing from it.
+
+A column in a condition or an ordering is a column read, a bit at a time, so it takes the column's own read policy
+(`AuthorizeProperty`): a caller who does not satisfy it is refused with `AUTH_NOT_AUTHORIZED` **before any query runs** — whether the
+column is named inline, through a variable, inside `and` / `or`, in a list, or in a fragment, and whether or not it is compared to
+`null`. A condition the server cannot read as naming known columns is refused, not skipped. A condition is bounded as a request is:
+`options.GraphQL.MaxConditionDepth` (10) and `MaxConditionNodes` (200), counted on the value the request sends, so a variable does not
+carry one past them; one over is refused with `IYU_CONDITION_REFUSED`.
+
 A connection always has a page, so neither value can be `null`; a small list is served whole by a
 page at least as large as the list. HotChocolate's cost analysis applies on top of these bounds — a
 large page of a wide selection can exceed the executor's maximum cost (1000 by default) and be

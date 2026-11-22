@@ -112,6 +112,104 @@ public sealed class IyuGraphQLSchemaBuilder
     public bool? IncludeErrorDetails { get; set; }
 
     /// <summary>
+    /// Whether every query field takes <c>where</c> and <c>order</c> arguments — the GraphQL counterpart of OData's
+    /// <c>$filter</c> and <c>$orderby</c>. Off by default: a host that leaves it off has the schema it has always had, and
+    /// there is no per-field switch, so the ability to ask does not differ from one set to another.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Restrict"/>, it is read by <see cref="ApplyTo"/> — set it before.
+    /// </remarks>
+    public bool WhereAndOrder { get; set; }
+
+    /// <summary>
+    /// The deepest a <c>where</c> or <c>order</c> value may nest (<c>and</c> / <c>or</c> inside <c>and</c> / <c>or</c>). A
+    /// request past it is refused, with the error code <c>IYU_CONDITION_REFUSED</c>, before anything runs. Defaults to 10.
+    /// </summary>
+    public int MaxConditionDepth { get; set; } = 10;
+
+    /// <summary>
+    /// The most parts one <c>where</c> or <c>order</c> value may have — each object, list item and named column counts. A
+    /// condition is an input that costs the database something for every part, and a variable carries it past the
+    /// document budget, so it is bounded here. Defaults to 200.
+    /// </summary>
+    public int MaxConditionNodes { get; set; } = 200;
+
+    private async ValueTask RefuseUnreadableConditionsAsync<TRead>(HotChocolate.Resolvers.IMiddlewareContext context)
+    {
+        var columns = new HashSet<(Type Model, string Column)>();
+        var entered = new HashSet<Type>();
+        foreach (var argument in new[] { "where", "order" })
+        {
+            var reads = IyuGraphQLQueryArguments.Read(context, argument, typeof(TRead), MaxConditionDepth, MaxConditionNodes, out var refusal);
+            if (refusal is not null)
+                throw new HotChocolate.GraphQLException(HotChocolate.ErrorBuilder.New()
+                    .SetMessage(refusal).SetCode("IYU_CONDITION_REFUSED").SetPath(context.Path).Build());
+            columns.UnionWith(reads.Columns);
+            entered.UnionWith(reads.Entered);
+        }
+
+        // What the reader collected as crossed must be models this surface serves: an unknown type would read as "no policy" below,
+        // and a check that passes what it does not know is not a check. It cannot happen while the input types list only served
+        // models - which is why it fails loudly, not quietly, if it ever does.
+        foreach (var model in entered)
+            if (QueryNameOf(model) is null)
+                throw new InvalidOperationException(
+                    $"A condition on query field '{context.Selection.Field.Name}' crossed into '{model.Name}', which no query field serves, so its read policy cannot be found.");
+
+        // A condition that crosses into another model reads that model, so the request has reached it - recorded before the
+        // checks, as the rest of the reach is, so a refused request carries it too.
+        RecordCrossing(context, entered);
+
+        // Crossing into a model takes that model's own read policy, as selecting into it does.
+        foreach (var model in entered)
+        {
+            if (QueryNameOf(model) is not { } query || _authorizePolicies[query] is not { } entityPolicy) continue;
+            await RequireAsync(context, entityPolicy).ConfigureAwait(false);
+        }
+
+        // Naming a column in a condition or an ordering reads it, a bit at a time: it takes the column's own read policy.
+        foreach (var column in columns)
+        {
+            if (!_propertyPolicies.TryGetValue(column, out var policy)) continue;
+            await RequireAsync(context, policy).ConfigureAwait(false);
+        }
+    }
+
+    private static async ValueTask RequireAsync(HotChocolate.Resolvers.IMiddlewareContext context, string policy)
+    {
+        var allowed = await IyuGraphQLPolicyAuthorizationHandler
+            .EvaluateAsync(context.Services, new HotChocolate.Authorization.AuthorizeDirective(policy)).ConfigureAwait(false);
+        if (allowed != HotChocolate.Authorization.AuthorizeResult.Allowed)
+            throw new HotChocolate.GraphQLException(HotChocolate.ErrorBuilder.New()
+                .SetMessage("The current user is not authorized to access this resource.")
+                .SetCode("AUTH_NOT_AUTHORIZED").SetPath(context.Path).Build());
+    }
+
+    private void RecordCrossing(HotChocolate.Resolvers.IMiddlewareContext context, IReadOnlyCollection<Type> entered)
+    {
+        if (!ReachIsComputed || entered.Count == 0) return;
+        var http = context.Services.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()?.HttpContext;
+        if (http is null) return;
+        var crossed = entered.Select(QueryNameOf).Where(q => q is not null).Select(q => q!).ToList();
+        // Root fields of one request run side by side, and this is a read, a union and a write of one feature: without the lock
+        // two of them can each read the same record and the later write drops the other's models - an audit record that leaves
+        // out a read. The lock is on the feature collection, which belongs to this one request.
+        lock (http.Features)
+        {
+            if (http.Features.Get<IIyuGraphQLReachFeature>() is not { } earlier) return;
+            var reached = earlier.ReachedQueries.Union(crossed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            http.Features.Set<IIyuGraphQLReachFeature>(new IyuGraphQLReachFeature(earlier.AddressedQueries, reached));
+        }
+    }
+
+    private readonly List<(Type Type, PropertyInfo[] Properties)> _excluded = new();
+
+    /// <summary>Whether the output type of <paramref name="type"/> leaves <paramref name="property"/> out.</summary>
+    private bool IsWithheld(Type type, string property)
+        => _excluded.Any(e => e.Type == type && e.Properties.Any(p => p.Name == property))
+           || (HiddenByDefaultProperties.Of(type).Any(h => h.Name == property) && !IsExposedOnPurpose(type, property));
+
+    /// <summary>
     /// The most fields one document may select once its fragments are expanded; a request whose document selects more is
     /// refused with the error code <c>IYU_DOCUMENT_TOO_LARGE</c> before the executor validates or runs it. Defaults to
     /// 10,000 — far above what a client writes by hand or generates for a screen.
@@ -249,7 +347,16 @@ public sealed class IyuGraphQLSchemaBuilder
             var (maxPageSize, defaultPageSize) = _pages.TryGetValue(queryName, out var own)
                 ? own
                 : (MaxPageSize, DefaultPageSize);
-            var field = descriptor.Field(queryName)
+            var fieldBuilder = descriptor.Field(queryName);
+            // The outermost step of the field, so it runs before the page, the count or the rows are asked of the database:
+            // what the arguments name is read first, and a request that names a column the caller may not read is refused
+            // without a query having run.
+            if (WhereAndOrder) fieldBuilder.Use(next => async context =>
+            {
+                await RefuseUnreadableConditionsAsync<TRead>(context).ConfigureAwait(false);
+                await next(context).ConfigureAwait(false);
+            });
+            var field = fieldBuilder
                 .UsePaging<ObjectType<TRead>>(options: new PagingOptions
                 {
                     MaxPageSize = maxPageSize,
@@ -261,8 +368,30 @@ public sealed class IyuGraphQLSchemaBuilder
                 // The selection becomes the query's projection: requested columns only, and a
                 // navigation in the selection is loaded by the same query instead of answering null.
                 // Paging runs outside it, so a page is still a slice of the key ordering below.
-                .UseProjection()
-                .Resolve(ResolveQueryable<TRead>);
+                .UseProjection();
+            if (WhereAndOrder)
+            {
+                // The input types are registered once per served model (see RegisterInputTypes) and name the columns and
+                // references the output type shows and no others.
+                // Declared outer to inner: the sort the caller names is applied by the innermost step, then the key is
+                // appended as the last criterion — a page is a slice of an ordering, and it is only the same slice
+                // on the next request if the ordering is total.
+                field.UseFiltering<TRead>()
+                     .Use(next => async context =>
+                     {
+                         await next(context).ConfigureAwait(false);
+                         if (context.Result is IQueryable<TRead> sorted)
+                             context.Result = OrderedByKey(context.Service<IyuDbContext>(), sorted, afterCallerOrdering: true);
+                         // A result that is not a query cannot take the key as its last criterion, and paging over it would
+                         // repeat or skip rows on ties — failing here is better than that going unnoticed.
+                         else if (context.Result is not null)
+                             throw new InvalidOperationException(
+                                 $"Query field '{context.Selection.Field.Name}' produced a {context.Result.GetType().Name} where a query was expected, so its key cannot be appended to the ordering.");
+                     })
+                     .UseSorting<TRead>()
+                     .Resolve(ctx => ctx.Service<IyuDbContext>().Set<TRead>().AsNoTracking());
+            }
+            else field.Resolve(ResolveQueryable<TRead>);
             if (_authorizePolicies[queryName] is { } policy) field.Authorize(policy);
         });
 
@@ -316,8 +445,28 @@ public sealed class IyuGraphQLSchemaBuilder
             if (typeof(TRead).GetProperty(nameof(IKeyed.Id)) is { } id) d.Field(id).IsProjected(true);
         }));
 
+        _inputTypes.Add(executorBuilder =>
+        {
+            // One filter and one sort type per served model, built when the schema is: a condition that crosses a reference
+            // lands on the target's own types, so every model's types follow the same exposure rules as its output type.
+            executorBuilder.AddType(new HotChocolate.Data.Filters.FilterInputType<TRead>(d =>
+                IyuGraphQLQueryArguments.ConfigureFilter(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)), CollectionsOf(typeof(TRead)))));
+            executorBuilder.AddType(new HotChocolate.Data.Sorting.SortInputType<TRead>(d =>
+                IyuGraphQLQueryArguments.ConfigureSort(d, ColumnsOf(typeof(TRead)), NavigationsOf(typeof(TRead)))));
+        });
+
         ApplyPropertyDescriptions<TRead>();
     }
+
+    private readonly List<Action<IRequestExecutorBuilder>> _inputTypes = new();
+
+    private IReadOnlyList<PropertyInfo> ColumnsOf(Type type) => IyuGraphQLQueryArguments.Columns(type, IsWithheld);
+
+    private IReadOnlyList<PropertyInfo> CollectionsOf(Type type)
+        => IyuGraphQLQueryArguments.Navigations(type, t => _exposedTypes.ContainsKey(t), IsWithheld, collections: true);
+
+    private IReadOnlyList<PropertyInfo> NavigationsOf(Type type)
+        => IyuGraphQLQueryArguments.Navigations(type, t => _exposedTypes.ContainsKey(t), IsWithheld);
 
     /// <summary>
     /// A collection navigation is a connection paged like the target's own query field. Projected into the parent's
@@ -589,7 +738,7 @@ public sealed class IyuGraphQLSchemaBuilder
         // Validate now, not at ApplyTo: a malformed expression must fail where the
         // caller wrote it, not later inside schema construction.
         var selectors = properties.ToArray();
-        foreach (var selector in selectors) ExposedProperty.Resolve(selector);
+        _excluded.Add((typeof(T), selectors.Select(ExposedProperty.Resolve).ToArray()));
         if (selectors.Length == 0) return this;
 
         // A type *extension* merges into the type HotChocolate already inferred for T.
@@ -663,12 +812,14 @@ public sealed class IyuGraphQLSchemaBuilder
         // Every query field resolves through UseProjection; the projection conventions are
         // registered once for the schema.
         if (fieldBuilders.Length > 0) executorBuilder.AddProjections();
+        if (fieldBuilders.Length > 0 && WhereAndOrder) executorBuilder.AddFiltering().AddSorting();
         executorBuilder.AddQueryType(descriptor =>
         {
             descriptor.Name("Query");
             foreach (var build in fieldBuilders) build(descriptor);
         });
         foreach (var authorize in _typeAuthorizers.ToArray()) authorize(executorBuilder);
+        if (WhereAndOrder) foreach (var register in _inputTypes.ToArray()) register(executorBuilder);
         foreach (var (type, properties) in _exposures)
         {
             EnsureExposed(type);
@@ -732,18 +883,32 @@ public sealed class IyuGraphQLSchemaBuilder
         return OrderedByKey(db, db.Set<T>().AsNoTracking());
     }
 
+    private static bool HasOrdering(Expression expression)
+    {
+        while (expression is MethodCallExpression call && call.Arguments.Count > 0)
+        {
+            if (call.Method.DeclaringType == typeof(Queryable)
+                && call.Method.Name is nameof(Queryable.OrderBy) or nameof(Queryable.OrderByDescending)
+                    or nameof(Queryable.ThenBy) or nameof(Queryable.ThenByDescending))
+                return true;
+            expression = call.Arguments[0];
+        }
+        return false;
+    }
+
     /// <summary>
     /// The rows in primary-key order, each key part a typed member access where the property has one — a page of a
     /// batch reads its cursor back from the ordering, which an untyped <c>EF.Property&lt;object&gt;</c> cannot give.
     /// </summary>
-    private static IQueryable<T> OrderedByKey<T>(IyuDbContext db, IQueryable<T> query)
+    private static IQueryable<T> OrderedByKey<T>(IyuDbContext db, IQueryable<T> query, bool afterCallerOrdering = false)
         where T : class
     {
         var key = db.Model.FindEntityType(typeof(T))?.FindPrimaryKey();
         if (key is null) return query;
 
         var ordered = query.Expression;
-        var first = true;
+        // After an ordering the caller asked for the key only breaks ties: it goes on as the next criterion, not as the first.
+        var first = !(afterCallerOrdering && HasOrdering(ordered));
         foreach (var property in key.Properties)
         {
             var row = Expression.Parameter(typeof(T), "e");

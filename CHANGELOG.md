@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` and `Iyu.Server.GraphQL` (a request on a database whose schema was never applied), and `Iyu.VaultAI` (embed channels).
+**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), and `Iyu.VaultAI` (embed channels).
 
 ### Added
 
@@ -56,6 +56,18 @@ onward; earlier entries state the same consequence in prose where it applies.
   are mapped. `config` and `token` and `ChannelId` are unchanged, and with the list empty the two new routes answer "not enabled".
   A host that moves from a hand-written channel page to this one maps its picker to `channels` (`id`, `label`) and the token call
   to `channels/{id}/token`; the route prefix is whatever the host passes to `MapVaultAIEmbed`.
+- **GraphQL query fields can take a condition and an ordering (`options.GraphQL.WhereAndOrder`, off by default).** A client that had
+  to page a whole set to find rows can now ask: `where` (`{ rank: { eq: 2 } }`, with `and` / `or`) and `order` (`[{ rank: DESC }]`)
+  on every query field, as OData's `$filter` and `$orderby` do. A sorted request is a stable slice — the key is the last
+  criterion — and `totalCount` counts what the condition lets through. The input types name the columns the output type shows
+  and no others (nothing `Exclude`d or withheld by default), compared by plain value; a condition or an ordering can also cross a
+  single reference to another served model (`where: { customer: { name: … } }`) or a collection through `some` / `all` / `none` / `any`
+  (`where: { orders: { some: { total: { gt: 100 } } } }`), though never sort by a collection. Crossing takes the target model's read
+  policy (the rows' model, for a collection), then the policy of each column named in it, and the request's reach records the
+  model. A column's read
+  policy (`AuthorizeProperty`) holds for naming it in a condition or an ordering, by any way of writing the request — inline, in a
+  variable, in `and` / `or`, in a fragment — and a caller who fails it is refused before a query runs. A condition is bounded
+  (`MaxConditionDepth` 10, `MaxConditionNodes` 200, counted on the value sent). Nothing changes for a host that does not turn it on.
 
 ## [0.50.0] - 2026-11-22
 
