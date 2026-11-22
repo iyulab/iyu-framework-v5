@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` and `Iyu.Server.GraphQL` (a request on a database whose schema was never applied).
+**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL` and `Iyu.Server.GraphQL` (a request on a database whose schema was never applied), and `Iyu.VaultAI` (embed channels).
 
 ### Added
 
@@ -48,6 +48,14 @@ onward; earlier entries state the same consequence in prose where it applies.
   recognised without it. `IyuGraphQLSchemaBuilder.IncludeErrorDetails` sets the GraphQL side on a host that does not use
   `AddIyuMainServer`. 🔇 no build-time signal: a client that matched the `InternalServerError` code of such a request now sees
   `DatabaseObjectMissing`, and a write that met the missing table was answered `409 Conflict` and is now this `500`.
+- **The chat widget's embed can offer several channels (`VaultAI:EmbedChannels`, empty by default).** `MapVaultAIEmbed()` served one
+  channel, `VaultAI:ChannelId`. Listing channels (`{ Id, Label }`, the label optional) adds two routes under the same path:
+  `GET …/channels` returns the list for a channel picker and `POST …/channels/{id}/token` issues a token for a listed channel
+  with the same authorization, cross-site refusal and failure answers as `token`. The list is the trust boundary: an id that is
+  not on it is `404` before the chat service is asked anything. A blank or padded id, or an id listed twice, fails when the routes
+  are mapped. `config` and `token` and `ChannelId` are unchanged, and with the list empty the two new routes answer "not enabled".
+  A host that moves from a hand-written channel page to this one maps its picker to `channels` (`id`, `label`) and the token call
+  to `channels/{id}/token`; the route prefix is whatever the host passes to `MapVaultAIEmbed`.
 
 ## [0.50.0] - 2026-11-22
 

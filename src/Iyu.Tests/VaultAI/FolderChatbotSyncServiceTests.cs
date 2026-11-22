@@ -84,6 +84,40 @@ public class FolderChatbotSyncServiceTests
     }
 
     [Fact]
+    public async Task A_record_whose_settings_hashes_are_not_ones_this_engine_computes_costs_one_update_each_and_no_file_call()
+    {
+        // A record written some other way (an earlier implementation, a hand edit) can carry hashes this engine would never produce.
+        // The cost of that must stay bounded and must not reach the files: the settings are written once from today's values,
+        // the hashes settle to this engine's own, and the next check changes nothing.
+        var rig = new Rig();
+        rig.Source.Put("handbook", "intro.md", "hello");
+        await rig.Service().RunOnceAsync(default);
+        var settledAgentHash = rig.Manifest.AgentConfigHash;
+        var settledStorageHash = rig.Manifest.StorageConfigHash;
+        Assert.NotNull(settledAgentHash);
+        Assert.NotNull(settledStorageHash);
+
+        var foreign = rig.Manifest;
+        foreign.AgentConfigHash = "a-hash-this-engine-does-not-compute";
+        foreign.StorageConfigHash = "another-one";
+        rig.Store.Json = foreign.ToJson();
+        rig.Admin.Calls.Clear();
+
+        var first = await rig.Service().RunOnceAsync(default);
+
+        Assert.Equal(0, first.Failed);
+        Assert.Equal(1, rig.Admin.Count("update-agent"));
+        Assert.Equal(1, rig.Admin.Count("update-storage"));
+        Assert.All(rig.Admin.Calls, call => Assert.True(call is "update-agent" or "update-storage", $"unexpected call: {call}"));
+        Assert.Equal(settledAgentHash, rig.Manifest.AgentConfigHash);
+        Assert.Equal(settledStorageHash, rig.Manifest.StorageConfigHash);
+
+        rig.Admin.Calls.Clear();
+        await rig.Service().RunOnceAsync(default);
+        Assert.Empty(rig.Admin.Calls);
+    }
+
+    [Fact]
     public async Task A_manifest_written_for_another_prefix_is_set_aside_and_the_old_prefixs_objects_are_left_alone()
     {
         var rig = new Rig();

@@ -352,4 +352,266 @@ public sealed class VaultAIEmbedTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
     }
+
+    // ---- several channels: the allow list (VaultAI:EmbedChannels) ----
+
+    private const string ChannelsPath = "/api/vault-ai-embed/channels";
+    private static string ChannelTokenPath(string id) => $"{ChannelsPath}/{id}/token";
+
+    private static readonly (string Key, string? Value)[] TwoChannels =
+    [
+        ("EmbedChannels:0:Id", "chan-a"), ("EmbedChannels:0:Label", "Support"),
+        ("EmbedChannels:1:Id", "chan-b"),
+    ];
+
+    [Fact]
+    public async Task The_channel_list_is_the_allow_list_with_the_names_the_picker_shows()
+    {
+        var client = await Host(Issuing(), vaultAI: TwoChannels);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Get, ChannelsPath));
+        var body = JsonNode.Parse(await resp.Content.ReadAsStringAsync())!;
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.True((bool)body["enabled"]!);
+        Assert.Equal("https://vault.example.test", (string?)body["origin"]);
+        var channels = body["channels"]!.AsArray();
+        Assert.Equal(2, channels.Count);
+        Assert.Equal("chan-a", (string?)channels[0]!["id"]);
+        Assert.Equal("Support", (string?)channels[0]!["label"]);
+        Assert.Equal("chan-b", (string?)channels[1]!["id"]);
+        Assert.Null(channels[1]!["label"]);
+    }
+
+    [Fact]
+    public async Task The_list_does_not_carry_the_single_channel_nor_the_servers_key()
+    {
+        var client = await Host(Issuing(), vaultAI: TwoChannels);   // ChannelId "chan-1" is also configured
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Get, ChannelsPath));
+        var text = await resp.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("chan-1", text);
+        Assert.DoesNotContain(ServerKey, text);
+    }
+
+    [Fact]
+    public async Task Without_a_list_the_channel_routes_say_not_enabled_and_ask_nothing_of_the_chat_service()
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream);   // ChannelId is set, EmbedChannels is not
+
+        using var list = await client.SendAsync(Request(HttpMethod.Get, ChannelsPath));
+        using var token = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("chan-1")));
+        var body = JsonNode.Parse(await list.Content.ReadAsStringAsync())!;
+
+        Assert.False((bool)body["enabled"]!);
+        Assert.Empty(body["channels"]!.AsArray());
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, token.StatusCode);
+        Assert.Empty(upstream.Calls);
+    }
+
+    [Fact]
+    public async Task A_token_for_a_listed_channel_is_asked_for_with_the_servers_key_and_only_the_two_fields_come_back()
+    {
+        var upstream = Issuing("""{"token":"short-lived-token","expiresAt":"2030-01-01T00:00:00Z","extra":"must-not-leak"}""");
+        var client = await Host(upstream, vaultAI: TwoChannels);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("chan-b")));
+        var text = await resp.Content.ReadAsStringAsync();
+        var body = JsonNode.Parse(text)!.AsObject();
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal("short-lived-token", (string?)body["token"]);
+        Assert.Equal(2, body.Count);
+        Assert.True(resp.Headers.CacheControl?.NoStore);
+        Assert.DoesNotContain(ServerKey, text);
+        var call = Assert.Single(upstream.Calls);
+        Assert.Equal("https://vault.example.test/api/channels/chan-b/token", call.Uri);
+        Assert.Equal("Bearer " + ServerKey, call.Authorization);
+    }
+
+    [Theory]
+    [InlineData("chan-1")]       // the single channel is not on the list: the list is the only way in
+    [InlineData("CHAN-A")]       // ids are compared exactly
+    [InlineData("chan-a%20")]    // padded
+    [InlineData("nope")]
+    [InlineData("chan-a%2Fchan-b")]
+    public async Task A_channel_that_is_not_listed_is_a_404_and_the_chat_service_is_not_asked(string id)
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream, vaultAI: TwoChannels);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath(id)));
+        var text = await resp.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Empty(upstream.Calls);
+        Assert.DoesNotContain("chan-a", text);   // the answer does not name what is listed
+    }
+
+    [Fact]
+    public async Task A_listed_id_with_characters_that_need_escaping_is_escaped_into_the_path()
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream, vaultAI: [("EmbedChannels:0:Id", "a b?c")]);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("a%20b%3Fc")));
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal("https://vault.example.test/api/channels/a%20b%3Fc/token", Assert.Single(upstream.Calls).Uri);
+    }
+
+    [Theory]
+    [InlineData("cross-site")]
+    [InlineData("same-site")]
+    public async Task A_channel_token_request_another_site_started_is_refused_before_anything_else(string site)
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream, vaultAI: TwoChannels);
+
+        using var listed = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("chan-a"), site: site));
+        using var unlisted = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("nope"), site: site));
+
+        Assert.Equal(HttpStatusCode.Forbidden, listed.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, unlisted.StatusCode);   // not told whether it was listed
+        Assert.Empty(upstream.Calls);
+    }
+
+    [Theory]
+    [InlineData("GET", ChannelsPath)]
+    [InlineData("POST", "/api/vault-ai-embed/channels/chan-a/token")]
+    public async Task The_channel_routes_are_under_the_modules_authorization(string method, string path)
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream, vaultAI: [.. TwoChannels, ("AuthorizationPolicy", Policy)]);
+
+        using var anonymous = await client.SendAsync(Request(new HttpMethod(method), path, perm: null));
+        using var other = await client.SendAsync(Request(new HttpMethod(method), path, perm: "other"));
+        var callsAfterRefusals = upstream.Calls.Count;
+        using var admitted = await client.SendAsync(Request(new HttpMethod(method), path, perm: Policy));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, other.StatusCode);
+        Assert.Equal(0, callsAfterRefusals);
+        Assert.Equal(HttpStatusCode.OK, admitted.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_refusal_from_the_chat_service_for_a_listed_channel_is_a_502_that_repeats_nothing_of_its_answer()
+    {
+        var client = await Host(Answering(HttpStatusCode.InternalServerError, "UPSTREAM-DETAIL " + ServerKey), vaultAI: TwoChannels);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("chan-a")));
+        var text = await resp.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+        Assert.DoesNotContain("UPSTREAM-DETAIL", text);
+        Assert.DoesNotContain(ServerKey, text);
+    }
+
+    [Fact]
+    public async Task The_single_channel_routes_are_unchanged_by_a_list()
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream, vaultAI: TwoChannels);
+
+        using var config = await client.SendAsync(Request(HttpMethod.Get, ConfigPath));
+        using var token = await client.SendAsync(Request(HttpMethod.Post, TokenPath));
+
+        Assert.Equal("chan-1", (string?)JsonNode.Parse(await config.Content.ReadAsStringAsync())!["channelId"]);
+        Assert.Equal(HttpStatusCode.OK, token.StatusCode);
+        Assert.Equal("https://vault.example.test/api/channels/chan-1/token", Assert.Single(upstream.Calls).Uri);
+    }
+
+    [Theory]
+    [InlineData("", "blank")]
+    [InlineData("   ", "blank")]
+    [InlineData(" chan-a", "whitespace")]
+    [InlineData("chan-a ", "whitespace")]
+    public void A_blank_or_padded_id_in_the_list_fails_when_the_routes_are_mapped(string id, string expected)
+    {
+        var app = Builder(Issuing(), [("EmbedChannels:0:Id", id)]).Build();
+        _apps.Add(app);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => app.MapVaultAIEmbed());
+
+        Assert.Contains("EmbedChannels:0:Id", ex.Message);
+        Assert.Contains(expected, ex.Message);
+    }
+
+    [Fact]
+    public void An_id_listed_twice_fails_when_the_routes_are_mapped()
+    {
+        var app = Builder(Issuing(), [("EmbedChannels:0:Id", "chan-a"), ("EmbedChannels:1:Id", "chan-b"), ("EmbedChannels:2:Id", "chan-a")]).Build();
+        _apps.Add(app);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => app.MapVaultAIEmbed());
+
+        Assert.Contains("chan-a", ex.Message);
+        Assert.Contains("twice", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    public void A_dot_segment_as_a_channel_id_fails_when_the_routes_are_mapped(string id)
+    {
+        // The upstream address is normalised, so the segment would vanish and the server's key would go to another endpoint.
+        var inList = Builder(Issuing(), [("EmbedChannels:0:Id", id)]).Build();
+        var single = Builder(Issuing(), [("ChannelId", id)]).Build();
+        _apps.Add(inList);
+        _apps.Add(single);
+
+        Assert.Contains("dot segment", Assert.Throws<InvalidOperationException>(() => inList.MapVaultAIEmbed()).Message);
+        Assert.Contains("dot segment", Assert.Throws<InvalidOperationException>(() => single.MapVaultAIEmbed()).Message);
+    }
+
+    [Fact]
+    public void An_entry_with_only_a_label_fails_when_the_routes_are_mapped()
+    {
+        var app = Builder(Issuing(), [("EmbedChannels:0:Label", "Support")]).Build();
+        _apps.Add(app);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => app.MapVaultAIEmbed());
+
+        Assert.Contains("EmbedChannels:0:Id", ex.Message);
+    }
+
+    [Fact]
+    public async Task An_empty_label_is_no_label_and_AllowAnonymous_opens_the_list_to_an_unsigned_caller()
+    {
+        var client = await Host(Issuing(), vaultAI: [("EmbedChannels:0:Id", "chan-a"), ("EmbedChannels:0:Label", ""), ("AllowAnonymous", "true")]);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Get, ChannelsPath, perm: null));
+        var body = JsonNode.Parse(await resp.Content.ReadAsStringAsync())!;
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Null(body["channels"]![0]!["label"]);
+    }
+
+    [Fact]
+    public async Task Ids_that_differ_only_in_case_are_two_channels()
+    {
+        var upstream = Issuing();
+        var client = await Host(upstream, vaultAI: [("EmbedChannels:0:Id", "Chan"), ("EmbedChannels:1:Id", "chan")]);
+
+        using var upper = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("Chan")));
+        using var lower = await client.SendAsync(Request(HttpMethod.Post, ChannelTokenPath("chan")));
+
+        Assert.Equal(HttpStatusCode.OK, upper.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, lower.StatusCode);
+        Assert.Equal(new string?[] { "https://vault.example.test/api/channels/Chan/token", "https://vault.example.test/api/channels/chan/token" },
+            upstream.Calls.Select(c => c.Uri).ToArray());
+    }
+
+    [Fact]
+    public async Task With_no_chat_service_address_the_channel_routes_are_not_mapped_either()
+    {
+        var client = await Host(Issuing(), vaultAI: [.. TwoChannels, ("Url", null)]);
+
+        using var resp = await client.SendAsync(Request(HttpMethod.Get, ChannelsPath));
+
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
 }

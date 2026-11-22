@@ -54,6 +54,14 @@ public class VaultAISettings
     public string? ChannelId { get; set; }
 
     /// <summary>
+    /// The channels a page may pick from — an allow list. Empty (the default) leaves the two channel routes of
+    /// <c>MapVaultAIEmbed()</c> (<c>GET {path}/channels</c>, <c>POST {path}/channels/{id}/token</c>) answering "not enabled".
+    /// It is independent of <see cref="ChannelId"/>, which keeps serving the single-channel routes. An entry with a blank or
+    /// padded id, or an id listed twice, fails when the routes are mapped.
+    /// </summary>
+    public List<VaultAIEmbedChannel> EmbedChannels { get; set; } = [];
+
+    /// <summary>
     /// The address the browser loads the widget from, returned by <c>GET {path}/config</c>. Blank (the default) means
     /// <see cref="Url"/>. Set it when <see cref="Url"/> is an address only the server can reach — it is returned to
     /// every caller the module's authorization admits.

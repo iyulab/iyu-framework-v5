@@ -1993,6 +1993,27 @@ them to an unsigned caller. A browser request another site started is refused wi
 answers every failure — the chat service refusing, unreachable, slow, or answering without a token — with the same `502` and
 repeats nothing of what went wrong; the detail is in the host's log.
 
+**A page that lets the user pick among several channels** names them in `VaultAI:EmbedChannels` — an allow list, independent of
+`ChannelId`:
+
+```jsonc
+"VaultAI": {
+  "EmbedChannels": [
+    { "Id": "support", "Label": "Support" },   // Label is optional; what to show without one is the page's decision
+    { "Id": "sales" }
+  ]
+}
+```
+
+`GET /api/vault-ai-embed/channels` returns `{ enabled, origin, channels: [{ id, label }] }` — every entry, to every caller the
+module admits, so list only channels you are content to show to all of them — and `POST /api/vault-ai-embed/channels/{id}/token`
+issues a token for a listed channel exactly as `token` does for `ChannelId` (same authorization, same cross-site refusal, same
+`502` for every failure). The list is the trust boundary: an id that is not on it, however close to one that is, answers `404`
+before the chat service is asked anything, so a caller cannot name a channel and have the server's key pay for it. Ids are
+compared exactly. An entry with a blank id, an id with leading or trailing whitespace, or an id listed twice fails when the
+routes are mapped. With the list empty both routes answer "not enabled" (`enabled: false` · `503`). `config` and `token` are
+unchanged.
+
 **The server certificate is verified.** The client sends `Token` as a bearer credential, so it checks the
 server's certificate against the operating system trust store like any HTTPS client. A server that presents a
 self-signed certificate is refused — the preferred fix is to add that certificate's issuing authority to the trust
