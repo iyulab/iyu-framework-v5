@@ -55,6 +55,11 @@ with M3L alone, run Schemorph on SQL you wrote yourself, run `mdd` and apply its
 reference only the `Iyu.*` packages a host needs. The one hard dependency is that mdd-booster reads models
 through the published `M3L.Native` NuGet package.
 
+**How much the model stands in for.** Counted as non-blank lines of output: a small shop model — five entities and an enum,
+36 lines — comes out of `mdd` 0.48.0 as 34 files and 546 lines: 5 SQL files (66 lines), 27 C# entity files (428 lines) and
+2 registration files (52 lines). That is the size of what you do not write, and do not keep in step with the model by hand; it is
+not a measure of time saved.
+
 ## What comes with the stack
 
 What you declare, what the generator writes from it, and what the runtime does once the host references the packages.
