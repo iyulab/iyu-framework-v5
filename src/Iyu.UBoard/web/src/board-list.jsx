@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { emptyBoard } from '@iyulab/u-board/check';
 import { boardPage, newBoardId } from './host-api.js';
-import { addPage, readPage } from './list-paging.js';
+import { addPage, readUntilSome } from './list-paging.js';
 
 /** How many boards the list asks the host for at a time. */
 export const LIST_PAGE = 50;
@@ -17,7 +17,7 @@ export function BoardList({ access, api, endpoints }) {
   const more = next !== null;
   useEffect(() => {
     let live = true;
-    readPage(api, { skip: 0, take: LIST_PAGE }).then(page => {
+    readUntilSome(api, { skip: 0, take: LIST_PAGE }).then(page => {
       if (!live) return;
       setBoards(page.items);
       setNext(page.next);
@@ -27,7 +27,7 @@ export function BoardList({ access, api, endpoints }) {
 
   const showMore = async () => {
     setLoadingMore(true);
-    const page = await readPage(api, { skip: next, take: LIST_PAGE });
+    const page = await readUntilSome(api, { skip: next, take: LIST_PAGE });
     setBoards(current => addPage(current, page.items));
     setNext(page.next);
     setLoadingMore(false);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NEXT_SKIP_HEADER, endpointsFor, makeApi } from '../src/host-api.js';
-import { addPage, readPage } from '../src/list-paging.js';
+import { FOLLOW_EMPTY_PAGES, addPage, readPage, readUntilSome } from '../src/list-paging.js';
 import { json } from '../testkit/world.js';
 
 const endpoints = endpointsFor('/uboard');
@@ -75,6 +75,39 @@ test('a person who may open nothing is read through and ends on the host\'s word
   const { boards, pages } = await readAll(api, 50);
   assert.deepEqual(boards, []);
   assert.deepEqual(pages.map(p => p.next), [100, 200, null]);
+  assert.deepEqual(asked.map(a => a.skip), [0, 100, 200]);
+});
+
+test('a reading follows empty pages by itself until a board turns up, and no further', async () => {
+  const { api, asked } = hostOf({ total: 250, visible: n => n === 220, bound: 100 });
+  const page = await readUntilSome(api, { skip: 0, take: 50 });
+  assert.deepEqual(page.items.map(b => b.id), ['b0220']);
+  assert.equal(page.next, null);
+  assert.deepEqual(asked.map(a => a.skip), [0, 100, 200], 'two empty pages were followed to reach the board');
+});
+
+test('a page with boards ends the reading: it is not a scroll that reads everything', async () => {
+  const { api, asked } = hostOf({ total: 250, visible: n => n === 0 || n === 220, bound: 100 });
+  const page = await readUntilSome(api, { skip: 0, take: 50 });
+  assert.deepEqual(page.items.map(b => b.id), ['b0000']);
+  assert.equal(page.next, 100, 'the rest is left to ask for');
+  assert.deepEqual(asked.map(a => a.skip), [0]);
+});
+
+test('a reading gives up after the bound and says where it stopped, so the person decides whether to look further', async () => {
+  const { api, asked } = hostOf({ total: 2000, visible: n => n === 1900, bound: 100 });
+  const page = await readUntilSome(api, { skip: 0, take: 50 });
+  assert.deepEqual(page.items, []);
+  assert.equal(page.next, 100 * (FOLLOW_EMPTY_PAGES + 1));
+  assert.equal(asked.length, FOLLOW_EMPTY_PAGES + 1, 'the first request and no more than the bound of follow-ups');
+  const further = await readUntilSome(api, { skip: page.next, take: 50, follow: 0 });
+  assert.deepEqual(further.items, [], 'with no follow-ups allowed a reading is one request');
+});
+
+test('the word of the host that there is nothing more ends a reading before the bound', async () => {
+  const { api, asked } = hostOf({ total: 250, visible: () => false, bound: 100 });
+  const page = await readUntilSome(api, { skip: 0, take: 50 });
+  assert.deepEqual(page, { items: [], next: null });
   assert.deepEqual(asked.map(a => a.skip), [0, 100, 200]);
 });
 
