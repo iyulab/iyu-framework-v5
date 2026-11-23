@@ -183,7 +183,7 @@ internal static class IyuUBoardBoardRoutes
                 }
 
                 if (listed.Count == take) return (listed, offset);
-                listed.Add(new { b.Id, b.Name, Revision = b.CurrentRevision, b.PublishedRevision, Can = await CanAsync(access, user, b.Id, cancellationToken) });
+                listed.Add(new { b.Id, b.Name, Revision = b.CurrentRevision, b.PublishedRevision, b.CreatedBy, b.UpdatedAt, b.UpdatedBy, Can = await CanAsync(access, user, b.Id, cancellationToken) });
                 offset++;
             }
 

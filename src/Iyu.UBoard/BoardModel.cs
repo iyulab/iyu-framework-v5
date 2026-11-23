@@ -16,7 +16,12 @@ public sealed record BoardRecord(string Id, string Name, string Document, int Cu
 /// <param name="Name">What a person calls the board.</param>
 /// <param name="CurrentRevision">The revision a save must name to be accepted.</param>
 /// <param name="PublishedRevision">The revision being published, or null while the board is unpublished or its publication was withdrawn.</param>
-public sealed record BoardSummary(string Id, string Name, int CurrentRevision, int? PublishedRevision);
+/// <param name="CreatedBy">Who saved the board's first revision, or null when the store does not know.</param>
+/// <param name="UpdatedAt">When the current revision was saved, or null when the store does not know.</param>
+/// <param name="UpdatedBy">Who saved the current revision, or null when the store does not know.</param>
+public sealed record BoardSummary(
+    string Id, string Name, int CurrentRevision, int? PublishedRevision,
+    string? CreatedBy = null, DateTimeOffset? UpdatedAt = null, string? UpdatedBy = null);
 
 /// <summary>One revision of a board. Revisions are only ever added, never changed or removed — until the board itself is deleted.</summary>
 /// <param name="BoardId">The board.</param>

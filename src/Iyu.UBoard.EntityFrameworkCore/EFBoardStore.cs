@@ -176,10 +176,19 @@ public sealed class EFBoardStore<TContext, TBoard, TRevision, TPublication>(TCon
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<BoardSummary>> ListAsync(int skip, int take, CancellationToken cancellationToken = default) =>
-        await Boards().OrderBy(b => b.Id).Skip(skip).Take(take)
-            .Select(b => new BoardSummary(b.Id, b.Name, b.CurrentRevision, b.PublishedRevision))
+    public async Task<IReadOnlyList<BoardSummary>> ListAsync(int skip, int take, CancellationToken cancellationToken = default)
+    {
+        // Who made the board and when it last changed are facts of its revisions, not of the board's row: the page of boards is
+        // read once and each of those facts is a correlated lookup on the revision table's key, so the cost follows the page, not the history.
+        var revisions = context.Set<TRevision>().AsNoTracking();
+        return await Boards().OrderBy(b => b.Id).Skip(skip).Take(take)
+            .Select(b => new BoardSummary(
+                b.Id, b.Name, b.CurrentRevision, b.PublishedRevision,
+                revisions.Where(r => r.BoardId == b.Id && r.Revision == 1).Select(r => r.CreatedBy).FirstOrDefault(),
+                revisions.Where(r => r.BoardId == b.Id && r.Revision == b.CurrentRevision).Select(r => (DateTimeOffset?)r.CreatedAt).FirstOrDefault(),
+                revisions.Where(r => r.BoardId == b.Id && r.Revision == b.CurrentRevision).Select(r => r.CreatedBy).FirstOrDefault()))
             .ToListAsync(cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task<BoardChange> RenameAsync(string id, string name, CancellationToken cancellationToken = default)

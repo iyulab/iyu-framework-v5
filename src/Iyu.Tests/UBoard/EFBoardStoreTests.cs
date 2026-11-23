@@ -266,15 +266,24 @@ public abstract class EFBoardStoreContract : IDisposable
     {
         using var provider = Start();
         foreach (var id in new[] { "c", "a", "b" }) await Board(provider, s => s.CreateAsync(id, "Board " + id, Doc(id), "ana"));
+        var created = _time.GetUtcNow();
+        _time.Advance(TimeSpan.FromHours(2));
         await Board(provider, s => s.SaveAsync("b", Doc("b2"), 1, "bo"));
         await Board(provider, s => s.PublishAsync("b", 2, "bo"));
+        var saved = created + TimeSpan.FromHours(2);
 
         var first = await Board(provider, s => s.ListAsync(0, 2));
         var second = await Board(provider, s => s.ListAsync(2, 2));
 
+        // Who made a board is who saved its first revision; when and by whom it last changed is its current revision.
         Assert.Equal(
-            new[] { new BoardSummary("a", "Board a", 1, null), new BoardSummary("b", "Board b", 2, 2) }, first);
-        Assert.Equal(new[] { new BoardSummary("c", "Board c", 1, null) }, second);
+            new[]
+            {
+                new BoardSummary("a", "Board a", 1, null, "ana", created, "ana"),
+                new BoardSummary("b", "Board b", 2, 2, "ana", saved, "bo"),
+            },
+            first);
+        Assert.Equal(new[] { new BoardSummary("c", "Board c", 1, null, "ana", created, "ana") }, second);
         Assert.Empty(await Board(provider, s => s.ListAsync(3, 10)));
     }
 

@@ -97,13 +97,15 @@ export function BoardList({ access, api, endpoints }) {
           </div>
         ) : (
           <table className="btbl">
-            <thead><tr><th>Name</th><th>Latest</th><th>Published</th><th>Your access</th><th aria-label="Actions" /></tr></thead>
+            <thead><tr><th>Name</th><th>Created by</th><th>Updated</th><th>Latest</th><th>Published</th><th>Your access</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {boards.map(board => {
                 const can = board.can ?? {};
                 return (
                   <tr key={board.id} data-board={board.id} tabIndex={0} onClick={() => open(board.id)} onKeyDown={event => { if (event.key === 'Enter' && event.target === event.currentTarget) open(board.id); }}>
                     <td><a href={boardPage(endpoints, board.id)} onClick={stop}><b>{board.name}</b></a></td>
+                    <td data-col="created-by">{board.createdBy ?? <span style={{ color: 'var(--faint)' }}>—</span>}</td>
+                    <td data-col="updated">{board.updatedAt ? <time dateTime={board.updatedAt} title={board.updatedBy ? `by ${board.updatedBy}` : undefined}>{new Date(board.updatedAt).toLocaleString()}</time> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
                     <td>{board.revision ? `r${board.revision}` : <span style={{ color: 'var(--faint)' }}>empty</span>}</td>
                     <td>{board.publishedRevision ? `r${board.publishedRevision}` : <span style={{ color: 'var(--faint)' }}>not published</span>}</td>
                     <td><span className={`acc ${can.edit ? 'edit' : 'read'}`}>{can.edit ? '● Can edit' : '🔒 Read only'}</span></td>
