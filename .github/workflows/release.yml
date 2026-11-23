@@ -3,12 +3,14 @@ name: Release
 on:
   push:
     tags:
-      # Three version lines. `v0.48.0` releases the Iyu.* packages that share one number; `lowline-v0.48.0`
-      # releases Iyu.Lowline and `notifications-v0.1.0` releases Iyu.Notifications, each versioned on its own
-      # (src/Iyu.Lowline/Directory.Build.props, src/Iyu.Notifications/Directory.Build.props).
+      # Four version lines. `v0.48.0` releases the Iyu.* packages that share one number; `lowline-v0.48.0`
+      # releases Iyu.Lowline, `notifications-v0.1.0` releases Iyu.Notifications and `uboard-v0.1.0` releases Iyu.UBoard with its
+      # Entity Framework Core store, each versioned on its own (src/Iyu.Lowline/Directory.Build.props,
+      # src/Iyu.Notifications/Directory.Build.props, src/Iyu.UBoard/Directory.Build.props).
       - 'v*'
       - 'lowline-v*'
       - 'notifications-v*'
+      - 'uboard-v*'
 
 jobs:
   release:
@@ -25,12 +27,20 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Iyu.UBoard builds its board screen with Node.js, and `dotnet pack` refuses to make the package without it, so the version is
+      # the one the screen needs rather than whatever the runner image carries.
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.12'
+
       - name: Extract line and version from tag
         id: version
         run: |
           case "$GITHUB_REF_NAME" in
             lowline-v*) LINE=lowline; TAG_VERSION="${GITHUB_REF_NAME#lowline-v}"; PROPS=src/Iyu.Lowline/Directory.Build.props ;;
             notifications-v*) LINE=notifications; TAG_VERSION="${GITHUB_REF_NAME#notifications-v}"; PROPS=src/Iyu.Notifications/Directory.Build.props ;;
+            uboard-v*) LINE=uboard; TAG_VERSION="${GITHUB_REF_NAME#uboard-v}"; PROPS=src/Iyu.UBoard/Directory.Build.props ;;
             *)          LINE=core;    TAG_VERSION="${GITHUB_REF_NAME#v}";         PROPS=Directory.Build.props ;;
           esac
           {
@@ -54,7 +64,7 @@ jobs:
       # from a release's "Packages affected" line changed nothing the consumer depends on. That
       # line is hand-maintained and has been wrong. The check runs here, before Pack, because a
       # wrong list caught after publishing is already on nuget.org.
-      # The check covers the shared-number line; Iyu.Lowline and Iyu.Notifications each have one package on a line of their own, with their own changelog.
+      # The check covers the shared-number line; Iyu.Lowline, Iyu.Notifications and Iyu.UBoard each sit on a line of their own, with their own changelog.
       - name: Packages affected matches the release diff
         if: steps.version.outputs.line == 'core'
         run: .github/scripts/packages-affected.sh released

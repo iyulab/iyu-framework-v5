@@ -4,10 +4,6 @@
     <Description>Entity Framework Core board store behind Iyu.UBoard - the boards, their revisions and their publication history - over the application's own DbContext tables.</Description>
     <PackageTags>iyu;board;revisions;entityframeworkcore</PackageTags>
     <RootNamespace>Iyu.UBoard.EntityFrameworkCore</RootNamespace>
-    <!-- TODO: leave unpackable until the first Iyu.UBoard release is approved. On the shared number this package would ride the next
-         core release and depend on an Iyu.UBoard version that is not on nuget.org yet. Remove this line (and add the uboard tag
-         to release.yml) in the change that approves the first release. -->
-    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

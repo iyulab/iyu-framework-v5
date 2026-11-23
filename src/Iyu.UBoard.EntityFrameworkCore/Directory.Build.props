@@ -1,0 +1,7 @@
+<Project>
+
+  <!-- Same version line as Iyu.UBoard, which this store belongs to: one `uboard-v` tag publishes both, and one changelog
+       (src/Iyu.UBoard/CHANGELOG.md) describes both. Everything is imported from that file, so the two cannot disagree. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Iyu.UBoard/Directory.Build.props" />
+
+</Project>
