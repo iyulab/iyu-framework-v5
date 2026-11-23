@@ -344,6 +344,61 @@ public sealed class BoardRoutesTests
     }
 
     [Fact]
+    public async Task A_navigation_from_another_site_changes_nothing_and_a_foreign_origin_is_refused_whatever_else_it_says()
+    {
+        await using var host = await StartAsync();
+        using var made = await host.Client.SendAsync(host.Request(HttpMethod.Post, "/sales?name=Sales"));
+        Assert.Equal(HttpStatusCode.Created, made.StatusCode);
+
+        // The exception for arriving at a page is a GET to a page: the same headers on a write, or on a read of data, change nothing.
+        HttpRequestMessage Navigation(HttpMethod method, string path, string site = "cross-site")
+        {
+            var request = host.Request(method, path);
+            request.Headers.Add("Sec-Fetch-Site", site);
+            request.Headers.Add("Sec-Fetch-Mode", "navigate");
+            request.Headers.Add("Sec-Fetch-Dest", "document");
+            return request;
+        }
+
+        using var publish = await host.Client.SendAsync(Navigation(HttpMethod.Post, "/sales/publish?revision=1"));
+        using var rename = await host.Client.SendAsync(Navigation(HttpMethod.Put, "/sales/name?name=Taken"));
+        using var delete = await host.Client.SendAsync(Navigation(HttpMethod.Delete, "/sales"));
+        using var sameSite = await host.Client.SendAsync(Navigation(HttpMethod.Get, "/sales", site: "same-site"));
+        using var foreign = host.Request(HttpMethod.Get, "/sales");
+        foreign.Headers.Add("Origin", "https://evil.example.test");
+        using var foreignRead = await host.Client.SendAsync(foreign);
+
+        Assert.Equal(HttpStatusCode.Forbidden, publish.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, rename.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, sameSite.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, foreignRead.StatusCode);
+        // And nothing moved: the board is still there, unpublished, under its own name.
+        using var read = await host.SendAsync(HttpMethod.Get, "/sales");
+        var body = await read.Content.ReadAsStringAsync();
+        Assert.Contains("\"name\":\"Sales\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"publishedRevision\":null", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task What_the_routes_answer_is_not_kept_by_a_cache()
+    {
+        await using var host = await StartAsync();
+        using var made = await host.Client.SendAsync(host.Request(HttpMethod.Post, "/sales?name=Sales"));
+        Assert.Equal(HttpStatusCode.Created, made.StatusCode);
+
+        using var board = await host.SendAsync(HttpMethod.Get, "/sales");
+        using var list = await host.SendAsync(HttpMethod.Get, "");
+        using var revisions = await host.SendAsync(HttpMethod.Get, "/sales/revisions");
+
+        foreach (var response in new[] { board, list, revisions })
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+        }
+    }
+
+    [Fact]
     public async Task A_body_that_is_not_json_is_415_while_a_read_and_a_request_without_a_body_need_no_content_type()
     {
         await using var host = await StartAsync();

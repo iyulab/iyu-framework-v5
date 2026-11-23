@@ -29,8 +29,11 @@ public static class IyuUBoardEndpoints
     /// </para>
     /// <para>
     /// The routes require a signed-in caller (or <see cref="IyuUBoardOptions.Policy"/>); there is no anonymous mode. A request
-    /// must be same-origin: a browser's <c>Sec-Fetch-Site</c> other than <c>same-origin</c>, or an <c>Origin</c> that is not this
-    /// host, is refused with 403, so a page on another site cannot act with the caller's cookie.
+    /// must be same-origin: a browser's <c>Sec-Fetch-Site</c> other than <c>same-origin</c> (or <c>none</c>), or an <c>Origin</c> that is not this
+    /// host, is refused with 403, so a page on another site cannot act with the caller's cookie. The one exception is a person arriving
+    /// at a page of the screen from another site (a link, or the identity provider sending them back): a top-level GET navigation to a
+    /// document is let through for the screen's two pages and nothing else. A request with neither header is let through. Answers carry
+    /// <c>Cache-Control: no-store</c> unless the route sets its own.
     /// </para>
     /// </remarks>
     public static RouteGroupBuilder MapIyuUBoard(this IEndpointRouteBuilder endpoints, string prefix = "/uboard")
@@ -42,6 +45,7 @@ public static class IyuUBoardEndpoints
         if (settings.Policy is { Length: > 0 } policy) group.RequireAuthorization(policy);
         else group.RequireAuthorization();
         group.AddEndpointFilter(IyuUBoardRequestRules.SameOrigin);
+        group.AddEndpointFilter(IyuUBoardRequestRules.NoStoreUnlessSet);
         if (settings.BoardsEnabled)
         {
             // An assistant is on when the host registered one; the port is looked for by type, so nothing is built to find out.
