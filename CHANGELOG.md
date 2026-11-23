@@ -31,7 +31,7 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), `Iyu.VaultAI` (embed channels), and dependency patch releases in `Iyu.Data.SqlServer` and `Iyu.FileServer.Azure`.
+**Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), `Iyu.VaultAI` (embed channels; the folder chatbots), `Iyu.UBoard.IronHive` and `Iyu.UBoard.MainServer` (first release), and dependency patch releases in `Iyu.Data.SqlServer` and `Iyu.FileServer.Azure`.
 
 ### Added
 
@@ -68,6 +68,20 @@ onward; earlier entries state the same consequence in prose where it applies.
   policy (`AuthorizeProperty`) holds for naming it in a condition or an ordering, by any way of writing the request — inline, in a
   variable, in `and` / `or`, in a fragment — and a caller who fails it is refused before a query runs. A condition is bounded
   (`MaxConditionDepth` 10, `MaxConditionNodes` 200, counted on the value sent). Nothing changes for a host that does not turn it on.
+
+- **The folder chatbots are public: `AddVaultAIFolderChatbots(configuration)`, `VaultAIFolderChatbotOptions` and
+  `VaultAIFolderChatbotModelOptions`.** Each first-level folder under `VaultAI:Chatbots:Path` is one chatbot; a background service keeps a
+  vault-ai storage, an agent and the chatbots' scopes in line with the folders (once at start, then every `RescanMinutes`). Off unless
+  `VaultAI:Chatbots:Enabled` is true — nothing is registered otherwise — and a host that turns it on without what it needs does not start,
+  the message naming the setting and never its value. The registration lives in `Iyu.VaultAI` beside `AddVaultAIReports`; the engine's
+  seams (the vault-ai admin client, the folder source, the manifest store, the sync service, the status reader) stay internal, and the status
+  reaches a page through `MapVaultAIEmbed()`'s `config` answer, which now carries `bots` for a signed-in caller. The names vault-ai holds
+  (`Prefix`, tags, the record kept in `App_Data/vault-ai-chatbots.manifest.json`) are the ones an engine that already runs uses, so a host
+  can take over without uploading anything again; the README says how, and what the people who can write a folder can ask for.
+- **First release of `Iyu.UBoard.IronHive` and `Iyu.UBoard.MainServer`** (on this number; `Iyu.UBoard` and `Iyu.UBoard.EntityFrameworkCore` are
+  on a line of their own, `uboard-v`, with `src/Iyu.UBoard/CHANGELOG.md`). `Iyu.UBoard.IronHive` fills the board assistant's port with
+  `IronHive.Agent` and IronProw; `Iyu.UBoard.MainServer` describes an `Iyu.MainServer` host's OData model as the catalog a board is built from.
+  Both depend on a minimum version of `Iyu.UBoard` 0.1.0.
 
 ### Changed
 

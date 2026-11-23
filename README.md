@@ -229,13 +229,16 @@ needs which `Iyu.*` release» under «Upgrading» first.
 | `Iyu.FileServer` | `AddIyuFileGateway` / `MapIyuFileGateway` — token-gated byte gateway with a local filesystem backend and a storage port other backends plug into |
 | `Iyu.FileServer.Azure` | `AddIyuFileGateway(…, AzureBlobOptions)` — the gateway's Azure Blob backend; a connection string, or a token credential the host supplies (no account key) |
 | `Iyu.Server.Chat` | `AddIyuChat` / `UseIyuChat` — bare-chat adapter |
-| `Iyu.VaultAI` | `AddVaultAIReports` / `UseVaultAIReports` — scheduled report generation |
+| `Iyu.VaultAI` | `AddVaultAIReports` / `UseVaultAIReports` — scheduled report generation; `AddVaultAIFolderChatbots` — keeps vault-ai chatbots in line with folders |
 | `Iyu.Report` | `AddIyuReport` — office-document template rendering via [DocuChef](https://github.com/iyulab/DocuChef); unrelated to `Iyu.VaultAI`'s scheduled reports, see below |
 | `Iyu.Lowline` | `AddIyuLowline` — runs the [Lowline](https://github.com/iyulab/lowline) engine in the host over two ports the host registers for keeping its records; assumes no storage technology (Alpine images: the engine carries a musl build, and this package's tests pass on an x64 Alpine image) |
 | `Iyu.Lowline.EntityFrameworkCore` | `AddIyuLowline<TContext, TRecord, TTuning>` — the two ports over the application's own Entity Framework tables. Reference it only if the records live in your `DbContext` |
 | `Iyu.Notifications` | `AddIyuNotifications` — host-neutral notification routing: events declared in code, recipients resolved from users and roles (and from kinds the application resolves itself), an inbox with read and handled state, and a record of events nobody could be reached for; assumes no storage technology (see «Telling people what happened») |
 | `Iyu.Notifications.EntityFrameworkCore` | `AddIyuNotifications<TContext, TInbox, TUnreached, TTarget>` — the inbox, the unreached record and the administrators' target table over the application's own Entity Framework tables. Reference it only if they live in your `DbContext` |
 | `Iyu.UBoard` | `AddIyuUBoard(o => o.Boards().Screen())` — host-neutral board storage and the screen that manages boards: boards as opaque JSON documents, an append-only revision history, saves that name the revision they worked from, a publication pointer with a history to fall back through, access rules the application owns, a port for an assistant's chat, and a list-and-editor screen the package carries; assumes no storage technology (see «Keeping boards and their history») |
+| `Iyu.UBoard.EntityFrameworkCore` | `AddIyuUBoard<TContext, TBoard, TRevision, TPublication>` — the boards, their revisions and their publication history over the application's own `DbContext` tables |
+| `Iyu.UBoard.IronHive` | `AddIyuUBoardIronHive` — fills the board assistant's port with `IronHive.Agent` and IronProw: a board's chat answered by any OpenAI-compatible model service the host names |
+| `Iyu.UBoard.MainServer` | `AddIyuUBoardMainServerCatalog` — what a board can be built from is the host's OData model, listed as the caller's read policies allow |
 | `Iyu.DocConvert` | `AddIyuDocConvert` — `IDocumentConverter.ConvertToPdfAsync`, backed by a self-hosted [Gotenberg](https://gotenberg.dev) instance |
 
 ## Namespaces a consumer needs
@@ -2058,6 +2061,66 @@ Report folders are content-addressed by name (`{ReportPath}/{slug}/info.json` +
 `prompt.md`, with `output/*.md` and `logs/*.log` populated at runtime) and are not created by
 this package — a consumer seeds them ahead of the first scheduled run.
 
+## Folder chatbots (`Iyu.VaultAI`)
+
+Each first-level folder under a root you name is one chatbot. The engine keeps a vault-ai workspace in line with
+those folders: the files go into one storage, tagged by chatbot, and one agent answers from them with each chatbot as its scope.
+It is a background service that is off unless you turn it on, and then it registers nothing else of your host.
+
+```csharp
+using Iyu.VaultAI;
+
+builder.Services.AddVaultAIFolderChatbots(builder.Configuration);   // reads "VaultAI" and "VaultAI:Chatbots"
+```
+
+```jsonc
+// appsettings.json
+"VaultAI": {
+  "Url": "https://vault-ai.internal",
+  "Token": "...",                  // a key that can change vault-ai's settings
+  "Chatbots": {
+    "Enabled": true,               // nothing is registered while this is false
+    "Path": "chatbots",            // the root; a relative path is taken from the content root
+    "Prefix": "chatbot:",          // one engine per workspace and prefix - use another for development and tests
+    "RescanMinutes": 10,
+    "DeleteGraceHours": 24,        // how long a vanished folder's chatbot is kept before it is deleted
+    "MaxFileMB": 200,
+    "McpAllowedHosts": null,       // see "What the people who can write a folder can ask for"
+    "Models": { "Index": "", "Answer": "", "Embedding": "", "Rerank": "" }   // vault-ai model row ids; blank picks when only one fits
+  }
+}
+```
+
+A host that turns the engine on without what it needs does not start: the message names the setting that is missing or wrong, never its
+value. The folders are checked when the host starts and then every `RescanMinutes`; a request from a user never starts a check. A
+chatbot whose folder vanished stays for `DeleteGraceHours` and is then deleted.
+
+**Models.** The ids are rows of the vault-ai workspace's models, not model names. A blank one is chosen when exactly one model of the right
+kind fits (a language model with a context of at least 65,536 tokens for indexing and answering; an embedding model; optionally a rerank
+model); when several fit and none is in use, nothing is guessed and a warning is logged. The embedding model in use is never replaced
+by itself — changing it makes vault-ai embed the whole storage again, so only `Models:Embedding` can change it.
+
+**Showing the chatbots.** With the engine registered, `MapVaultAIEmbed()`'s `config` answer also carries `bots` — one entry per chatbot
+with its `state` and how many files are indexed, in progress or failed — for a signed-in caller (an anonymous caller never gets it). The
+conversation itself happens in vault-ai's page; this package neither relays nor stores it. Any signed-in user can open any chatbot
+by changing the `scope` of the page: the token belongs to the channel, not to a chatbot, so who may *see* the list is the host's to
+narrow, but who may *ask* which chatbot is not something this package can enforce.
+
+**What the people who can write a folder can ask for.** A chatbot's `mcp.json` names the connectors its scope uses, and a `url` entry
+with a `{{KEY}}` header makes vault-ai send that workspace secret to that address. Set `McpAllowedHosts` to the hosts such addresses may
+point at; left unset, any host is accepted (what installations that already run this way depend on) and the engine says so in its log. An
+empty list refuses every `url` entry. A `connector` entry can only attach a connector set up for general use, never one the engine owns
+for another chatbot. A link (symbolic link, junction) inside a chatbot's folder is not followed, so a file outside it cannot be uploaded by
+pointing at it; the check follows the handle that was opened, but on an operating system that cannot say where a handle points (macOS) only
+the path is checked — where the people who can write a folder should not be trusted with whatever the service account can read, serve the
+documents from a place they cannot make links in.
+
+**Taking over from an engine that already runs.** Stop the old engine first: two engines on one workspace and prefix delete each other's
+files. Set `Prefix` to the old value and leave `ManifestPath` blank to read the record the old engine kept
+(`App_Data/vault-ai-chatbots.manifest.json` under the content root); then nothing is uploaded again and the log line of the first check
+(`Folder chatbot sync: applied …`) should say `applied 0`. If the record is lost, turn `AdoptForeign` on for one check — the storage is taken over by name and files of the same name and size
+are adopted — and turn it off again.
+
 ## Document templates (`Iyu.Report`)
 
 A thin DI wrapper around [DocuChef](https://github.com/iyulab/DocuChef)'s
@@ -2521,8 +2584,9 @@ transaction you began on the same context an item is committed or rolled back wi
 
 ## Keeping boards and their history (`Iyu.UBoard`)
 
-*Implemented and tested, not yet published: the two packages below are built from this repository and do not ship until their
-first release.*
+*Implemented and tested, not yet published: the four packages below (`Iyu.UBoard` and `Iyu.UBoard.EntityFrameworkCore` on a version
+line of their own, `Iyu.UBoard.IronHive` and `Iyu.UBoard.MainServer` on the shared `Iyu.*` number) are built from this repository and
+do not ship until the first release.*
 
 An application that embeds a board viewer and editor has to keep the boards somewhere: the document as it stands, every earlier
 revision so an edit can be undone, which revision readers see, and a way to fall back when a published revision turns out to be
@@ -2580,7 +2644,7 @@ the `sub` claim.
 **What a board can be built from.** `AddIyuUBoard(o => o.Boards().Catalog())` adds `GET {prefix}/catalog`, which lists the entities,
 properties and links a board can read as the signed-in caller may read them: `{ "entities": [ { "name", "readable", "properties":
 [ { "name", "type", "nullable", "readable", "members"? } ], "links": [ { "name", "target", "collection" } ] } ] }`. `Catalog()` needs a
-source registered by the host; `Iyu.UBoard.MainServer` (not packed yet) describes an `Iyu.MainServer` host with
+source registered by the host; `Iyu.UBoard.MainServer` describes an `Iyu.MainServer` host with
 `services.AddIyuUBoardMainServerCatalog()` — the sets and properties of its OData model, kept to what the caller's read policies allow
 (`Authorize`, `AuthorizeProperty`, or the fallback policy for a set that names none). What the caller may not read is left out. With
 `Catalog(showUnreadable: true)` it is listed and marked `"readable": false` instead, with no word about which policy guards it.
@@ -2594,7 +2658,7 @@ history an answer returned with the next request, either `message` or the `resul
 as the person. Each turn is asked of `IBoardAccess` first: a board the caller may not view is 404, and a caller who may view but not edit gets an
 answer-only turn — the assistant is offered only the tools declared `"edits": false`, and the answer carries `"answerOnly": true`. That is
 the screen's own declaration, so it keeps an edit from being offered rather than preventing one; the save is what is refused (403).
-`Iyu.UBoard.IronHive` (not packed yet) is an implementation over `IronHive.Agent` and IronProw: `services.AddIyuUBoardIronHive(o => { o.BaseUrl = …; o.ApiKey = …; o.Model = …; })`
+`Iyu.UBoard.IronHive` is an implementation over `IronHive.Agent` and IronProw: `services.AddIyuUBoardIronHive(o => { o.BaseUrl = …; o.ApiKey = …; o.Model = …; })`
 for any OpenAI-compatible model service — the address, key, model and reply limit are set there and nowhere else, and the host does not start without an address and a model.
 
 **The screen.** `AddIyuUBoard(o => o.Boards().Screen())` makes `MapIyuUBoard` also serve a screen that manages boards, so the application writes no page:
