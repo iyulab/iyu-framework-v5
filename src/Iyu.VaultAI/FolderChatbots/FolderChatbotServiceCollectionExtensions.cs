@@ -7,62 +7,11 @@ using Microsoft.Extensions.Options;
 
 namespace Iyu.VaultAI.FolderChatbots;
 
-/// <summary>Registers the folder chatbot engine.</summary>
+/// <summary>What registering the folder chatbot engine shares with its tests: where its record lives and how a configured path is read.</summary>
 internal static class FolderChatbotServiceCollectionExtensions
 {
     /// <summary>The place the engine keeps its record unless told otherwise: the file existing installations already have.</summary>
     internal static readonly string[] DefaultManifestSegments = ["App_Data", "vault-ai-chatbots.manifest.json"];
-
-    /// <summary>
-    /// Adds the folder chatbot engine - a background service that keeps the chatbot folders and vault-ai in line. Nothing is registered
-    /// unless <c>VaultAI:Chatbots:Enabled</c> is true (no service, no route, no client). A host that turns it on without what it needs does
-    /// not start: the message names the setting that is missing or wrong, never its value.
-    /// </summary>
-    /// <remarks>
-    /// Reads <c>VaultAI:Url</c> and <c>VaultAI:Token</c> (the key must be able to change settings) and <c>VaultAI:Chatbots</c>. It shares
-    /// <see cref="VaultAISettings"/> with the report module without needing it: the two can be added together or alone.
-    /// </remarks>
-    public static IServiceCollection AddVaultAIFolderChatbots(this IServiceCollection services, IConfiguration configuration)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(configuration);
-
-        var vaultAI = configuration.GetSection("VaultAI");
-        var section = vaultAI.GetSection("Chatbots");
-        if (!section.GetValue<bool>(nameof(VaultAIFolderChatbotOptions.Enabled))) return services;
-
-        services.Configure<VaultAISettings>(vaultAI);
-        services.AddOptions<VaultAIFolderChatbotOptions>().Bind(section).ValidateOnStart();
-        services.AddSingleton<IValidateOptions<VaultAIFolderChatbotOptions>, FolderChatbotOptionsValidator>();
-
-        services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<IFolderChatbotAdmin>(sp =>
-            FolderChatbotAdminClient.Create(sp.GetRequiredService<IOptions<VaultAISettings>>().Value));
-        services.TryAddSingleton<IFolderChatbotSource>(sp =>
-            new FileSystemFolderChatbotSource(ResolveUnderContentRoot(
-                sp.GetRequiredService<IOptions<VaultAIFolderChatbotOptions>>().Value.Path,
-                sp.GetRequiredService<IHostEnvironment>().ContentRootPath)));
-        services.TryAddSingleton<IFolderChatbotManifestStore>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<VaultAIFolderChatbotOptions>>().Value;
-            var root = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
-            return new FileFolderChatbotManifestStore(string.IsNullOrWhiteSpace(options.ManifestPath)
-                ? Path.Combine([root, .. DefaultManifestSegments])
-                : ResolveUnderContentRoot(options.ManifestPath, root));
-        });
-        services.TryAddSingleton(sp => new FolderChatbotSyncService(
-            sp.GetRequiredService<IOptions<VaultAIFolderChatbotOptions>>().Value,
-            sp.GetRequiredService<IFolderChatbotAdmin>(),
-            sp.GetRequiredService<IFolderChatbotSource>(),
-            sp.GetRequiredService<IFolderChatbotManifestStore>(),
-            sp.GetRequiredService<IOptions<VaultAISettings>>().Value.Url,
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<FolderChatbotSyncService>(),
-            sp.GetRequiredService<TimeProvider>()));
-        services.TryAddSingleton<FolderChatbotStatusReader>();
-        services.AddSingleton<FolderChatbotSyncHostedService>();
-        services.AddHostedService(sp => sp.GetRequiredService<FolderChatbotSyncHostedService>());
-        return services;
-    }
 
     /// <summary>A relative path is taken from the content root; a blank one stays blank (it never turns into the content root itself).</summary>
     internal static string ResolveUnderContentRoot(string path, string contentRoot)

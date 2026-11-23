@@ -14,11 +14,12 @@ namespace Iyu.VaultAI.FolderChatbots;
 /// people who can write a bot's folder should not be trusted with whatever the service account can read, serve the documents from a
 /// location they cannot make links in.
 /// </remarks>
-internal sealed class VaultAIFolderChatbotOptions
+public sealed class VaultAIFolderChatbotOptions
 {
     /// <summary>The default prefix of the vault-ai resource names. It matches the one existing installations already use.</summary>
     public const string DefaultPrefix = "chatbot:";
 
+    /// <summary>Whether the engine is on. Nothing is registered while this is false.</summary>
     public bool Enabled { get; set; }
 
     /// <summary>The root of the chatbot folders. A bot's settings live inside it too: the root <c>AGENTS.md</c> and each bot's <c>AGENTS.md</c> and <c>mcp.json</c>.</summary>
@@ -52,7 +53,7 @@ internal sealed class VaultAIFolderChatbotOptions
     /// </summary>
     public List<string>? McpAllowedHosts { get; set; }
 
-    /// <summary>The models to use; blank picks from the workspace's list (see <see cref="FolderChatbotModelPicker"/>).</summary>
+    /// <summary>The models to use; blank picks from the workspace's list (see <see cref="VaultAIFolderChatbotModelOptions"/>).</summary>
     public VaultAIFolderChatbotModelOptions Models { get; set; } = new();
 
     /// <summary>
