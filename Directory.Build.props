@@ -15,9 +15,9 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- `dotnet pack -p:IyuPackLine=core|lowline|notifications` packs one version line (release.yml passes it); unset packs everything.
-         A line other than `core` packs only the package that owns that line: this turns packing off for everything else, and the
-         owner's own props file (src/Iyu.Lowline, src/Iyu.Notifications) turns it back on for its line and off for the core line. -->
+    <!-- `dotnet pack -p:IyuPackLine=core|lowline|notifications|uboard` packs one version line (release.yml passes it); unset packs everything.
+         A line other than `core` packs only the packages that own that line: this turns packing off for everything else, and the
+         owner's own props file (src/Iyu.Lowline, src/Iyu.Notifications, src/Iyu.UBoard) turns it back on for its line and off for the core line. -->
     <IsPackable Condition="'$(IyuPackLine)' != '' And '$(IyuPackLine)' != 'core'">false</IsPackable>
   </PropertyGroup>
 
