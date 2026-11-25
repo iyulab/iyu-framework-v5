@@ -6,6 +6,8 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-25
+
 ### Added
 
 - Board storage for a host that embeds a board viewer and editor: `AddIyuUBoard(o => o.Boards())` registers `IyuBoardService` over the

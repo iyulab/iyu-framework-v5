@@ -2584,10 +2584,6 @@ transaction you began on the same context an item is committed or rolled back wi
 
 ## Keeping boards and their history (`Iyu.UBoard`)
 
-*Implemented and tested, not yet published: the four packages below (`Iyu.UBoard` and `Iyu.UBoard.EntityFrameworkCore` on a version
-line of their own, `Iyu.UBoard.IronHive` and `Iyu.UBoard.MainServer` on the shared `Iyu.*` number) are built from this repository and
-do not ship until the first release.*
-
 An application that embeds a board viewer and editor has to keep the boards somewhere: the document as it stands, every earlier
 revision so an edit can be undone, which revision readers see, and a way to fall back when a published revision turns out to be
 one the viewer refuses. `Iyu.UBoard` owns that bookkeeping and never looks inside a document; `Iyu.UBoard.EntityFrameworkCore`
@@ -2752,7 +2748,7 @@ All warnings are treated as errors across every project in the solution.
 
 ## Status
 
-Version **0.50.0**. Unit and integration tests run against every project on each
+Version **0.51.0**. Unit and integration tests run against every project on each
 build, and warnings are errors. The OData/GraphQL runtime, identity, attachments, chat, and
 scheduled-report modules are all in place and consumed in production.
 

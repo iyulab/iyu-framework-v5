@@ -31,6 +31,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-11-25
+
 **Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), `Iyu.VaultAI` (embed channels; the folder chatbots), `Iyu.UBoard.IronHive` and `Iyu.UBoard.MainServer` (first release), and dependency patch releases in `Iyu.Data.SqlServer` and `Iyu.FileServer.Azure`.
 
 ### Added
