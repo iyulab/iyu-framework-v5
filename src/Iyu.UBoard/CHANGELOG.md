@@ -6,6 +6,8 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-26
+
 ### Fixed
 
 - The routes answer in camelCase on every host. They followed the host's HTTP JSON options, so on a host that keeps member names as
