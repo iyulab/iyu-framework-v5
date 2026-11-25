@@ -1060,15 +1060,32 @@ async function main() {
       await partner.close();
 
       // A host that cuts its look short (it looks at a bounded number of boards per request) answers an empty page that says where to go
-      // on. The bound itself is held by the host's own tests; here the host's answer to the first request is replaced by that short one.
+      // on. The bound itself is held by the host's own tests; here the host's answer to the first requests is replaced by that short one.
+      // One empty page is followed by the list itself: the person is shown the boards with no «Show more» to press.
+      const followed = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'partner' } });
+      await watch(followed);
+      const auto = await followed.newPage();
+      watchConsole(auto);
+      let oneEmpty = 1;
+      await auto.route('**/uboard/boards?*', async route => {
+        if (oneEmpty-- <= 0) return route.continue();
+        await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'X-UBoard-Next-Skip': '0' }, body: '[]' });
+      });
+      await auto.goto(`${origin}${SCREEN}`);
+      await auto.waitForSelector('tr[data-board]');
+      equal((await auto.locator('tr[data-board]').evaluateAll(rows => rows.map(row => row.getAttribute('data-board')))).join(','), shared.join(','), 'an empty page the host says go on from is followed by the list itself');
+      equal(await auto.locator('[data-testid=list-more]').count(), 0, 'with no «Show more» to press');
+      equal(await oneEmpty, -1, 'and the host was asked once more, not many times');
+      await followed.close();
+
+      // Past the bound — more empty pages in a row than the list follows by itself — it stops and leaves the rest to the person.
       const cut = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { 'X-Sample-User': 'partner' } });
       await watch(cut);
       const short = await cut.newPage();
       watchConsole(short);
-      let first = true;
+      let empties = 4; // the first request and the three follow-ups the list makes by itself
       await short.route('**/uboard/boards?*', async route => {
-        if (!first) return route.continue();
-        first = false;
+        if (empties-- <= 0) return route.continue();
         await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'X-UBoard-Next-Skip': '0' }, body: '[]' });
       });
       await short.goto(`${origin}${SCREEN}`);
