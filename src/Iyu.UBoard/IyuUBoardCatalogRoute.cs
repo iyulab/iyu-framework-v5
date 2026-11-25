@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -13,10 +12,7 @@ namespace Iyu.UBoard;
 /// <summary>The source catalog route: <c>GET {prefix}/catalog</c>, what the signed-in caller may build a board from.</summary>
 internal static class IyuUBoardCatalogRoute
 {
-    private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    private static readonly JsonSerializerOptions Wire = IyuUBoardWire.OmittingNulls;
 
     internal static void Map(RouteGroupBuilder group) =>
         group.MapGet("catalog", async (ClaimsPrincipal user, IBoardSourceCatalog catalog, IOptions<IyuUBoardOptions> options, HttpContext http) =>

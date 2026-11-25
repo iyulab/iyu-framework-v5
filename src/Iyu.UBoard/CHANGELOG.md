@@ -6,6 +6,22 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The routes answer in camelCase on every host. They followed the host's HTTP JSON options, so on a host that keeps member names as
+  written (`PropertyNamingPolicy = null`) the access answer, the board list, the revision list and the publication lines came out in
+  PascalCase and the screen, which reads camelCase, showed boards without names and offered no edit to a caller allowed to edit. The
+  module now writes its answers with JSON options of its own.
+
+### Changed
+
+- The screen's board list follows an empty page by itself, up to three in a row, and stops at the first page with boards. A page can
+  come back empty while the store has more to look at when the caller may view none of the boards it examined.
+
+### Documentation
+
+- `UseIyuBoardTables()`: options built elsewhere for the same context (a test seeding the host's in-memory database) need the same call.
+
 ## [0.1.0] - 2026-11-25
 
 ### Added

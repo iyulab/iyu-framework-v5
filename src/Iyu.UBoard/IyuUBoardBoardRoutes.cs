@@ -38,7 +38,7 @@ internal static class IyuUBoardBoardRoutes
         {
             var (listed, next) = await ListVisibleAsync(skip ?? 0, take ?? 100, user, access, service, cancellationToken);
             if (next is { } offset) response.Headers[NextSkipHeader] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return Results.Json(listed);
+            return Results.Json(listed, IyuUBoardWire.Options);
         });
 
         var one = boards.MapGroup("{id}");
@@ -54,17 +54,17 @@ internal static class IyuUBoardBoardRoutes
             {
                 // The id is taken. Whose board it is stays the owner's business: a caller who may not view it learns only that the id is taken.
                 return await access.AllowsAsync(user, BoardAction.View, id, cancellationToken)
-                    ? Results.Json(await EnvelopeAsync(made.Board!, access, user, cancellationToken), statusCode: StatusCodes.Status409Conflict)
+                    ? Results.Json(await EnvelopeAsync(made.Board!, access, user, cancellationToken), IyuUBoardWire.Options, statusCode: StatusCodes.Status409Conflict)
                     : Results.Problem("A board with that id already exists.", statusCode: StatusCodes.Status409Conflict);
             }
 
             await access.CreatedAsync(user, id, cancellationToken);
-            return Results.Json(await EnvelopeAsync(made.Board!, access, user, cancellationToken), statusCode: StatusCodes.Status201Created);
+            return Results.Json(await EnvelopeAsync(made.Board!, access, user, cancellationToken), IyuUBoardWire.Options, statusCode: StatusCodes.Status201Created);
         });
 
         one.MapGet("", async (string id, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.View, cancellationToken)
-            ?? (await service.GetAsync(id, cancellationToken) is { } board ? Results.Json(await EnvelopeAsync(board, access, user, cancellationToken)) : Results.NotFound()));
+            ?? (await service.GetAsync(id, cancellationToken) is { } board ? Results.Json(await EnvelopeAsync(board, access, user, cancellationToken), IyuUBoardWire.Options) : Results.NotFound()));
 
         // A save names the revision it worked from. A session that is behind is told so, with the board as it now stands.
         one.MapPut("", async (string id, int expected, HttpRequest request, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service) =>
@@ -76,15 +76,15 @@ internal static class IyuUBoardBoardRoutes
             var change = await service.SaveAsync(id, document!, expected, Actor(user), cancellationToken);
             return change.Status switch
             {
-                BoardChangeStatus.Done => Results.Json(await EnvelopeAsync(change.Board!, access, user, cancellationToken)),
-                BoardChangeStatus.Conflict => Results.Json(await EnvelopeAsync(change.Board!, access, user, cancellationToken), statusCode: StatusCodes.Status409Conflict),
+                BoardChangeStatus.Done => Results.Json(await EnvelopeAsync(change.Board!, access, user, cancellationToken), IyuUBoardWire.Options),
+                BoardChangeStatus.Conflict => Results.Json(await EnvelopeAsync(change.Board!, access, user, cancellationToken), IyuUBoardWire.Options, statusCode: StatusCodes.Status409Conflict),
                 _ => Results.NotFound(),
             };
         });
 
         one.MapPut("name", async (string id, string name, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.Edit, cancellationToken)
-            ?? (await service.RenameAsync(id, name, cancellationToken) is { Board: { } board } ? Results.Json(await EnvelopeAsync(board, access, user, cancellationToken)) : Results.NotFound()));
+            ?? (await service.RenameAsync(id, name, cancellationToken) is { Board: { } board } ? Results.Json(await EnvelopeAsync(board, access, user, cancellationToken), IyuUBoardWire.Options) : Results.NotFound()));
 
         one.MapDelete("", async (string id, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.Delete, cancellationToken)
@@ -92,7 +92,7 @@ internal static class IyuUBoardBoardRoutes
 
         one.MapGet("revisions", async (string id, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.View, cancellationToken)
-            ?? Results.Json((await service.ListRevisionsAsync(id, cancellationToken)).Select(r => new { r.Revision, r.CreatedAt, r.CreatedBy })));
+            ?? Results.Json((await service.ListRevisionsAsync(id, cancellationToken)).Select(r => new { r.Revision, r.CreatedAt, r.CreatedBy }), IyuUBoardWire.Options));
 
         one.MapGet("revisions/{revision:int}", async (string id, int revision, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.View, cancellationToken)
@@ -103,26 +103,26 @@ internal static class IyuUBoardBoardRoutes
                     ["createdAt"] = found.CreatedAt,
                     ["createdBy"] = found.CreatedBy,
                     ["document"] = JsonNode.Parse(found.Document),
-                })
+                }, IyuUBoardWire.Options)
                 : Results.NotFound()));
 
         one.MapPost("publish", async (string id, int revision, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.Publish, cancellationToken)
-            ?? (await service.PublishAsync(id, revision, Actor(user), cancellationToken) is { } line ? Results.Json(line) : Results.NotFound()));
+            ?? (await service.PublishAsync(id, revision, Actor(user), cancellationToken) is { } line ? Results.Json(line, IyuUBoardWire.Options) : Results.NotFound()));
 
         one.MapPost("withdraw", async (string id, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.Publish, cancellationToken)
-            ?? (await service.WithdrawAsync(id, Actor(user), cancellationToken) is { } line ? Results.Json(line) : Results.NotFound()));
+            ?? (await service.WithdrawAsync(id, Actor(user), cancellationToken) is { } line ? Results.Json(line, IyuUBoardWire.Options) : Results.NotFound()));
 
         one.MapGet("publications", async (string id, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.View, cancellationToken)
-            ?? Results.Json(await service.ListPublicationsAsync(id, cancellationToken)));
+            ?? Results.Json(await service.ListPublicationsAsync(id, cancellationToken), IyuUBoardWire.Options));
 
         // What readers see: the revision the board is publishing. Nothing published is an ordinary answer, not an error.
         one.MapGet("published", async (string id, ClaimsPrincipal user, IBoardAccess access, IyuBoardService service, CancellationToken cancellationToken) =>
             await Gate(access, user, id, BoardAction.View, cancellationToken)
             ?? (await service.GetPublishedAsync(id, cancellationToken) is { } published
-                ? Results.Json(new JsonObject { ["revision"] = published.Revision, ["document"] = JsonNode.Parse(published.Document) })
+                ? Results.Json(new JsonObject { ["revision"] = published.Revision, ["document"] = JsonNode.Parse(published.Document) }, IyuUBoardWire.Options)
                 : Results.NoContent()));
 
         // What a reader falls back through when the publication in force is one its viewer refuses: the revisions published before it,
@@ -133,7 +133,7 @@ internal static class IyuUBoardBoardRoutes
             {
                 ["revision"] = found.Revision,
                 ["document"] = JsonNode.Parse(found.Document),
-            })));
+            }), IyuUBoardWire.Options));
 
         // The assistant's turn: only when the host registered one. With none the route is not there at all.
         if (assistant) IyuUBoardTurnRoute.Map(one);
@@ -152,7 +152,7 @@ internal static class IyuUBoardBoardRoutes
                 Assistant = assistant,
                 Catalog = settings.CatalogEnabled,
                 settings.DataRoot,
-            }));
+            }, IyuUBoardWire.Options));
 
     // The boards from store offset `skip` on that the caller may view, at most `take` of them, and the offset to continue from — null
     // when nothing is left to look at. The offset is that of the first board the caller may view that this page did not take, so a
@@ -237,7 +237,7 @@ internal static class IyuUBoardBoardRoutes
         ["revision"] = board.CurrentRevision,
         ["publishedRevision"] = board.PublishedRevision,
         ["document"] = JsonNode.Parse(board.Document),
-        ["can"] = JsonSerializer.SerializeToNode(await CanAsync(access, user, board.Id, cancellationToken), new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+        ["can"] = JsonSerializer.SerializeToNode(await CanAsync(access, user, board.Id, cancellationToken), IyuUBoardWire.Options),
     };
 
     private static async Task<(string? Document, IResult? Refusal)> ReadDocumentAsync(HttpRequest request)

@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -21,10 +20,7 @@ internal static partial class IyuUBoardTurnRoute
     /// <summary>The most tools a turn may declare.</summary>
     internal const int MaxTools = 32;
 
-    private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    private static readonly JsonSerializerOptions Wire = IyuUBoardWire.OmittingNulls;
 
     [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
     private static partial Regex Identifier();
@@ -87,6 +83,7 @@ internal static partial class IyuUBoardTurnRoute
                 var kind = ex is BoardAssistantException failed ? failed.Kind : BoardAssistantException.Unknown;
                 return Results.Json(
                     new { error = kind },
+                    Wire,
                     statusCode: kind switch
                     {
                         BoardAssistantException.RateLimit => StatusCodes.Status429TooManyRequests,

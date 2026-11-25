@@ -75,7 +75,7 @@ public sealed class BoardRoutesTests
         }
     }
 
-    private static async Task<Host> StartAsync(string? policy = null)
+    private static async Task<Host> StartAsync(string? policy = null, bool pascalCaseHost = false)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -87,6 +87,7 @@ public sealed class BoardRoutesTests
         builder.Services.AddDbContext<UBoardTestDb>(o => o.UseSqlite(connection));
         builder.Services.AddSingleton<IBoardAccess, EveryoneSignedInBoardAccess>();
         builder.Services.AddIyuUBoard<UBoardTestDb, UBoardRow, UBoardRevisionRow, UBoardPublicationRow>(o => o.Policy = policy);
+        if (pascalCaseHost) builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = null);
 
         var app = builder.Build();
         using (var scope = app.Services.CreateScope())
@@ -100,6 +101,38 @@ public sealed class BoardRoutesTests
 
     private static async Task<JsonNode> Read(HttpResponseMessage response) =>
         JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+
+    // The screen that reads these answers ships in the package, so a host that writes its own API in PascalCase must not rename them.
+    [Fact]
+    public async Task The_routes_answer_in_camel_case_on_a_host_whose_json_keeps_member_names_as_written()
+    {
+        await using var host = await StartAsync(pascalCaseHost: true);
+        using var _ = await host.Client.SendAsync(host.Request(HttpMethod.Post, "/sales?name=Sales"));
+
+        static void Names(JsonNode? node, params string[] names)
+        {
+            var obj = Assert.IsType<JsonObject>(node);
+            foreach (var name in names) Assert.True(obj.ContainsKey(name), $"missing '{name}' in {obj.ToJsonString()}");
+            Assert.DoesNotContain(obj, p => char.IsUpper(p.Key[0]));
+        }
+
+        using var publish = await host.SendAsync(HttpMethod.Post, "/sales/publish?revision=1");
+        Names(await Read(publish), "boardId", "sequence", "revision");
+
+        var list = (await Read(await host.SendAsync(HttpMethod.Get, "")))!.AsArray();
+        Names(list[0], "id", "name", "revision", "publishedRevision", "createdBy", "updatedAt", "updatedBy", "can");
+        Names(list[0]!["can"], "edit");
+
+        var revisions = (await Read(await host.SendAsync(HttpMethod.Get, "/sales/revisions"))).AsArray();
+        Names(revisions[0], "revision", "createdAt", "createdBy");
+
+        var publications = (await Read(await host.SendAsync(HttpMethod.Get, "/sales/publications"))).AsArray();
+        Names(publications[0], "boardId", "sequence", "revision");
+
+        var accessRequest = new HttpRequestMessage(HttpMethod.Get, "/uboard/access");
+        accessRequest.Headers.Add("X-Test-User", "ada");
+        Names(await Read(await host.Client.SendAsync(accessRequest)), "create", "assistant", "catalog", "dataRoot");
+    }
 
     [Fact]
     public async Task A_board_is_made_with_201_and_read_back_with_its_document_as_json()

@@ -2609,7 +2609,9 @@ the database or EF makes. The board table is keyed on `Id` (a string).
 **Or use the tables the package ships.** `IyuBoardRow`, `IyuBoardRevisionRow` and `IyuBoardPublicationRow` map to `IyuBoards`,
 `IyuBoardRevisions` and `IyuBoardPublications`. In a context you write, call `modelBuilder.ApplyIyuBoardTables()` from `OnModelCreating`; for a
 generated context nobody edits, add `.UseIyuBoardTables()` to its options (it adds the tables to the model the context builds, and replaces the
-context's model customizer to do so). Then `builder.Services.AddIyuUBoard<AppDbContext>()` needs no row types of your own.
+context's model customizer to do so). Then `builder.Services.AddIyuUBoard<AppDbContext>()` needs no row types of your own. Options built anywhere else
+for the same context — a test that seeds the host's in-memory database through options of its own, say — need the same call: without it
+EF Core builds a second internal service provider, and the two no longer share the in-memory store.
 
 - **A save names the revision it worked from.** A save made on a revision the board has moved past changes nothing and answers
   `Conflict` with the board as it stands. The database decides — of two saves made together on one revision exactly one wins.
