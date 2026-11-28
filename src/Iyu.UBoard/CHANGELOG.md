@@ -6,6 +6,8 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-28
+
 ### Changed
 
 - When the assistant stops before a read because it named a field the entity does not have, the fields it offers instead are the
