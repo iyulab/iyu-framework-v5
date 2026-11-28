@@ -120,8 +120,9 @@ public class VaultAIClient : IVaultAIClient
         CancellationToken ct)
     {
         // content 파트 조립 — 텍스트 + (선택) 이미지. 이미지는 vault-ai wire 계약상
-        // "file" 콘텐츠의 data 블록([{type:"image", mimeType, data(base64)}])으로 실린다
-        // (VaultAI.WebServer VaultFileContent/ImageBlock — 채널 파일업로드 경유 없이 인라인 전달).
+        // "file" 콘텐츠의 blocks 배열([{type:"image", mimeType, data(base64)}])로 실린다
+        // (채널 파일업로드 경유 없이 인라인 전달). 서버는 blocks 외의 이름을 읽지 않는다 —
+        // 다른 이름으로 실린 파일은 업로드 참조로 읽혀 이미지가 모델에 닿지 않는다.
         var content = new List<object> { new { type = "text", text = prompt } };
         foreach (var img in images ?? [])
         {
@@ -132,7 +133,7 @@ public class VaultAIClient : IVaultAIClient
                 fileName = img.FileName ?? "image",
                 contentType = img.MimeType,
                 contentSize = img.Data.LongLength,
-                data = new object[]
+                blocks = new object[]
                 {
                     new { type = "image", mimeType = img.MimeType, data = Convert.ToBase64String(img.Data) },
                 },

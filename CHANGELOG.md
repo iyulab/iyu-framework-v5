@@ -31,6 +31,16 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+**Packages affected:** `Iyu.VaultAI`.
+
+### Fixed
+
+- **An image passed to `GetStructuredMessageAsync` reaches the model again.** The client sent the image's inline content under
+  `data`; the vault-ai server reads it only from `blocks`, so it took the file part for a reference to an upload it did not have and
+  the model saw a note that the attachment had expired instead of the image — and a server that refuses unknown fields answers the
+  call with 400. The content is now sent in `blocks` (`[{ type: "image", mimeType, data }]`, unchanged inside). Nothing changes for a
+  caller: the same call, the same `VaultAIImage`.
+
 ## [0.51.0] - 2026-11-25
 
 **Packages affected:** `Iyu.Data` (a table the database lacks), `Iyu.Data.SqlServer` (error 208), `Iyu.Server.OData`, `Iyu.MainServer`, `Iyu.MainServer.GraphQL`, `Iyu.Server.GraphQL` (a request on a database whose schema was never applied; `where` and `order`), `Iyu.VaultAI` (embed channels; the folder chatbots), `Iyu.UBoard.IronHive` and `Iyu.UBoard.MainServer` (first release), and dependency patch releases in `Iyu.Data.SqlServer` and `Iyu.FileServer.Azure`.
