@@ -13,6 +13,7 @@ All notable changes to this package are documented here. The format follows
   it, or a few edits away — nearest first. It used to offer the entity's first fields whatever the guess was, which on a wide entity
   gave neither the model nor the person anything to go on. When no field is near, it offers none and says the catalog lists the
   entity's fields. A field that exists but is hidden by a read policy is answered as before (fields of the same kind first).
+- The screen is built on `@iyulab/u-board` 0.46.0 (a category axis follows the field's `names`) and `@iyulab/u-board-mcp` 0.31.0.
 
 ## [0.1.1] - 2026-11-26
 
