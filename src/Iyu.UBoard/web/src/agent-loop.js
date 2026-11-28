@@ -270,9 +270,9 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
         step.outcome = 'blocked';
         step.label = 'Stopped before querying';
         step.detail = `${denied.message} Nothing was read or changed.`;
-        turn.failure = { kind: 'permission', field: denied.field, reason: denied.reason, alternatives: denied.alternatives, message: denied.message };
+        turn.failure = { kind: 'permission', field: denied.field, reason: denied.reason, alternatives: denied.alternatives, message: denied.message, ...(denied.hint && { hint: denied.hint }) };
         turn.halted = true;
-        return result({ blocked: 'permission', field: denied.field, message: denied.message, alternatives: denied.alternatives }, true, { halt: true, notAnError: true });
+        return result({ blocked: 'permission', field: denied.field, message: denied.message, alternatives: denied.alternatives, ...(denied.hint && { hint: denied.hint }) }, true, { halt: true, notAnError: true });
       }
       const response = await host(step.call.url);
       if (!response.ok) {
@@ -349,10 +349,10 @@ ${contextBlock(context)}` : userText }; // what the next request carries: the pe
             const denied = problem.permission;
             step.outcome = 'blocked';
             step.detail = `${denied.message} Nothing was changed.`;
-            turn.failure = { kind: 'permission', field: denied.field, reason: denied.reason, alternatives: denied.alternatives, message: denied.message };
+            turn.failure = { kind: 'permission', field: denied.field, reason: denied.reason, alternatives: denied.alternatives, message: denied.message, ...(denied.hint && { hint: denied.hint }) };
             turn.halted = true;
             step.label = 'Stopped before saving';
-            return result({ blocked: 'permission', field: denied.field, message: denied.message, alternatives: denied.alternatives }, true, { halt: true, notAnError: true });
+            return result({ blocked: 'permission', field: denied.field, message: denied.message, alternatives: denied.alternatives, ...(denied.hint && { hint: denied.hint }) }, true, { halt: true, notAnError: true });
           }
           if (problem) {
             step.outcome = 'refused';
@@ -660,7 +660,7 @@ function firstError(text) {
 function composeFailure(failure, startRevision, revision) {
   switch (failure.kind) {
     case 'permission':
-      return `I can't do that: ${failure.message} Nothing was read or changed. ${failure.alternatives.length ? `You can ask me for: ${failure.alternatives.slice(0, 5).join(', ')}.` : ''}`.trim();
+      return `I can't do that: ${failure.message} Nothing was read or changed. ${failure.alternatives.length ? `You can ask me for: ${failure.alternatives.slice(0, 5).join(', ')}.` : failure.hint ?? ''}`.trim();
     case 'rejected':
       return `I couldn't make that edit safely: the board check rejected it at ${failure.path} — ${short(failure.issues[0].message, 160)}. Nothing was saved; the board is still r${revision}. ${failure.suggestion}`;
     case 'conflict':

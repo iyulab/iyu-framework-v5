@@ -239,3 +239,39 @@ test('a board that already exists on the host answers the first save with 409 an
   assert.equal(result.failure.serverRevision, 3);
   assert.match(result.steps.find(s => s.kind === 'board').raw, /^POST \/uboard\/boards\/revenue\?name=Revenue%20overview → 409 Conflict$/);
 });
+
+// ---------------------------------------------------------------- a guessed field: what is offered instead
+
+/** A wide entity whose first fields have nothing to do with what a model tends to guess. */
+const WIDE = {
+  entities: [{
+    name: 'Orders',
+    properties: ['CustomerId', 'ConsumerName', 'ConsumerId', 'ConsumerIdentityKey', 'AgentId', 'CustomerName', 'OrderedAt',
+      'ProductionState', 'PaymentStatus', 'Quantity'].map(name => ({ name, type: 'text', nullable: false, readable: true })),
+    links: [],
+  }],
+};
+const offered = field => permissionProblem(WIDE, { entity: 'Orders', select: [field], top: 5 });
+
+test('a guessed field is answered with the fields whose names are near it, not the first ones of the entity', () => {
+  const status = offered('Status');
+  assert.equal(status.reason, 'absent');
+  assert.deepEqual(status.alternatives.slice(0, 2), ['Orders.PaymentStatus', 'Orders.ProductionState']);
+  assert.ok(!status.alternatives.includes('Orders.CustomerId'));
+
+  const name = offered('EnterpriseName');
+  assert.deepEqual(new Set(name.alternatives.slice(0, 2)), new Set(['Orders.ConsumerName', 'Orders.CustomerName']));
+  assert.ok(!name.alternatives.includes('Orders.AgentId'));
+});
+
+test('a guess near no field offers none and says where the names are', async () => {
+  const problem = offered('M');
+  assert.deepEqual(problem.alternatives, []);
+  assert.match(problem.hint, /catalog/);
+
+  const world = makeWorld({ catalog: WIDE, model: [calls(['query_data', { entity: 'Orders', select: ['M'], top: 10 }])] });
+  const result = await ask(world);
+  assert.equal(result.failure.kind, 'permission');
+  assert.doesNotMatch(result.reply, /You can ask me for/);
+  assert.match(result.reply, /catalog/);
+});

@@ -222,18 +222,71 @@ export function permissionProblem(catalog, query) {
 
 function withAlternatives(problem, catalog) {
   const where = problem.in;
+  const asked = problem.field.split('/').at(-1).split('.').at(-1);
   let alternatives;
-  if (problem.reason === 'entity-absent') alternatives = readableNames(catalog);
-  else {
-    // What the person could use instead: fields of the same kind as the one they asked for first (a number for a number).
-    const wanted = where.properties.find(property => property.name === problem.field.split('/').at(-1).split('.').at(-1));
+  let hint;
+  if (problem.reason === 'entity-absent') {
+    // The data sets are few: all of them, the ones named like the guess first.
+    const names = catalog.entities.filter(entity => entity.readable !== false).map(entity => entity.name);
+    const near = nearNames(asked, names);
+    alternatives = [...near, ...names.filter(name => !near.includes(name))].slice(0, 8);
+  } else {
     const readable = where.properties.filter(property => property.readable !== false);
-    const same = wanted ? readable.filter(property => property.type === wanted.type && property.name !== 'Id') : [];
-    const rest = readable.filter(property => !same.includes(property));
-    alternatives = [...same, ...rest].map(property => `${where.name}.${property.name}`).slice(0, 8);
+    const wanted = where.properties.find(property => property.name === asked);
+    if (wanted) {
+      // A field that exists but is hidden: the ones of the same kind first (a number for a number).
+      const same = readable.filter(property => property.type === wanted.type && property.name !== 'Id');
+      const rest = readable.filter(property => !same.includes(property));
+      alternatives = [...same, ...rest].map(property => `${where.name}.${property.name}`).slice(0, 8);
+    } else {
+      // A guessed name: only the fields whose names are near it — the first fields of a wide entity tell the model nothing.
+      alternatives = nearNames(asked, readable.map(property => property.name)).map(name => `${where.name}.${name}`).slice(0, 8);
+      if (alternatives.length === 0) hint = `No field of ${where.name} has a name near ${asked} — the catalog lists the fields ${where.name} has.`;
+    }
   }
   const why = problem.reason === 'locked' ? 'is hidden by a read policy for your role' : problem.reason === 'absent' ? 'is not a field you can read' : 'is not a data set you can read';
-  return { field: problem.field, reason: problem.reason, alternatives, message: `${problem.field} ${why}.` };
+  return { field: problem.field, reason: problem.reason, alternatives, message: `${problem.field} ${why}.`, ...(hint && { hint }) };
+}
+
+/**
+ * The names near `asked`, nearest first: ones sharing a word of it (`EnterpriseName` → `CustomerName`), a run of at least
+ * three letters covering half of it (`Status` → `ProductionState`), or a few edits away. Case is ignored.
+ */
+function nearNames(asked, names) {
+  const words = splitWords(asked);
+  const lower = asked.toLowerCase();
+  const scored = [];
+  for (const name of names) {
+    const candidate = name.toLowerCase();
+    const run = longestRun(lower, candidate);
+    const byRun = run >= 3 ? run / lower.length : 0;
+    const shared = splitWords(name).filter(word => words.includes(word)).length;
+    const byWord = words.length ? shared / words.length : 0;
+    const distance = editDistance(lower, candidate);
+    const byEdit = distance <= 3 && distance / lower.length <= 0.4 ? 1 - distance / lower.length : 0;
+    const score = Math.max(byRun, byWord, byEdit);
+    if (score >= 0.5) scored.push({ name, score, distance });
+  }
+  return scored
+    .sort((a, b) => b.score - a.score || a.distance - b.distance || a.name.localeCompare(b.name))
+    .map(entry => entry.name);
+}
+
+const splitWords = name => name.split(/(?<=[a-z0-9])(?=[A-Z])|[^A-Za-z0-9]+/).filter(Boolean).map(word => word.toLowerCase());
+
+function longestRun(a, b) {
+  let best = 0;
+  const row = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const keep = row[j];
+      row[j] = a[i - 1] === b[j - 1] ? previous + 1 : 0;
+      if (row[j] > best) best = row[j];
+      previous = keep;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------- what the model is told of the catalog

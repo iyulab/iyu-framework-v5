@@ -6,6 +6,14 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- When the assistant stops before a read because it named a field the entity does not have, the fields it offers instead are the
+  ones whose names are near the guess — sharing a word with it, containing a run of at least three of its letters that covers half of
+  it, or a few edits away — nearest first. It used to offer the entity's first fields whatever the guess was, which on a wide entity
+  gave neither the model nor the person anything to go on. When no field is near, it offers none and says the catalog lists the
+  entity's fields. A field that exists but is hidden by a read policy is answered as before (fields of the same kind first).
+
 ## [0.1.1] - 2026-11-26
 
 ### Fixed
