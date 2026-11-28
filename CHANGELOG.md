@@ -31,6 +31,8 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-11-28
+
 **Packages affected:** `Iyu.VaultAI`, and a dependency update in `Iyu.UBoard.IronHive`.
 
 ### Changed
