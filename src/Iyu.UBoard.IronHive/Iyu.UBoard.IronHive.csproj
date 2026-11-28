@@ -9,9 +9,9 @@
   <ItemGroup>
     <!-- The loop that talks to the model, and the gateway to the model service behind it. Only this adapter carries them: the neutral
          Iyu.UBoard package depends on no model library, so a host that wants another model library writes another adapter. -->
-    <PackageReference Include="IronHive.Agent" Version="0.84.0" />
-    <PackageReference Include="IronProw.Core" Version="0.21.0" />
-    <PackageReference Include="IronProw.IronHive" Version="0.21.0" />
+    <PackageReference Include="IronHive.Agent" Version="0.85.0" />
+    <PackageReference Include="IronProw.Core" Version="0.21.1" />
+    <PackageReference Include="IronProw.IronHive" Version="0.21.1" />
   </ItemGroup>
 
   <ItemGroup>

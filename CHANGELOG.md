@@ -31,7 +31,12 @@ onward; earlier entries state the same consequence in prose where it applies.
 
 ## [Unreleased]
 
-**Packages affected:** `Iyu.VaultAI`.
+**Packages affected:** `Iyu.VaultAI`, and a dependency update in `Iyu.UBoard.IronHive`.
+
+### Changed
+
+- **`Iyu.UBoard.IronHive` depends on `IronHive.Agent` 0.85.0** (a security release of its permission rules and file tools, neither of
+  which this adapter uses) **and `IronProw.Core` · `IronProw.IronHive` 0.21.1.**
 
 ### Fixed
 
